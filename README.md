@@ -19,6 +19,7 @@ This project provides tools to:
 | 2 | Hierarchical Chunking Pipeline | ✅ Complete |
 | 3 | Helix-DB Integration | ✅ Complete |
 | 4 | MCP Server | ✅ Complete |
+| 5 | End-to-End CLI Tool | ✅ Complete |
 
 ## Architecture
 
@@ -46,12 +47,14 @@ Markdown Document
 [Helix-DB Storage] ─────────── Vector + Graph Storage
      |                           ├── MockChunkStore (testing)
      |                           └── HelixChunkStore (production)
-     v
-[MCP Server] ────────────────── Claude Code Integration
-     |                           ├── 10 search/retrieval tools
-     |                           └── 4 resource endpoints
-     v
-Chat with your documents
+     |
+     ├─────────────────────────────────────────────────────────┐
+     v                                                         v
+[MCP Server] ────────────────── Claude Code Integration  [CLI Tool] ── Command Line
+     |                           ├── 10 search/retrieval tools  |        ├── kidkazz ingest
+     |                           └── 4 resource endpoints       |        ├── kidkazz search
+     v                                                         v        ├── kidkazz docs
+Chat with your documents                               Terminal access  └── kidkazz config
 ```
 
 ## Prerequisites
@@ -76,6 +79,7 @@ pip install -e ".[dev]"           # Development (pytest, coverage)
 pip install -e ".[chunker]"       # Chunking + embeddings (fastembed)
 pip install -e ".[helixdb]"       # Helix-DB storage (helix-py)
 pip install -e ".[mcp]"           # MCP server for Claude Code
+pip install -e ".[cli]"           # CLI tool (typer, rich)
 pip install -e ".[all]"           # All dependencies
 ```
 
@@ -177,6 +181,43 @@ kidkazz-mcp
 - `get_parent` / `get_children` / `get_siblings` - Graph traversal
 - `list_documents` / `get_document_chunks` / `get_document_stats` - Document management
 
+### Step 5: Use the CLI Tool (Alternative to MCP)
+
+The CLI tool provides command-line access to all RAG functionality:
+
+```bash
+# Install CLI dependencies
+pip install -e ".[cli]"
+
+# Ingest a markdown document
+kidkazz ingest markdown output/textbook.md --doc-id textbook --title "My Textbook"
+
+# Batch ingest a directory
+kidkazz ingest batch ./docs --pattern "*.md"
+
+# Semantic search
+kidkazz search semantic "What is machine learning?" --top-k 5
+
+# Keyword search
+kidkazz search keyword "neural network" --json
+
+# List documents
+kidkazz docs list
+
+# Get document statistics
+kidkazz docs stats textbook
+
+# Database operations
+kidkazz db status
+kidkazz db init
+
+# View/modify configuration
+kidkazz config show
+kidkazz config set store_type mock
+```
+
+All commands support `--json` for machine-readable output and `--help` for detailed usage.
+
 ## Project Structure
 
 ```text
@@ -204,14 +245,28 @@ kidkazz_rag/
 │   │   ├── queries.py                     # HelixQL query classes
 │   │   ├── mock_store.py                  # In-memory MockChunkStore
 │   │   └── client.py                      # HelixChunkStore client
-│   └── mcp_server/                        # Phase 4: MCP server
+│   ├── mcp_server/                        # Phase 4: MCP server
+│   │   ├── __init__.py                    # Public API
+│   │   ├── config.py                      # Configuration management
+│   │   ├── formatters.py                  # Response formatting
+│   │   ├── tools.py                       # MCP tool implementations
+│   │   ├── resources.py                   # MCP resource implementations
+│   │   ├── server.py                      # FastMCP server setup
+│   │   └── __main__.py                    # Entry point
+│   └── cli/                               # Phase 5: CLI tool
 │       ├── __init__.py                    # Public API
+│       ├── main.py                        # Typer app entry point
 │       ├── config.py                      # Configuration management
-│       ├── formatters.py                  # Response formatting
-│       ├── tools.py                       # MCP tool implementations
-│       ├── resources.py                   # MCP resource implementations
-│       ├── server.py                      # FastMCP server setup
-│       └── __main__.py                    # Entry point
+│       ├── output.py                      # Rich terminal formatting
+│       ├── progress.py                    # Progress indicators
+│       ├── utils.py                       # Utility functions
+│       └── commands/                      # Command implementations
+│           ├── __init__.py
+│           ├── ingest.py                  # ingest markdown/batch/pdf
+│           ├── search.py                  # search semantic/keyword
+│           ├── docs.py                    # docs list/stats/export/delete
+│           ├── db.py                      # db init/status/clear
+│           └── config_cmd.py              # config show/set/reset/init
 ├── tests/
 │   ├── conftest.py                        # Shared fixtures
 │   ├── test_analyzer.py                   # Phase 1 tests
@@ -231,12 +286,19 @@ kidkazz_rag/
 │   ├── test_mcp_tools.py
 │   ├── test_mcp_resources.py
 │   ├── test_mcp_server.py
-│   └── test_mcp_integration.py
+│   ├── test_mcp_integration.py
+│   ├── test_cli_config.py                 # Phase 5 tests
+│   ├── test_cli_utils.py
+│   ├── test_cli_output.py
+│   ├── test_cli_progress.py
+│   ├── test_cli_commands.py
+│   └── test_cli_integration.py
 └── docs/
     ├── design/
     │   ├── PLAN_PHASE2.md                 # Phase 2 design document
     │   ├── PLAN_PHASE3.md                 # Phase 3 design document
-    │   └── PLAN_PHASE4.md                 # Phase 4 design document
+    │   ├── PLAN_PHASE4.md                 # Phase 4 design document
+    │   └── PLAN_PHASE5.md                 # Phase 5 design document
     └── testing/
         └── UNIT_TEST.md                   # Testing guide
 ```
@@ -369,6 +431,129 @@ Add to your `.mcp.json`:
 }
 ```
 
+## CLI Tool Details
+
+The CLI tool (`kidkazz`) provides command-line access to all RAG functionality with rich terminal output.
+
+### Command Groups
+
+| Command | Subcommands | Description |
+|---------|-------------|-------------|
+| `kidkazz ingest` | markdown, batch, pdf | Ingest documents into knowledge base |
+| `kidkazz search` | semantic, keyword | Search the knowledge base |
+| `kidkazz docs` | list, stats, export, delete | Manage documents |
+| `kidkazz db` | init, status, clear | Database operations |
+| `kidkazz config` | show, set, reset, init | Configuration management |
+
+### Ingest Commands
+
+```bash
+# Ingest a single markdown file
+kidkazz ingest markdown document.md --doc-id my_doc --title "My Document"
+
+# Preview without ingesting
+kidkazz ingest markdown document.md --dry-run
+
+# Custom chunk sizes (level1,level2,overlap)
+kidkazz ingest markdown document.md --chunk-sizes 1024,256,128
+
+# Batch ingest a directory
+kidkazz ingest batch ./docs --pattern "*.md" --recursive
+
+# PDF ingestion (redirects to Colab notebook)
+kidkazz ingest pdf document.pdf
+```
+
+### Search Commands
+
+```bash
+# Semantic search (vector similarity)
+kidkazz search semantic "What is machine learning?" --top-k 5
+
+# Filter by document, level, or type
+kidkazz search semantic "neural networks" --doc-id textbook --level 2
+
+# Keyword search
+kidkazz search keyword "supervised learning" --case-sensitive
+
+# JSON output for scripting
+kidkazz search semantic "example" --json
+```
+
+### Document Management
+
+```bash
+# List all documents
+kidkazz docs list --json
+
+# Get document statistics
+kidkazz docs stats textbook
+
+# Export document chunks
+kidkazz docs export textbook --format json --output chunks.json
+
+# Delete a document
+kidkazz docs delete textbook --force
+```
+
+### Database Operations
+
+```bash
+# Initialize database
+kidkazz db init
+
+# Check database status
+kidkazz db status --json
+
+# Clear all data
+kidkazz db clear --force
+```
+
+### Configuration
+
+The CLI uses a layered configuration system:
+
+1. **CLI arguments** (highest priority)
+2. **Environment variables** (`KIDKAZZ_*`)
+3. **Project config** (`.kidkazz.toml` in current directory)
+4. **User config** (`~/.config/kidkazz/config.toml`)
+5. **Defaults** (lowest priority)
+
+```bash
+# Show current configuration
+kidkazz config show
+
+# Set a configuration value
+kidkazz config set store_type helix
+kidkazz config set helix_port 6969
+
+# Reset to defaults
+kidkazz config reset
+
+# Create project config file
+kidkazz config init
+```
+
+### Configuration File Format
+
+`.kidkazz.toml`:
+
+```toml
+[storage]
+store_type = "mock"       # mock or helix
+helix_port = 6969
+helix_local = true
+
+[embedder]
+embedder_type = "fastembed"  # mock or fastembed
+model_name = "BAAI/bge-small-en-v1.5"
+
+[chunking]
+level_1_size = 2048
+level_2_size = 512
+overlap = 256
+```
+
 ## Tool Selection Guide
 
 | Your PDF Has | Recommended Tool |
@@ -388,13 +573,14 @@ python -m pytest tests/ -v
 python -m pytest tests/ --cov=src --cov-report=term-missing
 
 # Run specific phase
-python -m pytest tests/test_parser.py tests/test_chunker.py -v  # Phase 2
 python -m pytest tests/test_analyzer.py tests/test_converter.py -v  # Phase 1
-python -m pytest tests/test_storage_*.py -v  # Phase 3
-python -m pytest tests/test_mcp_*.py -v      # Phase 4
+python -m pytest tests/test_parser.py tests/test_chunker.py -v      # Phase 2
+python -m pytest tests/test_storage_*.py -v                         # Phase 3
+python -m pytest tests/test_mcp_*.py -v                             # Phase 4
+python -m pytest tests/test_cli_*.py -v                             # Phase 5
 ```
 
-**Current Coverage:** 433 tests
+**Current Coverage:** 557 tests (547 passed, 10 skipped)
 
 ## Troubleshooting
 
@@ -433,13 +619,23 @@ python -m pytest tests/test_mcp_*.py -v      # Phase 4
 | Slow startup | First query loads embedder; subsequent queries are faster |
 | Claude Code not connecting | Verify `.mcp.json` path and Python environment |
 
+### CLI Tool
+
+| Issue | Solution |
+|-------|----------|
+| CLI dependencies not installed | `pip install 'kidkazz-rag[cli]'` or `pip install typer rich` |
+| Command not found | Ensure `pip install -e ".[cli]"` was run |
+| Config file not found | Run `kidkazz config init` to create `.kidkazz.toml` |
+| Invalid chunk sizes | Use format `level1,level2,overlap` (e.g., `2048,512,256`) |
+| No JSON output | Add `--json` flag to command |
+
 ## Roadmap
 
 - [x] Phase 1: PDF to Markdown converter (Colab notebook)
 - [x] Phase 2: Hierarchical chunking pipeline
 - [x] Phase 3: Helix-DB integration (vector + graph storage)
 - [x] Phase 4: MCP server for Claude Code
-- [ ] Phase 5: End-to-end CLI tool
+- [x] Phase 5: End-to-end CLI tool
 
 ## Documentation
 
@@ -447,6 +643,7 @@ python -m pytest tests/test_mcp_*.py -v      # Phase 4
 - [Phase 2 Design](docs/design/PLAN_PHASE2.md) - Chunking pipeline architecture
 - [Phase 3 Design](docs/design/PLAN_PHASE3.md) - Helix-DB storage integration
 - [Phase 4 Design](docs/design/PLAN_PHASE4.md) - MCP server implementation
+- [Phase 5 Design](docs/design/PLAN_PHASE5.md) - CLI tool implementation
 
 ## Contributing
 

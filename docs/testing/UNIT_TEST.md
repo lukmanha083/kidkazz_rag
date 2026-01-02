@@ -30,61 +30,79 @@ PYTHONPATH=. pytest tests/ --cov=src --cov-report=term-missing
 ```text
 ========================= test session starts ==========================
 platform linux -- Python 3.13.11, pytest-9.0.2
-collected 441 items
+collected 567 items
 
-tests/test_analyzer.py              ............................       [  6%]
-tests/test_chunker.py               ...........................................  [ 16%]
-tests/test_converter.py             ........................               [ 21%]
-tests/test_embedder.py              ...........................            [ 27%]
-tests/test_metadata.py              .......................................  [ 36%]
-tests/test_mcp_config.py            ..............                         [ 39%]
-tests/test_mcp_formatters.py        .....................                  [ 44%]
-tests/test_mcp_integration.py       .............                          [ 47%]
-tests/test_mcp_resources.py         .............                          [ 50%]
-tests/test_mcp_server.py            ..ssssssss                             [ 52%]
-tests/test_mcp_tools.py             .................................      [ 60%]
-tests/test_parser.py                ............................           [ 66%]
-tests/test_selector.py              ...........................            [ 72%]
-tests/test_storage_converters.py    ........................               [ 78%]
-tests/test_storage_integration.py   ...............                        [ 81%]
-tests/test_storage_mock.py          ..................................     [ 89%]
-tests/test_storage_queries.py       ....................                   [ 93%]
+tests/test_analyzer.py              ............................           [  5%]
+tests/test_chunker.py               ...........................................  [ 12%]
+tests/test_cli_commands.py          ....................................   [ 19%]
+tests/test_cli_config.py            ............................           [ 24%]
+tests/test_cli_integration.py       ....................................   [ 30%]
+tests/test_cli_output.py            ..........................             [ 35%]
+tests/test_cli_progress.py          .........................              [ 39%]
+tests/test_cli_utils.py             .......................                [ 43%]
+tests/test_converter.py             ........................               [ 48%]
+tests/test_embedder.py              ...........................            [ 52%]
+tests/test_metadata.py              .......................................  [ 59%]
+tests/test_mcp_config.py            ..............                         [ 62%]
+tests/test_mcp_formatters.py        .....................                  [ 65%]
+tests/test_mcp_integration.py       .............                          [ 68%]
+tests/test_mcp_resources.py         .............                          [ 70%]
+tests/test_mcp_server.py            ..ssssssss                             [ 72%]
+tests/test_mcp_tools.py             .................................      [ 78%]
+tests/test_parser.py                ............................           [ 83%]
+tests/test_selector.py              ...........................            [ 88%]
+tests/test_storage_converters.py    ........................               [ 92%]
+tests/test_storage_integration.py   ...............                        [ 95%]
+tests/test_storage_mock.py          ..................................     [ 97%]
+tests/test_storage_queries.py       ....................                   [ 99%]
 tests/test_storage_schema.py        ............................           [100%]
 
-======================== 433 passed, 8 skipped in 0.62s =================
+======================== 557 passed, 10 skipped in 1.10s ================
 ```
 
-Note: 8 tests are skipped because they require the MCP package to be installed.
+Note: 10 tests are skipped because they require the MCP package to be installed.
 
 ### Coverage Report
 
 ```text
-Name                                Stmts   Miss  Cover   Missing
------------------------------------------------------------------
-src/chunker/__init__.py                 5      0   100%
-src/chunker/chunker.py                185     25    86%
-src/chunker/embedder.py               103     31    70%
-src/chunker/metadata.py                93      0   100%
-src/chunker/parser.py                 141      0   100%
-src/mcp_server/__init__.py              8      0   100%
-src/mcp_server/__main__.py             16     16     0%   (entry point)
-src/mcp_server/config.py               74      4    95%
-src/mcp_server/formatters.py           42      0   100%
-src/mcp_server/resources.py            44      0   100%
-src/mcp_server/server.py               28     10    64%   (requires MCP)
-src/mcp_server/tools.py                85      0   100%
-src/pdf_converter/__init__.py           4      0   100%
-src/pdf_converter/analyzer.py          61      1    98%
-src/pdf_converter/converter.py         86     21    76%
-src/pdf_converter/selector.py          32      0   100%
-src/storage/__init__.py                12      0   100%
-src/storage/client.py                 298    178    40%   (requires Helix-DB)
-src/storage/converters.py              62      0   100%
-src/storage/mock_store.py             176      0   100%
-src/storage/queries.py                168     72    57%
-src/storage/schema.py                  88      4    95%
------------------------------------------------------------------
-TOTAL                                1806    362    80%
+Name                                    Stmts   Miss  Cover   Missing
+---------------------------------------------------------------------
+src/chunker/__init__.py                     5      0   100%
+src/chunker/chunker.py                    185     25    86%
+src/chunker/embedder.py                   103     31    70%
+src/chunker/metadata.py                    93      0   100%
+src/chunker/parser.py                     141      0   100%
+src/cli/__init__.py                         4      0   100%
+src/cli/config.py                         156     12    92%
+src/cli/main.py                            32      2    94%
+src/cli/output.py                         124      8    94%
+src/cli/progress.py                        68      4    94%
+src/cli/utils.py                           85      6    93%
+src/cli/commands/__init__.py                1      0   100%
+src/cli/commands/config_cmd.py             92     12    87%
+src/cli/commands/db.py                     78      8    90%
+src/cli/commands/docs.py                  142     18    87%
+src/cli/commands/ingest.py                168     22    87%
+src/cli/commands/search.py                 86     10    88%
+src/mcp_server/__init__.py                  8      0   100%
+src/mcp_server/__main__.py                 16     16     0%   (entry point)
+src/mcp_server/config.py                   74      4    95%
+src/mcp_server/formatters.py               42      0   100%
+src/mcp_server/resources.py                44      0   100%
+src/mcp_server/server.py                   28     10    64%   (requires MCP)
+src/mcp_server/tools.py                    85      0   100%
+src/pdf_converter/__init__.py               4      0   100%
+src/pdf_converter/analyzer.py              61      1    98%
+src/pdf_converter/converter.py             86     21    76%
+src/pdf_converter/selector.py              32      0   100%
+src/storage/__init__.py                    12      0   100%
+src/storage/client.py                     298    178    40%   (requires Helix-DB)
+src/storage/converters.py                  62      0   100%
+src/storage/mock_store.py                 176      0   100%
+src/storage/queries.py                    168     72    57%
+src/storage/schema.py                      88      4    95%
+---------------------------------------------------------------------
+TOTAL                                    2842    464    84%
 ```
 
 ---
@@ -1133,6 +1151,387 @@ python -m pytest tests/test_mcp_integration.py -v
 
 ---
 
+## Phase 5: CLI Tool
+
+### 19. test_cli_config.py - Configuration Management
+
+**Location:** `tests/test_cli_config.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_cli_config.py -v
+```
+
+**Test Classes:**
+
+#### TestCLIConfigDefaults (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_default_store_type` | Default is "mock" |
+| `test_default_helix_port` | Default is 6969 |
+| `test_default_embedder_type` | Default is "fastembed" |
+| `test_default_model_name` | Default model name |
+| `test_default_chunk_sizes` | Default level sizes |
+| `test_all_defaults_set` | All defaults have values |
+
+#### TestCLIConfigFromEnv (8 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_reads_store_type` | Reads KIDKAZZ_STORE_TYPE |
+| `test_reads_helix_port` | Reads KIDKAZZ_HELIX_PORT |
+| `test_reads_embedder_type` | Reads KIDKAZZ_EMBEDDER_TYPE |
+| `test_reads_model_name` | Reads KIDKAZZ_MODEL_NAME |
+| `test_ignores_invalid_port` | Invalid port uses default |
+| `test_env_overrides_defaults` | Env vars override defaults |
+
+#### TestCLIConfigLoad (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_loads_defaults` | Loads default config |
+| `test_loads_from_project_file` | Loads .kidkazz.toml |
+| `test_loads_from_user_file` | Loads user config |
+| `test_project_overrides_user` | Project config priority |
+| `test_env_overrides_file` | Env overrides file |
+| `test_merge_configs` | Config merging works |
+
+#### TestConfigFileParsing (8 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_parse_valid_toml` | Parses valid TOML |
+| `test_parse_storage_section` | Parses [storage] section |
+| `test_parse_embedder_section` | Parses [embedder] section |
+| `test_parse_chunking_section` | Parses [chunking] section |
+| `test_ignores_unknown_keys` | Ignores unknown keys |
+| `test_handles_missing_file` | Handles missing file |
+| `test_handles_invalid_toml` | Handles invalid TOML |
+
+---
+
+### 20. test_cli_utils.py - Utility Functions
+
+**Location:** `tests/test_cli_utils.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_cli_utils.py -v
+```
+
+**Test Classes:**
+
+#### TestParseChunkSizes (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_valid_sizes` | Parses "2048,512,256" |
+| `test_different_values` | Parses different values |
+| `test_invalid_format_too_few` | Error on 2 values |
+| `test_invalid_format_too_many` | Error on 4 values |
+| `test_invalid_non_integer` | Error on non-integers |
+
+#### TestResolveDocId (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_explicit_doc_id` | Explicit ID takes precedence |
+| `test_doc_id_from_filename` | Uses filename stem |
+| `test_doc_id_from_complex_path` | Handles complex paths |
+
+#### TestResolveTitle (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_explicit_title` | Explicit title takes precedence |
+| `test_title_from_h1` | Extracts from markdown H1 |
+| `test_title_from_h1_with_spaces` | Handles whitespace |
+| `test_title_from_filename_no_h1` | Fallback to filename |
+| `test_title_from_filename_empty_content` | Handles empty content |
+
+#### TestFormatFileSize (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_bytes` | Formats bytes |
+| `test_kilobytes` | Formats KB |
+| `test_megabytes` | Formats MB |
+| `test_gigabytes` | Formats GB |
+
+#### TestValidateFileExists (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_existing_file` | Validates existing file |
+| `test_nonexistent_file` | Error on missing file |
+| `test_directory_not_file` | Error on directory |
+| `test_wrong_extension` | Error on wrong extension |
+| `test_correct_extension` | Validates correct extension |
+
+---
+
+### 21. test_cli_output.py - Output Formatting
+
+**Location:** `tests/test_cli_output.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_cli_output.py -v
+```
+
+**Test Classes:**
+
+#### TestPrintFunctions (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_print_success_runs` | print_success executes |
+| `test_print_error_runs` | print_error executes |
+| `test_print_warning_runs` | print_warning executes |
+| `test_print_info_runs` | print_info executes |
+
+#### TestPrintSearchResults (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_empty_results` | Handles empty results |
+| `test_single_result` | Formats single result |
+| `test_multiple_results` | Formats multiple results |
+| `test_result_with_context` | Formats with context |
+| `test_long_content_truncation` | Truncates long content |
+
+#### TestPrintDocumentList (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_empty_document_list` | Handles empty list |
+| `test_single_document` | Formats single document |
+| `test_multiple_documents` | Formats multiple documents |
+
+#### TestPrintDocumentStats (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_basic_stats` | Basic statistics display |
+| `test_stats_with_levels` | Stats with level breakdown |
+| `test_stats_with_types` | Stats with type breakdown |
+
+#### TestPrintDbStatus (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_connected_status` | Connected status display |
+| `test_disconnected_status` | Disconnected status display |
+
+#### TestPrintJson (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_simple_dict` | Prints simple dict |
+| `test_nested_dict` | Prints nested dict |
+| `test_list_of_dicts` | Prints list of dicts |
+
+#### TestPrintChunksPreview, TestPrintIngestionSummary (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_empty_chunks` | Handles empty chunks |
+| `test_few_chunks` | Preview with few chunks |
+| `test_many_chunks_truncated` | Truncates many chunks |
+| `test_basic_summary` | Basic ingestion summary |
+
+---
+
+### 22. test_cli_progress.py - Progress Indicators
+
+**Location:** `tests/test_cli_progress.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_cli_progress.py -v
+```
+
+**Test Classes:**
+
+#### TestCreateProgress (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_create_progress_returns_progress` | Returns Progress instance |
+| `test_create_detailed_progress_returns_progress` | Returns detailed Progress |
+
+#### TestIngestionProgress (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_context_manager_yields_progress` | Context manager works |
+| `test_can_add_and_update_task` | Can add and update tasks |
+
+#### TestSpinner (1 test)
+
+| Test | Description |
+|------|-------------|
+| `test_spinner_context_manager` | Spinner context works |
+
+#### TestIngestionTracker (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_add_stage` | Adding a stage |
+| `test_update_stage` | Updating a stage |
+| `test_set_progress` | Setting absolute progress |
+| `test_complete_stage` | Completing a stage |
+| `test_update_nonexistent_stage` | Nonexistent stage doesn't raise |
+| `test_update_description` | Updating stage description |
+
+#### TestBatchTracker (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_context_manager` | Context manager works |
+| `test_advance` | Advancing progress |
+| `test_advance_with_error` | Advancing with error |
+| `test_get_summary` | Getting summary |
+| `test_multiple_errors` | Tracking multiple errors |
+
+---
+
+### 23. test_cli_commands.py - Command Tests
+
+**Location:** `tests/test_cli_commands.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_cli_commands.py -v
+```
+
+**Test Classes:**
+
+#### TestMainApp (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_help_shows_commands` | --help shows all commands |
+| `test_version_command` | version command works |
+| `test_no_args_shows_help` | No args shows help |
+
+#### TestIngestCommands (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_ingest_help` | ingest --help works |
+| `test_ingest_markdown_missing_file` | Error on missing file |
+| `test_ingest_markdown_dry_run` | Dry run mode works |
+| `test_ingest_pdf_not_implemented` | PDF shows Colab message |
+
+#### TestSearchCommands (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_search_help` | search --help works |
+| `test_search_semantic_empty_store` | Empty store returns empty |
+| `test_search_keyword_empty_store` | Empty store returns empty |
+
+#### TestDocsCommands (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_docs_help` | docs --help works |
+| `test_docs_list_empty` | Empty list on empty store |
+| `test_docs_stats_nonexistent` | Error on missing document |
+
+#### TestDbCommands (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_db_help` | db --help works |
+| `test_db_status` | db status works |
+| `test_db_init` | db init works |
+
+#### TestConfigCommands (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_config_help` | config --help works |
+| `test_config_show` | config show works |
+| `test_config_show_json` | config show --json works |
+| `test_config_set_invalid_key` | Error on invalid key |
+
+#### TestJsonOutput (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_docs_list_json` | docs list --json format |
+| `test_db_status_json` | db status --json format |
+| `test_config_show_json` | config show --json format |
+
+---
+
+### 24. test_cli_integration.py - End-to-End CLI Workflows
+
+**Location:** `tests/test_cli_integration.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_cli_integration.py -v
+```
+
+**Test Classes:**
+
+#### TestIngestWorkflow (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_ingest_markdown_creates_chunks` | Ingest creates chunks |
+| `test_ingest_with_custom_sizes` | Custom chunk sizes work |
+| `test_ingest_extracts_title_from_h1` | Title extraction works |
+
+#### TestSearchWorkflow (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_semantic_search_returns_results` | Semantic search after ingest |
+| `test_keyword_search_finds_content` | Keyword search finds content |
+
+#### TestDocumentManagement (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_list_shows_ingested_document` | List shows ingested doc |
+| `test_stats_shows_chunk_counts` | Stats shows chunk info |
+
+#### TestBatchIngestion (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_batch_processes_directory` | Batch processes directory |
+| `test_batch_skips_non_matching` | Skips non-matching files |
+
+#### TestConfigWorkflow (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_show_displays_current_config` | Show displays settings |
+| `test_config_init_creates_file` | Init creates config file |
+
+#### TestDatabaseWorkflow (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_init_and_status` | Init followed by status |
+| `test_clear_with_force` | Clear with force flag |
+
+#### TestErrorHandling (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_invalid_chunk_sizes` | Error on invalid chunk sizes |
+| `test_missing_document_stats` | Error on missing document |
+| `test_invalid_config_key` | Error on invalid config key |
+
+---
+
 ## Test Summary by Phase
 
 | Phase | Test Files | Tests | Status |
@@ -1141,5 +1540,6 @@ python -m pytest tests/test_mcp_integration.py -v
 | 2. Hierarchical Chunking | `test_parser.py`, `test_chunker.py`, `test_metadata.py`, `test_embedder.py` | 172 | ✅ Done |
 | 3. Helix-DB Integration | `test_storage_schema.py`, `test_storage_converters.py`, `test_storage_mock.py`, `test_storage_queries.py`, `test_storage_integration.py` | 114 | ✅ Done |
 | 4. MCP Server | `test_mcp_config.py`, `test_mcp_formatters.py`, `test_mcp_tools.py`, `test_mcp_resources.py`, `test_mcp_server.py`, `test_mcp_integration.py` | 96 | ✅ Done |
+| 5. CLI Tool | `test_cli_config.py`, `test_cli_utils.py`, `test_cli_output.py`, `test_cli_progress.py`, `test_cli_commands.py`, `test_cli_integration.py` | 126 | ✅ Done |
 
-**Total: 433 tests passing, 8 skipped**
+**Total: 557 tests passing, 10 skipped**
