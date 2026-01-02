@@ -244,12 +244,13 @@ class MockChunkStore:
         results.sort(key=lambda x: x[1], reverse=True)
         results = results[:top_k]
 
-        # Reconstruct EmbeddedChunks
-        return [
-            (self._reconstruct_embedded_chunk(chunk_id), score)
-            for chunk_id, score in results
-            if self._reconstruct_embedded_chunk(chunk_id) is not None
-        ]
+        # Reconstruct EmbeddedChunks (reconstruct once per chunk)
+        output: list[tuple[EmbeddedChunk, float]] = []
+        for chunk_id, score in results:
+            ec = self._reconstruct_embedded_chunk(chunk_id)
+            if ec is not None:
+                output.append((ec, score))
+        return output
 
     def search_keyword(
         self,
