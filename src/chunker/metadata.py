@@ -309,7 +309,7 @@ def filter_chunks_by_type(
     """
     return [
         chunk
-        for chunk, meta in zip(chunks, metadata_list)
+        for chunk, meta in zip(chunks, metadata_list, strict=True)
         if meta.semantic_type == semantic_type
     ]
 
@@ -333,6 +333,6 @@ def filter_chunks_by_topic(
     topic_lower = topic.lower()
     return [
         chunk
-        for chunk, meta in zip(chunks, metadata_list)
+        for chunk, meta in zip(chunks, metadata_list, strict=True)
         if topic_lower in [t.lower() for t in meta.topic_tags]
     ]

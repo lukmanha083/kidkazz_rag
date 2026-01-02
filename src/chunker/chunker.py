@@ -209,8 +209,8 @@ def create_hierarchical_chunks(
                     )
                     chunks.append(chunk)
                     parent_chunk.child_ids.append(chunk.id)
-                # Remove block from content to process rest
-                section_content = section_content.replace(block.content, "")
+                # Remove block from content to process rest (first occurrence only)
+                section_content = section_content.replace(block.content, "", 1)
 
         # Split remaining content
         remaining_content = section_content.strip()
@@ -244,7 +244,7 @@ def create_hierarchical_chunks(
     ) -> list[Chunk]:
         """Process a section and its children recursively."""
         chunks: list[Chunk] = []
-        current_path = path + [section.heading] if section.heading else path
+        current_path = [*path, section.heading] if section.heading else path
 
         # Get full content of this section (including children)
         full_content = section.full_content
