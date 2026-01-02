@@ -46,7 +46,8 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         Returns:
             List of matching chunks with content, metadata, and similarity scores
         """
-        logger.info(f"search_semantic: query='{query[:50]}...', top_k={top_k}")
+        query_preview = query[:50] + "..." if len(query) > 50 else query
+        logger.info(f"search_semantic: query='{query_preview}', top_k={top_k}")
 
         # Generate query embedding server-side
         query_embedding = state.embedder.embed_text(query)

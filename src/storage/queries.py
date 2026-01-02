@@ -342,6 +342,7 @@ class SearchKeyword(_get_query_base_class()):
         self,
         keyword: str,
         doc_id: Optional[str] = None,
+        case_sensitive: bool = False,
     ) -> None:
         """
         Initialize SearchKeyword query.
@@ -349,10 +350,12 @@ class SearchKeyword(_get_query_base_class()):
         Args:
             keyword: Search term
             doc_id: Filter by document (optional)
+            case_sensitive: Whether search is case-sensitive (default: False)
         """
         super().__init__()
         self.keyword = keyword
         self.doc_id = doc_id
+        self.case_sensitive = case_sensitive
 
     def query(self) -> list[dict[str, Any]]:
         """Return query payload for keyword search."""
@@ -366,6 +369,7 @@ class SearchKeyword(_get_query_base_class()):
             "node_type": "Chunk",
             "field": "content",
             "filters": filters,
+            "case_sensitive": self.case_sensitive,
         }]
 
     def response(self, response: Any) -> QueryResult:

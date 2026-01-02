@@ -154,11 +154,15 @@ class TestSearchSemantic:
         assert isinstance(results, list)
 
     def test_search_returns_scores(self, registered_tools):
-        """Test search results include similarity scores."""
+        """Test search results include similarity scores when results exist."""
         search = registered_tools["search_semantic"]
-        results = search(query="machine learning", top_k=5)
-        if results:
+        # Use content from test data for better match with mock embeddings
+        results = search(query="Parent section content", top_k=5)
+        assert isinstance(results, list)
+        # With mock embeddings, results may vary - check structure if present
+        if len(results) > 0:
             assert "similarity_score" in results[0]
+            assert isinstance(results[0]["similarity_score"], float)
 
 
 class TestSearchKeyword:
@@ -318,11 +322,12 @@ class TestListDocuments:
         """Test document entries have required fields."""
         list_docs = registered_tools["list_documents"]
         results = list_docs()
-        if results:
-            doc = results[0]
-            assert "doc_id" in doc
-            assert "title" in doc
-            assert "chunk_count" in doc
+        assert isinstance(results, list)
+        assert len(results) > 0, "Expected non-empty document list"
+        doc = results[0]
+        assert "doc_id" in doc
+        assert "title" in doc
+        assert "chunk_count" in doc
 
 
 class TestGetDocumentChunks:
