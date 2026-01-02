@@ -158,6 +158,7 @@ class TestGetChunk:
         result = query.response(None)
 
         assert result.success is False
+        assert result.error is not None
         assert "not found" in result.error.lower()
 
 
@@ -201,7 +202,7 @@ class TestSearchSimilarChunks:
         )
         payload = query.query()
 
-        assert payload[0]["filters"]["document_id"] == "doc_1"
+        assert payload[0]["filters"]["doc_id"] == "doc_1"
         assert payload[0]["filters"]["level"] == 2
         assert payload[0]["filters"]["semantic_type"] == "definition"
         assert payload[0]["threshold"] == 0.5
@@ -233,7 +234,7 @@ class TestSearchKeyword:
         query = SearchKeyword("test", doc_id="doc_1")
         payload = query.query()
 
-        assert payload[0]["filters"]["document_id"] == "doc_1"
+        assert payload[0]["filters"]["doc_id"] == "doc_1"
 
 
 class TestGetDocumentChunks:

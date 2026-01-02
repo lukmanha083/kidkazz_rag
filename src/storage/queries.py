@@ -314,7 +314,7 @@ class SearchSimilarChunks(_get_query_base_class()):
         """Return query payload for vector search."""
         filters: dict[str, Any] = {}
         if self.doc_id:
-            filters["document_id"] = self.doc_id
+            filters["doc_id"] = self.doc_id
         if self.level is not None:
             filters["level"] = self.level
         if self.semantic_type:
@@ -358,7 +358,7 @@ class SearchKeyword(_get_query_base_class()):
         """Return query payload for keyword search."""
         filters: dict[str, Any] = {}
         if self.doc_id:
-            filters["document_id"] = self.doc_id
+            filters["doc_id"] = self.doc_id
 
         return [{
             "operation": "keyword_search",
@@ -395,7 +395,7 @@ class GetDocumentChunks(_get_query_base_class()):
 
     def query(self) -> list[dict[str, Any]]:
         """Return query payload for getting document chunks."""
-        filters: dict[str, Any] = {"document_id": self.doc_id}
+        filters: dict[str, Any] = {"doc_id": self.doc_id}
         if self.level is not None:
             filters["level"] = self.level
 

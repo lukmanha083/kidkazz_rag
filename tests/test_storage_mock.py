@@ -106,6 +106,7 @@ class TestMockChunkStoreBasic:
 
         assert mock_store._documents == {}
         assert mock_store._chunks == {}
+        assert mock_store._embeddings == {}
 
 
 class TestStoreDocument:
@@ -340,10 +341,14 @@ class TestSearchKeyword:
         """Should support case-sensitive search."""
         mock_store.store_document("doc1", "Title", sample_embedded_chunks, sample_metadata)
 
+        # Sample data has "First" (capitalized), searching "first" case-sensitively
+        # should return no results
         results = mock_store.search_keyword("first", case_sensitive=True)
+        assert len(results) == 0
 
-        # "First" should not match "first" in case-sensitive mode
-        assert all("first" in ec.chunk.content for ec in results)
+        # Searching with correct case should find results
+        results_correct_case = mock_store.search_keyword("First", case_sensitive=True)
+        assert len(results_correct_case) >= 1
 
 
 class TestGraphTraversal:

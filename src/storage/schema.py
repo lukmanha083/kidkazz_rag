@@ -146,14 +146,12 @@ def create_kidkazz_schema(config: Optional[SchemaConfig] = None) -> Any:
 
 
 def initialize_schema(
-    db_path: Optional[str] = None,
     config: Optional[SchemaConfig] = None,
 ) -> bool:
     """
     Initialize schema in a Helix-DB instance.
 
     Args:
-        db_path: Path to Helix-DB data directory
         config: Optional schema configuration
 
     Returns:
