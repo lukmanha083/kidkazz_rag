@@ -1,4 +1,4 @@
-# KidKazz RAG
+# Kidkazz RAG
 
 A RAG (Retrieval-Augmented Generation) system for converting PDF textbooks to searchable knowledge bases.
 
