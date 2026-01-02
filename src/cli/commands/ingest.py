@@ -23,6 +23,7 @@ from ..utils import (
     resolve_doc_id,
     resolve_title,
 )
+from src.chunker import create_hierarchical_chunks, enrich_all_chunks
 
 app = typer.Typer(help="Document ingestion commands")
 
@@ -106,8 +107,6 @@ def ingest_markdown(
 
     if dry_run:
         # Just show what would be created
-        from src.chunker import create_hierarchical_chunks
-
         chunks = create_hierarchical_chunks(
             content,
             doc_id=final_doc_id,
@@ -135,7 +134,6 @@ def ingest_markdown(
 
             # Stage 1: Parse and chunk
             tracker.add_stage("Chunking document...", total=100)
-            from src.chunker import create_hierarchical_chunks, enrich_all_chunks
 
             chunks = create_hierarchical_chunks(
                 content,
@@ -281,8 +279,6 @@ def ingest_batch(
             try:
                 content = file.read_text(encoding="utf-8")
                 title = resolve_title(file, content)
-
-                from src.chunker import create_hierarchical_chunks, enrich_all_chunks
 
                 chunks = create_hierarchical_chunks(
                     content,

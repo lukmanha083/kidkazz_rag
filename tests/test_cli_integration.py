@@ -11,9 +11,6 @@ from src.cli.main import app
 
 runner = CliRunner()
 
-# Use mock embedder for all tests to avoid FastEmbed dependency
-pytestmark = pytest.mark.usefixtures("mock_embedder_env")
-
 
 @pytest.fixture(autouse=True)
 def mock_embedder_env():

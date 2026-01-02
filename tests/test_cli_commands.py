@@ -90,7 +90,6 @@ class TestSearchCommands:
     def test_search_semantic_empty_store(self):
         """Test semantic search on empty store."""
         # Use mock embedder to avoid FastEmbed dependency
-        import os
         with patch.dict(os.environ, {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
             result = runner.invoke(app, [
                 "search", "semantic", "test query",

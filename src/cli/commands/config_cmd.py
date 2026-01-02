@@ -145,8 +145,6 @@ def reset_config(
         print_warning("Specify --project, --global, or --all")
         return
 
-    defaults = CLIConfig.get_defaults()
-
     if project or all_configs:
         path = get_project_config_path()
         if path.exists():
