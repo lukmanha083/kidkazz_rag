@@ -309,6 +309,66 @@ The storage layer uses a three-node graph structure:
 
 Both implementations share the same `ChunkStoreProtocol` interface for easy swapping.
 
+## MCP Server Details
+
+### Available Tools
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `search_semantic` | Vector similarity search | query, top_k, doc_id, level, semantic_type, threshold |
+| `search_keyword` | Full-text keyword search | keyword, doc_id, case_sensitive |
+| `get_chunk` | Get chunk by ID | chunk_id |
+| `get_context_window` | Get chunk with neighbors | chunk_id, window_size |
+| `get_parent` | Navigate to parent chunk | chunk_id |
+| `get_children` | Get child chunks | chunk_id |
+| `get_siblings` | Get sibling chunks | chunk_id |
+| `list_documents` | List all documents | - |
+| `get_document_chunks` | Get all chunks from doc | doc_id, level |
+| `get_document_stats` | Get document statistics | doc_id |
+
+### Available Resources
+
+| Resource URI | Description |
+|--------------|-------------|
+| `kidkazz://schema` | Knowledge base schema and available tools |
+| `kidkazz://documents` | List of all documents |
+| `kidkazz://document/{doc_id}` | Document overview and statistics |
+| `kidkazz://chunk/{chunk_id}` | Chunk content and metadata |
+
+### Configuration
+
+Environment variables for MCP server:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KIDKAZZ_STORE_TYPE` | `mock` | Storage backend: `mock` or `helix` |
+| `KIDKAZZ_HELIX_PORT` | `6969` | Helix-DB port (if using helix) |
+| `KIDKAZZ_HELIX_LOCAL` | `true` | Connect to local Helix-DB |
+| `KIDKAZZ_EMBEDDER_TYPE` | `fastembed` | Embedder: `mock` or `fastembed` |
+| `KIDKAZZ_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Embedding model name |
+| `KIDKAZZ_LOG_LEVEL` | `INFO` | Logging level |
+
+### Claude Code Integration
+
+Add to your `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "kidkazz-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "/path/to/kidkazz_rag",
+      "env": {
+        "KIDKAZZ_STORE_TYPE": "mock",
+        "KIDKAZZ_EMBEDDER_TYPE": "fastembed"
+      }
+    }
+  }
+}
+```
+
 ## Tool Selection Guide
 
 | Your PDF Has | Recommended Tool |
@@ -362,6 +422,16 @@ python -m pytest tests/test_mcp_*.py -v      # Phase 4
 | helix-py not installed | `pip install helix-py` |
 | No Helix-DB server | Use MockChunkStore for testing |
 | Connection refused | Start Helix-DB server: `helix deploy --local` |
+
+### MCP Server
+
+| Issue | Solution |
+|-------|----------|
+| mcp not installed | `pip install 'kidkazz-rag[mcp]'` or `pip install mcp` |
+| Server not starting | Check `KIDKAZZ_LOG_LEVEL=DEBUG` for detailed logs |
+| No search results | Verify documents are loaded in store |
+| Slow startup | First query loads embedder; subsequent queries are faster |
+| Claude Code not connecting | Verify `.mcp.json` path and Python environment |
 
 ## Roadmap
 
