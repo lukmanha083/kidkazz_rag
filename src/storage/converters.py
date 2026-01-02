@@ -65,6 +65,19 @@ def helix_node_to_chunk(node: dict[str, Any]) -> Chunk:
     section_path = json.loads(node.get("section_path", "[]"))
     child_ids = json.loads(node.get("child_ids", "[]"))
 
+    # Preserve semantic_type and other metadata in chunk.metadata
+    metadata = {}
+    if "semantic_type" in node:
+        metadata["semantic_type"] = node["semantic_type"]
+    if "has_table" in node:
+        metadata["has_table"] = node["has_table"]
+    if "has_code" in node:
+        metadata["has_code"] = node["has_code"]
+    if "has_math" in node:
+        metadata["has_math"] = node["has_math"]
+    if "has_list" in node:
+        metadata["has_list"] = node["has_list"]
+
     return Chunk(
         id=node["chunk_id"],
         content=node["content"],
@@ -76,6 +89,7 @@ def helix_node_to_chunk(node: dict[str, Any]) -> Chunk:
         next_id=node.get("next_id") or None,
         source_section=node.get("source_section") or None,
         section_path=section_path,
+        metadata=metadata,
     )
 
 

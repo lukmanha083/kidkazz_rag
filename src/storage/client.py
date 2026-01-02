@@ -679,6 +679,9 @@ class HelixChunkStore:
             chunk = ec.chunk
             level_counts[chunk.level] = level_counts.get(chunk.level, 0) + 1
             total_tokens += chunk.token_count
+            # Get semantic_type from chunk metadata if available
+            semantic_type = chunk.metadata.get("semantic_type", "unknown")
+            type_counts[semantic_type] = type_counts.get(semantic_type, 0) + 1
 
         return {
             "doc_id": doc_id,
