@@ -30,35 +30,61 @@ PYTHONPATH=. pytest tests/ --cov=src --cov-report=term-missing
 ```text
 ========================= test session starts ==========================
 platform linux -- Python 3.13.11, pytest-9.0.2
-collected 223 items
+collected 441 items
 
-tests/test_analyzer.py   ............................ [ 12%]
-tests/test_chunker.py    ........................................... [ 31%]
-tests/test_converter.py  ........................    [ 42%]
-tests/test_embedder.py   ...........................  [ 54%]
-tests/test_metadata.py   .......................................  [ 72%]
-tests/test_parser.py     ............................  [ 84%]
-tests/test_selector.py   ...........................  [100%]
+tests/test_analyzer.py              ............................       [  6%]
+tests/test_chunker.py               ...........................................  [ 16%]
+tests/test_converter.py             ........................               [ 21%]
+tests/test_embedder.py              ...........................            [ 27%]
+tests/test_metadata.py              .......................................  [ 36%]
+tests/test_mcp_config.py            ..............                         [ 39%]
+tests/test_mcp_formatters.py        .....................                  [ 44%]
+tests/test_mcp_integration.py       .............                          [ 47%]
+tests/test_mcp_resources.py         .............                          [ 50%]
+tests/test_mcp_server.py            ..ssssssss                             [ 52%]
+tests/test_mcp_tools.py             .................................      [ 60%]
+tests/test_parser.py                ............................           [ 66%]
+tests/test_selector.py              ...........................            [ 72%]
+tests/test_storage_converters.py    ........................               [ 78%]
+tests/test_storage_integration.py   ...............                        [ 81%]
+tests/test_storage_mock.py          ..................................     [ 89%]
+tests/test_storage_queries.py       ....................                   [ 93%]
+tests/test_storage_schema.py        ............................           [100%]
 
-========================= 223 passed in 0.39s ===========================
+======================== 433 passed, 8 skipped in 0.62s =================
 ```
+
+Note: 8 tests are skipped because they require the MCP package to be installed.
 
 ### Coverage Report
 
 ```text
-Name                             Stmts   Miss  Cover   Missing
---------------------------------------------------------------
-src/chunker/__init__.py              5      0   100%
-src/chunker/chunker.py             185     25    86%
-src/chunker/embedder.py            103     31    70%
-src/chunker/metadata.py             93      0   100%
-src/chunker/parser.py              141      0   100%
-src/pdf_converter/__init__.py        4      0   100%
-src/pdf_converter/analyzer.py       61      1    98%   93
-src/pdf_converter/converter.py      86     21    76%   170-194, 204, 231, 240-242, 264-265
-src/pdf_converter/selector.py       32      0   100%
---------------------------------------------------------------
-TOTAL                              710     78    89%
+Name                                Stmts   Miss  Cover   Missing
+-----------------------------------------------------------------
+src/chunker/__init__.py                 5      0   100%
+src/chunker/chunker.py                185     25    86%
+src/chunker/embedder.py               103     31    70%
+src/chunker/metadata.py                93      0   100%
+src/chunker/parser.py                 141      0   100%
+src/mcp_server/__init__.py              8      0   100%
+src/mcp_server/__main__.py             16     16     0%   (entry point)
+src/mcp_server/config.py               74      4    95%
+src/mcp_server/formatters.py           42      0   100%
+src/mcp_server/resources.py            44      0   100%
+src/mcp_server/server.py               28     10    64%   (requires MCP)
+src/mcp_server/tools.py                85      0   100%
+src/pdf_converter/__init__.py           4      0   100%
+src/pdf_converter/analyzer.py          61      1    98%
+src/pdf_converter/converter.py         86     21    76%
+src/pdf_converter/selector.py          32      0   100%
+src/storage/__init__.py                12      0   100%
+src/storage/client.py                 298    178    40%   (requires Helix-DB)
+src/storage/converters.py              62      0   100%
+src/storage/mock_store.py             176      0   100%
+src/storage/queries.py                168     72    57%
+src/storage/schema.py                  88      4    95%
+-----------------------------------------------------------------
+TOTAL                                1806    362    80%
 ```
 
 ---
@@ -580,11 +606,540 @@ PYTHONPATH=. pytest tests/test_embedder.py -v
 
 ---
 
-## Next Phases
+## Phase 3: Helix-DB Storage Integration
 
-| Phase | Test Files | Status |
-|-------|-----------|--------|
-| 1. PDF Converter | `test_selector.py`, `test_analyzer.py`, `test_converter.py` | Done |
-| 2. Hierarchical Chunking | `test_parser.py`, `test_chunker.py`, `test_metadata.py`, `test_embedder.py` | Done |
-| 3. Helix-DB Integration | `test_database.py` | Pending |
-| 4. MCP Server | `test_mcp.py` | Pending |
+### 8. test_storage_schema.py - Schema Definitions
+
+**Location:** `tests/test_storage_schema.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_storage_schema.py -v
+```
+
+**Test Classes:**
+
+#### TestSchemaConfig (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_default_values` | Default schema configuration |
+| `test_custom_values` | Custom embedding dimensions |
+
+#### TestNodeSchemas (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_document_schema_has_required_fields` | Document node has doc_id, title |
+| `test_chunk_schema_has_required_fields` | Chunk node has chunk_id, content |
+| `test_chunk_schema_has_relationship_fields` | Chunk has parent_id, child_ids |
+| `test_chunk_schema_has_metadata_fields` | Chunk has level, semantic_type |
+| `test_vector_schema_has_embedding` | Vector node has embedding field |
+
+#### TestEdgeTypes (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_has_document_to_chunk_edge` | HasChunk edge type |
+| `test_has_parent_child_edge` | ParentOf edge type |
+| `test_has_sequential_edges` | NextSibling edge type |
+| `test_has_embedding_edge` | HasEmbedding edge type |
+
+#### TestValidateChunkNode, TestValidateDocumentNode (10 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_valid_chunk_returns_empty_list` | Valid chunk passes |
+| `test_missing_required_field` | Missing field detected |
+| `test_invalid_level_type` | Type validation |
+| `test_invalid_level_value` | Value range validation |
+| `test_invalid_semantic_type` | Enum validation |
+| `test_valid_semantic_types` | All semantic types work |
+
+---
+
+### 9. test_storage_converters.py - Data Conversion
+
+**Location:** `tests/test_storage_converters.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_storage_converters.py -v
+```
+
+**Test Classes:**
+
+#### TestChunkToHelixNode (8 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_basic_conversion` | Converts chunk to Helix node |
+| `test_includes_all_fields` | All fields preserved |
+| `test_handles_optional_fields` | None values handled |
+| `test_converts_child_ids_to_json` | Lists serialized |
+
+#### TestHelixNodeToChunk (8 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_basic_conversion` | Converts Helix node to chunk |
+| `test_preserves_relationships` | Parent/child links preserved |
+| `test_handles_missing_fields` | Defaults for missing |
+| `test_preserves_semantic_type` | Metadata preserved |
+
+#### TestMetadataConversion (8 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_metadata_to_helix` | ChunkMetadata to Helix format |
+| `test_helix_to_metadata` | Helix format to ChunkMetadata |
+| `test_round_trip` | Convert both ways |
+
+---
+
+### 10. test_storage_mock.py - MockChunkStore
+
+**Location:** `tests/test_storage_mock.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_storage_mock.py -v
+```
+
+**Test Classes:**
+
+#### TestStoreDocument (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_stores_document` | Store document with chunks |
+| `test_stores_chunks` | All chunks stored |
+| `test_stores_embeddings` | Embeddings preserved |
+| `test_stores_metadata` | Metadata preserved |
+| `test_updates_existing` | Overwrite existing doc |
+
+#### TestSearchSimilar (8 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_returns_similar_chunks` | Vector search works |
+| `test_respects_top_k` | Limits results |
+| `test_respects_threshold` | Filters by similarity |
+| `test_filters_by_doc_id` | Document filter |
+| `test_filters_by_level` | Level filter |
+| `test_filters_by_semantic_type` | Type filter |
+| `test_returns_scores` | Similarity scores included |
+
+#### TestSearchKeyword (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_finds_keyword` | Keyword search works |
+| `test_case_insensitive` | Default case-insensitive |
+| `test_case_sensitive` | Optional case-sensitive |
+| `test_filters_by_doc_id` | Document filter |
+| `test_no_match_returns_empty` | Empty for no match |
+
+#### TestGraphTraversal (10 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_get_parent` | Navigate to parent |
+| `test_get_children` | Get child chunks |
+| `test_get_siblings` | Get sibling chunks |
+| `test_get_context_window` | Get surrounding chunks |
+| `test_get_chunk` | Get by ID |
+
+#### TestDocumentManagement (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_list_documents` | List all documents |
+| `test_get_document_chunks` | Get all chunks from doc |
+| `test_get_document_stats` | Get document statistics |
+| `test_delete_document` | Remove document |
+
+---
+
+### 11. test_storage_queries.py - HelixQL Queries
+
+**Location:** `tests/test_storage_queries.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_storage_queries.py -v
+```
+
+**Test Classes:**
+
+#### TestSearchSimilarChunks (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_creates_vector_search_payload` | Correct query structure |
+| `test_includes_filters` | Filters in payload |
+| `test_omits_empty_filters` | No empty filters |
+
+#### TestSearchKeyword (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_creates_keyword_search_payload` | Correct query structure |
+| `test_includes_doc_filter` | Document filter |
+| `test_includes_case_sensitive` | Case sensitivity flag |
+
+#### TestGetChunk, TestGetDocumentChunks, TestListDocuments (8 tests)
+
+Query construction tests for retrieval operations.
+
+---
+
+### 12. test_storage_integration.py - End-to-End Storage
+
+**Location:** `tests/test_storage_integration.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_storage_integration.py -v
+```
+
+**Test Classes:**
+
+#### TestStoreAndRetrieve (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_store_and_search` | Store then search |
+| `test_store_and_traverse` | Store then navigate |
+| `test_multiple_documents` | Multiple docs |
+
+#### TestSearchWorkflows (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_semantic_search_workflow` | Vector search flow |
+| `test_keyword_search_workflow` | Keyword search flow |
+| `test_hybrid_search` | Combined search |
+
+#### TestGraphWorkflows (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_parent_child_navigation` | Navigate hierarchy |
+| `test_context_expansion` | Expand context |
+| `test_sibling_exploration` | Explore siblings |
+
+---
+
+## Phase 4: MCP Server
+
+### 13. test_mcp_config.py - Configuration
+
+**Location:** `tests/test_mcp_config.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_mcp_config.py -v
+```
+
+**Test Classes:**
+
+#### TestMCPServerConfig (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_default_values` | Default configuration |
+| `test_custom_values` | Custom configuration |
+| `test_from_env_defaults` | Environment defaults |
+| `test_from_env_with_values` | Read from environment |
+| `test_create_mock_store` | Factory creates MockChunkStore |
+| `test_create_mock_embedder` | Factory creates MockEmbedder |
+
+#### TestLazyEmbedder (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_lazy_initialization` | Not initialized until used |
+| `test_embed_text_initializes` | Initializes on first call |
+| `test_embed_text_reuses_embedder` | Reuses instance |
+| `test_model_name_property` | Returns model name |
+
+#### TestServerState (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_default_config` | Uses from_env if none provided |
+| `test_custom_config` | Uses provided config |
+| `test_lazy_store` | Store lazy-loaded |
+| `test_lazy_embedder` | Embedder lazy-loaded |
+
+---
+
+### 14. test_mcp_formatters.py - Response Formatting
+
+**Location:** `tests/test_mcp_formatters.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_mcp_formatters.py -v
+```
+
+**Test Classes:**
+
+#### TestFormatChunk (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_basic_fields` | chunk_id, content, level |
+| `test_word_count` | Word count included |
+| `test_relationship_fields` | parent_id, child_ids, prev_id, next_id |
+| `test_section_fields` | section_path, source_section |
+| `test_embedding_fields` | model_name, embedding_dim |
+| `test_embedding_not_included` | Raw embedding excluded |
+
+#### TestFormatSearchResult (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_includes_chunk_fields` | All chunk fields |
+| `test_includes_similarity_score` | Score included |
+| `test_score_rounding` | Rounded to 4 decimals |
+| `test_zero_score` | Handles 0.0 |
+| `test_perfect_score` | Handles 1.0 |
+
+#### TestFormatDocument, TestFormatDocumentStats (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_all_fields` | All fields formatted |
+| `test_missing_fields` | Defaults for missing |
+
+#### TestFormatChunkList, TestFormatSearchResults, TestFormatOptionalChunk (6 tests)
+
+List and optional formatting tests.
+
+---
+
+### 15. test_mcp_tools.py - Tool Implementations
+
+**Location:** `tests/test_mcp_tools.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_mcp_tools.py -v
+```
+
+**Test Classes:**
+
+#### TestSearchSemantic (6 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_basic_search` | Basic semantic search |
+| `test_search_with_doc_filter` | Filter by document |
+| `test_search_with_level_filter` | Filter by level |
+| `test_search_with_type_filter` | Filter by semantic type |
+| `test_search_with_threshold` | Similarity threshold |
+| `test_search_returns_scores` | Scores in results |
+
+#### TestSearchKeyword (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_basic_keyword_search` | Basic keyword search |
+| `test_keyword_search_with_doc_filter` | Filter by document |
+| `test_case_insensitive_search` | Default case-insensitive |
+| `test_case_sensitive_search` | Optional case-sensitive |
+
+#### TestGetChunk (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_get_existing_chunk` | Get by ID |
+| `test_get_nonexistent_chunk` | Returns None |
+| `test_chunk_has_content` | Content included |
+
+#### TestGetContextWindow (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_get_context_window` | Get with neighbors |
+| `test_context_window_default_size` | Default window_size=2 |
+| `test_context_window_includes_neighbors` | Neighbors included |
+
+#### TestGetParent, TestGetChildren, TestGetSiblings (8 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_get_parent_of_child` | Navigate to parent |
+| `test_get_parent_of_root` | Returns None for root |
+| `test_get_children_of_parent` | Get all children |
+| `test_get_children_of_leaf` | Empty for leaf |
+| `test_children_have_correct_parent` | Parent ID matches |
+| `test_get_siblings` | Get sibling chunks |
+| `test_siblings_exclude_self` | Self not included |
+| `test_siblings_same_parent` | Same parent |
+
+#### TestListDocuments, TestGetDocumentChunks, TestGetDocumentStats (9 tests)
+
+Document management tool tests.
+
+---
+
+### 16. test_mcp_resources.py - Resource Implementations
+
+**Location:** `tests/test_mcp_resources.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_mcp_resources.py -v
+```
+
+**Test Classes:**
+
+#### TestSchemaInfo (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_schema_has_name` | Name field present |
+| `test_schema_has_version` | Version field present |
+| `test_schema_has_chunk_levels` | Chunk levels documented |
+| `test_schema_has_semantic_types` | Semantic types listed |
+| `test_schema_has_tools` | Available tools listed |
+
+#### TestGetSchemaResource (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_returns_json` | Returns valid JSON |
+| `test_returns_schema_info` | Contains schema info |
+
+#### TestGetDocumentsResource (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_returns_json` | Returns valid JSON |
+| `test_returns_document_list` | Contains document list |
+
+#### TestGetDocumentOverviewResource, TestGetChunkContentResource (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_existing_document` | Returns document overview |
+| `test_nonexistent_document` | Returns error |
+| `test_existing_chunk` | Returns chunk content |
+| `test_nonexistent_chunk` | Returns error |
+
+---
+
+### 17. test_mcp_server.py - Server Initialization
+
+**Location:** `tests/test_mcp_server.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_mcp_server.py -v
+```
+
+**Note:** Most tests require MCP package installed. Tests are skipped if not available.
+
+**Test Classes:**
+
+#### TestCreateServer (4 tests - require MCP)
+
+| Test | Description |
+|------|-------------|
+| `test_creates_fastmcp_instance` | Returns FastMCP instance |
+| `test_uses_default_config` | Uses from_env if none |
+| `test_uses_provided_state` | Uses provided state |
+| `test_server_has_name` | Server has name attribute |
+
+#### TestCreateServerWithoutMCP (1 test)
+
+| Test | Description |
+|------|-------------|
+| `test_import_error_without_mcp` | Function exists |
+
+#### TestRunServer (1 test)
+
+| Test | Description |
+|------|-------------|
+| `test_run_server_calls_run` | Calls mcp.run() |
+
+#### TestServerIntegration (4 tests - require MCP)
+
+| Test | Description |
+|------|-------------|
+| `test_tools_registered` | Tools registered |
+| `test_resources_registered` | Resources registered |
+| `test_server_with_mock_store` | Works with mock store |
+| `test_server_lazy_loading` | Lazy loading works |
+
+---
+
+### 18. test_mcp_integration.py - End-to-End MCP Workflows
+
+**Location:** `tests/test_mcp_integration.py`
+
+**Run:**
+```bash
+python -m pytest tests/test_mcp_integration.py -v
+```
+
+**Test Classes:**
+
+#### TestSearchWorkflow (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_search_and_expand_context` | Search then expand context |
+| `test_search_and_navigate_hierarchy` | Search then navigate |
+
+#### TestDocumentBrowsingWorkflow (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_browse_documents_and_stats` | List docs and get stats |
+| `test_browse_document_structure` | Browse hierarchy |
+
+#### TestKeywordSearchWorkflow (1 test)
+
+| Test | Description |
+|------|-------------|
+| `test_keyword_search_and_retrieve` | Keyword search then get chunk |
+
+#### TestResourceWorkflow (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_schema_discovery` | Discover tools via schema |
+| `test_document_discovery` | Discover docs via resource |
+| `test_chunk_resource` | Access chunk via resource |
+
+#### TestFilteringWorkflows (2 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_semantic_type_filtering` | Filter by semantic type |
+| `test_level_filtering` | Filter by level |
+
+#### TestEdgeCases (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_nonexistent_chunk` | Handle missing chunk |
+| `test_nonexistent_document` | Handle missing document |
+| `test_empty_search_results` | Handle no results |
+
+---
+
+## Test Summary by Phase
+
+| Phase | Test Files | Tests | Status |
+|-------|-----------|-------|--------|
+| 1. PDF Converter | `test_selector.py`, `test_analyzer.py`, `test_converter.py` | 51 | ✅ Done |
+| 2. Hierarchical Chunking | `test_parser.py`, `test_chunker.py`, `test_metadata.py`, `test_embedder.py` | 172 | ✅ Done |
+| 3. Helix-DB Integration | `test_storage_schema.py`, `test_storage_converters.py`, `test_storage_mock.py`, `test_storage_queries.py`, `test_storage_integration.py` | 114 | ✅ Done |
+| 4. MCP Server | `test_mcp_config.py`, `test_mcp_formatters.py`, `test_mcp_tools.py`, `test_mcp_resources.py`, `test_mcp_server.py`, `test_mcp_integration.py` | 96 | ✅ Done |
+
+**Total: 433 tests passing, 8 skipped**
