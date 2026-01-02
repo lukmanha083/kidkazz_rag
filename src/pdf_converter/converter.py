@@ -195,7 +195,7 @@ def convert_pdf(
                 success=False,
                 output_path=None,
                 tool_used=tool,
-                error_message=f"Docling conversion failed: {str(e)}"
+                error_message=f"Docling conversion failed: {e!s}"
             )
     else:
         # CLI-based conversion
@@ -266,5 +266,5 @@ def convert_pdf(
                 success=False,
                 output_path=None,
                 tool_used=tool,
-                error_message=f"Conversion failed: {str(e)}"
+                error_message=f"Conversion failed: {e!s}"
             )

@@ -12,7 +12,7 @@ This project provides tools to:
 
 ## Architecture
 
-```
+```text
 PDF Document
      |
      v
@@ -45,23 +45,23 @@ Chat with your documents
 ### Step 1: PDF to Markdown Conversion
 
 1. **Install VS Code Colab Extension**
-   ```
+   ```text
    Open VS Code → Extensions → Search "Colab" → Install
    ```
 
 2. **Enable Experimental Features** (for file upload)
-   ```
+   ```text
    VS Code Settings → Search "colab" → Enable experimental upload
    ```
 
 3. **Open the Converter Notebook**
-   ```
+   ```text
    Open: notebooks/pdf_to_markdown_converter.ipynb
    Connect to Colab runtime (GPU enabled)
    ```
 
 4. **Upload Your PDF**
-   ```
+   ```text
    Right-click your PDF in VS Code Explorer
    Select "Upload to Colab server"
    ```
@@ -84,7 +84,7 @@ Chat with your documents
 
 ## Project Structure
 
-```
+```text
 kidkazz_rag/
 ├── README.md
 ├── notebooks/
@@ -105,7 +105,7 @@ kidkazz_rag/
 
 The notebook auto-detects uploaded PDFs and guides you through tool selection:
 
-```
+```text
 ==================================================
 TOOL RECOMMENDATION QUIZ
 ==================================================
@@ -141,7 +141,7 @@ RECOMMENDATION
 
 After conversion, the notebook analyzes output quality:
 
-```
+```text
 ==================================================
 QUALITY ANALYSIS
 ==================================================
@@ -175,12 +175,12 @@ Estimated original pages: ~685
 ## Troubleshooting
 
 ### No GPU Detected
-```
+```text
 Runtime → Change runtime type → Hardware accelerator → GPU
 ```
 
 ### PDF Not Found
-```
+```text
 Right-click PDF in VS Code → "Upload to Colab server"
 Then re-run Cell 1 to detect it
 ```

@@ -63,7 +63,7 @@ class TestValidateTool:
 
     def test_case_sensitive(self):
         """Tool names should be case-sensitive."""
-        valid, error = validate_tool("MARKER")
+        valid, _error = validate_tool("MARKER")
         assert valid is False
 
 
@@ -165,6 +165,7 @@ class TestConvertPdf:
             dry_run=True
         )
         assert output_dir.exists()
+        assert result.success is True
 
     def test_returns_conversion_result(self, single_pdf_path, temp_dir):
         """Should return ConversionResult object."""
@@ -201,6 +202,7 @@ class TestConvertPdfWithMocking:
         assert "marker_single" in call_args
         assert str(single_pdf_path[0]) in call_args
         assert "--output_dir" in call_args
+        assert result.success is True
 
     @patch("subprocess.run")
     def test_nougat_command_structure(self, mock_run, single_pdf_path, temp_dir):
@@ -223,6 +225,7 @@ class TestConvertPdfWithMocking:
         assert str(single_pdf_path[0]) in call_args
         assert "-o" in call_args
         assert "--no-skipping" in call_args
+        assert result.success is True
 
     @patch("subprocess.run")
     def test_handles_command_failure(self, mock_run, single_pdf_path, temp_dir):
@@ -281,7 +284,7 @@ class TestToolMeta:
 
     def test_meta_has_required_fields(self):
         """Each tool's metadata should have name, description, time."""
-        for tool, meta in TOOL_META.items():
+        for _tool, meta in TOOL_META.items():
             assert len(meta) == 3
             name, desc, time_est = meta
             assert isinstance(name, str)

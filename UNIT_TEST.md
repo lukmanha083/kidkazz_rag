@@ -27,7 +27,7 @@ PYTHONPATH=. pytest tests/ --cov=src --cov-report=term-missing
 
 ## Test Results Summary
 
-```
+```text
 ========================= test session starts ==========================
 platform linux -- Python 3.13.11, pytest-9.0.2
 collected 84 items
@@ -41,7 +41,7 @@ tests/test_selector.py   ...........................  [100%]
 
 ### Coverage Report
 
-```
+```text
 Name                             Stmts   Miss  Cover   Missing
 --------------------------------------------------------------
 src/pdf_converter/__init__.py        4      0   100%
@@ -301,12 +301,12 @@ PYTHONPATH=. pytest tests/ --lf
 ## Understanding Output
 
 ### Passed Test
-```
+```text
 tests/test_selector.py::TestSelectPdf::test_empty_list_returns_none PASSED [  1%]
 ```
 
 ### Failed Test
-```
+```text
 tests/test_analyzer.py::TestGetContentStats::test_counts_tables FAILED [  5%]
 
 =================================== FAILURES ===================================
@@ -328,7 +328,7 @@ E   assert 6 == 3
 
 ## Coverage Interpretation
 
-```
+```text
 Name                             Stmts   Miss  Cover   Missing
 --------------------------------------------------------------
 src/pdf_converter/converter.py      86     21    76%   170-194

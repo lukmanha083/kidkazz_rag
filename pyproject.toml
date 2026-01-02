@@ -30,9 +30,9 @@ dev = [
     "pytest-cov>=4.0.0",
 ]
 converter = [
-    "marker-pdf",
-    "docling",
-    "nougat-ocr",
+    "marker-pdf>=0.2.0",
+    "docling>=1.0.0",
+    "nougat-ocr>=0.1.0",
 ]
 
 [tool.pytest.ini_options]

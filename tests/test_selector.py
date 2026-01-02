@@ -162,18 +162,18 @@ class TestScoringRulesConsistency:
 
     def test_all_tools_in_content_type_rules(self):
         """All tools should be scored for each content type."""
-        for content_type, scores in SCORING_RULES["content_type"].items():
+        for _content_type, scores in SCORING_RULES["content_type"].items():
             for tool in ["marker", "docling", "nougat"]:
                 assert tool in scores or scores.get(tool, 0) == 0
 
     def test_all_tools_in_pdf_type_rules(self):
         """All tools should be scored for each PDF type."""
-        for pdf_type, scores in SCORING_RULES["pdf_type"].items():
+        for _pdf_type, scores in SCORING_RULES["pdf_type"].items():
             for tool in ["marker", "docling", "nougat"]:
                 assert tool in scores or scores.get(tool, 0) == 0
 
     def test_all_tools_in_priority_rules(self):
         """All tools should be scored for each priority."""
-        for priority, scores in SCORING_RULES["priority"].items():
+        for _priority, scores in SCORING_RULES["priority"].items():
             for tool in ["marker", "docling", "nougat"]:
                 assert tool in scores or scores.get(tool, 0) == 0
