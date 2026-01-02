@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "kidkazz-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "KIDKAZZ_STORE_TYPE": "mock",
+        "KIDKAZZ_EMBEDDER_TYPE": "fastembed",
+        "KIDKAZZ_MODEL_NAME": "BAAI/bge-small-en-v1.5",
+        "KIDKAZZ_LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
