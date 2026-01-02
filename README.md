@@ -9,7 +9,7 @@ This project provides tools to:
 2. Chunk documents hierarchically for vector + graph storage
 3. Generate embeddings using CPU-optimized FastEmbed
 4. Store in Helix-DB (vector + graph database)
-5. Query documents via MCP integration with Claude Code - *coming soon*
+5. Query documents via MCP integration with Claude Code
 
 ## Current Status
 
@@ -18,7 +18,7 @@ This project provides tools to:
 | 1 | PDF to Markdown Converter | ✅ Complete |
 | 2 | Hierarchical Chunking Pipeline | ✅ Complete |
 | 3 | Helix-DB Integration | ✅ Complete |
-| 4 | MCP Server | 🔲 Planned |
+| 4 | MCP Server | ✅ Complete |
 
 ## Architecture
 
@@ -47,8 +47,9 @@ Markdown Document
      |                           ├── MockChunkStore (testing)
      |                           └── HelixChunkStore (production)
      v
-[MCP Server] ────────────────── Claude Code Integration (coming soon)
-     |
+[MCP Server] ────────────────── Claude Code Integration
+     |                           ├── 10 search/retrieval tools
+     |                           └── 4 resource endpoints
      v
 Chat with your documents
 ```
@@ -74,6 +75,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"           # Development (pytest, coverage)
 pip install -e ".[chunker]"       # Chunking + embeddings (fastembed)
 pip install -e ".[helixdb]"       # Helix-DB storage (helix-py)
+pip install -e ".[mcp]"           # MCP server for Claude Code
 pip install -e ".[all]"           # All dependencies
 ```
 
@@ -153,6 +155,28 @@ siblings = store.get_siblings(top_chunk.chunk.id)
 context = store.get_context_window(top_chunk.chunk.id, window_size=2)
 ```
 
+### Step 4: Query via MCP Server (Claude Code)
+
+1. Copy the MCP configuration template:
+```bash
+cp .mcp.json.example .mcp.json
+```
+
+2. Start the MCP server (Claude Code will do this automatically):
+```bash
+python -m src.mcp_server
+# Or use the installed command:
+kidkazz-mcp
+```
+
+3. Use from Claude Code - available tools:
+- `search_semantic` - Vector similarity search
+- `search_keyword` - Full-text keyword search
+- `get_chunk` - Get chunk by ID
+- `get_context_window` - Get chunk with neighbors
+- `get_parent` / `get_children` / `get_siblings` - Graph traversal
+- `list_documents` / `get_document_chunks` / `get_document_stats` - Document management
+
 ## Project Structure
 
 ```text
@@ -173,13 +197,21 @@ kidkazz_rag/
 │   │   ├── chunker.py                     # Hierarchical chunking
 │   │   ├── metadata.py                    # Metadata enrichment
 │   │   └── embedder.py                    # FastEmbed integration
-│   └── storage/                           # Phase 3: Helix-DB integration
+│   ├── storage/                           # Phase 3: Helix-DB integration
+│   │   ├── __init__.py                    # Public API
+│   │   ├── schema.py                      # Helix-DB schema definitions
+│   │   ├── converters.py                  # Dataclass <-> Helix format
+│   │   ├── queries.py                     # HelixQL query classes
+│   │   ├── mock_store.py                  # In-memory MockChunkStore
+│   │   └── client.py                      # HelixChunkStore client
+│   └── mcp_server/                        # Phase 4: MCP server
 │       ├── __init__.py                    # Public API
-│       ├── schema.py                      # Helix-DB schema definitions
-│       ├── converters.py                  # Dataclass <-> Helix format
-│       ├── queries.py                     # HelixQL query classes
-│       ├── mock_store.py                  # In-memory MockChunkStore
-│       └── client.py                      # HelixChunkStore client
+│       ├── config.py                      # Configuration management
+│       ├── formatters.py                  # Response formatting
+│       ├── tools.py                       # MCP tool implementations
+│       ├── resources.py                   # MCP resource implementations
+│       ├── server.py                      # FastMCP server setup
+│       └── __main__.py                    # Entry point
 ├── tests/
 │   ├── conftest.py                        # Shared fixtures
 │   ├── test_analyzer.py                   # Phase 1 tests
@@ -193,11 +225,18 @@ kidkazz_rag/
 │   ├── test_storage_converters.py
 │   ├── test_storage_mock.py
 │   ├── test_storage_queries.py
-│   └── test_storage_integration.py
+│   ├── test_storage_integration.py
+│   ├── test_mcp_config.py                 # Phase 4 tests
+│   ├── test_mcp_formatters.py
+│   ├── test_mcp_tools.py
+│   ├── test_mcp_resources.py
+│   ├── test_mcp_server.py
+│   └── test_mcp_integration.py
 └── docs/
     ├── design/
     │   ├── PLAN_PHASE2.md                 # Phase 2 design document
-    │   └── PLAN_PHASE3.md                 # Phase 3 design document
+    │   ├── PLAN_PHASE3.md                 # Phase 3 design document
+    │   └── PLAN_PHASE4.md                 # Phase 4 design document
     └── testing/
         └── UNIT_TEST.md                   # Testing guide
 ```
@@ -270,6 +309,66 @@ The storage layer uses a three-node graph structure:
 
 Both implementations share the same `ChunkStoreProtocol` interface for easy swapping.
 
+## MCP Server Details
+
+### Available Tools
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `search_semantic` | Vector similarity search | query, top_k, doc_id, level, semantic_type, threshold |
+| `search_keyword` | Full-text keyword search | keyword, doc_id, case_sensitive |
+| `get_chunk` | Get chunk by ID | chunk_id |
+| `get_context_window` | Get chunk with neighbors | chunk_id, window_size |
+| `get_parent` | Navigate to parent chunk | chunk_id |
+| `get_children` | Get child chunks | chunk_id |
+| `get_siblings` | Get sibling chunks | chunk_id |
+| `list_documents` | List all documents | - |
+| `get_document_chunks` | Get all chunks from doc | doc_id, level |
+| `get_document_stats` | Get document statistics | doc_id |
+
+### Available Resources
+
+| Resource URI | Description |
+|--------------|-------------|
+| `kidkazz://schema` | Knowledge base schema and available tools |
+| `kidkazz://documents` | List of all documents |
+| `kidkazz://document/{doc_id}` | Document overview and statistics |
+| `kidkazz://chunk/{chunk_id}` | Chunk content and metadata |
+
+### Configuration
+
+Environment variables for MCP server:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KIDKAZZ_STORE_TYPE` | `mock` | Storage backend: `mock` or `helix` |
+| `KIDKAZZ_HELIX_PORT` | `6969` | Helix-DB port (if using helix) |
+| `KIDKAZZ_HELIX_LOCAL` | `true` | Connect to local Helix-DB |
+| `KIDKAZZ_EMBEDDER_TYPE` | `fastembed` | Embedder: `mock` or `fastembed` |
+| `KIDKAZZ_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Embedding model name |
+| `KIDKAZZ_LOG_LEVEL` | `INFO` | Logging level |
+
+### Claude Code Integration
+
+Add to your `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "kidkazz-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "/path/to/kidkazz_rag",
+      "env": {
+        "KIDKAZZ_STORE_TYPE": "mock",
+        "KIDKAZZ_EMBEDDER_TYPE": "fastembed"
+      }
+    }
+  }
+}
+```
+
 ## Tool Selection Guide
 
 | Your PDF Has | Recommended Tool |
@@ -292,9 +391,10 @@ python -m pytest tests/ --cov=src --cov-report=term-missing
 python -m pytest tests/test_parser.py tests/test_chunker.py -v  # Phase 2
 python -m pytest tests/test_analyzer.py tests/test_converter.py -v  # Phase 1
 python -m pytest tests/test_storage_*.py -v  # Phase 3
+python -m pytest tests/test_mcp_*.py -v      # Phase 4
 ```
 
-**Current Coverage:** 337 tests, 76% coverage
+**Current Coverage:** 433 tests
 
 ## Troubleshooting
 
@@ -323,12 +423,22 @@ python -m pytest tests/test_storage_*.py -v  # Phase 3
 | No Helix-DB server | Use MockChunkStore for testing |
 | Connection refused | Start Helix-DB server: `helix deploy --local` |
 
+### MCP Server
+
+| Issue | Solution |
+|-------|----------|
+| mcp not installed | `pip install 'kidkazz-rag[mcp]'` or `pip install mcp` |
+| Server not starting | Check `KIDKAZZ_LOG_LEVEL=DEBUG` for detailed logs |
+| No search results | Verify documents are loaded in store |
+| Slow startup | First query loads embedder; subsequent queries are faster |
+| Claude Code not connecting | Verify `.mcp.json` path and Python environment |
+
 ## Roadmap
 
 - [x] Phase 1: PDF to Markdown converter (Colab notebook)
 - [x] Phase 2: Hierarchical chunking pipeline
 - [x] Phase 3: Helix-DB integration (vector + graph storage)
-- [ ] Phase 4: MCP server for Claude Code
+- [x] Phase 4: MCP server for Claude Code
 - [ ] Phase 5: End-to-end CLI tool
 
 ## Documentation
@@ -336,6 +446,7 @@ python -m pytest tests/test_storage_*.py -v  # Phase 3
 - [Testing Guide](docs/testing/UNIT_TEST.md) - How to run and understand tests
 - [Phase 2 Design](docs/design/PLAN_PHASE2.md) - Chunking pipeline architecture
 - [Phase 3 Design](docs/design/PLAN_PHASE3.md) - Helix-DB storage integration
+- [Phase 4 Design](docs/design/PLAN_PHASE4.md) - MCP server implementation
 
 ## Contributing
 

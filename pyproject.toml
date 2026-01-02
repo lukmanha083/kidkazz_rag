@@ -40,10 +40,17 @@ chunker = [
 helixdb = [
     "helix-py>=0.1.0",
 ]
+mcp = [
+    "mcp>=1.2.0",
+]
 all = [
     "fastembed>=0.2.0",
     "helix-py>=0.1.0",
+    "mcp>=1.2.0",
 ]
+
+[project.scripts]
+kidkazz-mcp = "src.mcp_server:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -53,6 +60,8 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 markers = [
     "helix: marks tests requiring real Helix-DB server (deselect with '-m \"not helix\"')",
+    "mcp: marks MCP-related tests",
+    "fastembed: marks tests requiring FastEmbed (slow)",
 ]
 
 [tool.coverage.run]

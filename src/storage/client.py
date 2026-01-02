@@ -424,6 +424,7 @@ class HelixChunkStore:
         self,
         keyword: str,
         doc_id: Optional[str] = None,
+        case_sensitive: bool = False,
     ) -> list[EmbeddedChunk]:
         """
         Full-text keyword search in chunk content.
@@ -431,13 +432,14 @@ class HelixChunkStore:
         Args:
             keyword: Search term
             doc_id: Filter by document (optional)
+            case_sensitive: Whether search is case-sensitive (default: False)
 
         Returns:
             List of matching EmbeddedChunks
         """
         self._ensure_connected()
 
-        query = SearchKeyword(keyword, doc_id)
+        query = SearchKeyword(keyword, doc_id, case_sensitive)
         result = self._client.query(query)
 
         if not result.success:
