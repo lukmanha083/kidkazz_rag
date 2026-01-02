@@ -8,7 +8,7 @@ This project provides tools to:
 1. Convert PDF documents to Markdown (with table and image support)
 2. Chunk documents hierarchically for vector + graph storage
 3. Generate embeddings using CPU-optimized FastEmbed
-4. Store in Helix-DB (vector + graph database) - *coming soon*
+4. Store in Helix-DB (vector + graph database)
 5. Query documents via MCP integration with Claude Code - *coming soon*
 
 ## Current Status
@@ -17,7 +17,7 @@ This project provides tools to:
 |-------|-----------|--------|
 | 1 | PDF to Markdown Converter | ✅ Complete |
 | 2 | Hierarchical Chunking Pipeline | ✅ Complete |
-| 3 | Helix-DB Integration | 🔲 Planned |
+| 3 | Helix-DB Integration | ✅ Complete |
 | 4 | MCP Server | 🔲 Planned |
 
 ## Architecture
@@ -43,8 +43,9 @@ Markdown Document
 [FastEmbed] ──────────────────── CPU-optimized embeddings
      |                           └── BAAI/bge-small-en-v1.5 (384 dims)
      v
-[Helix-DB] ──────────────────── Vector + Graph Storage (coming soon)
-     |
+[Helix-DB Storage] ─────────── Vector + Graph Storage
+     |                           ├── MockChunkStore (testing)
+     |                           └── HelixChunkStore (production)
      v
 [MCP Server] ────────────────── Claude Code Integration (coming soon)
      |
@@ -72,7 +73,8 @@ source .venv/bin/activate
 # Install dependencies
 pip install -e ".[dev]"           # Development (pytest, coverage)
 pip install -e ".[chunker]"       # Chunking + embeddings (fastembed)
-pip install -e ".[dev,chunker]"   # All dependencies
+pip install -e ".[helixdb]"       # Helix-DB storage (helix-py)
+pip install -e ".[all]"           # All dependencies
 ```
 
 ## Quick Start
@@ -123,6 +125,34 @@ for ec in embedded_chunks:
     print(f"  Children: {len(ec.chunk.child_ids)}")
 ```
 
+### Step 3: Store and Search (Local)
+
+```python
+from src.storage import MockChunkStore  # or HelixChunkStore for production
+
+# Store document with chunks and embeddings
+store = MockChunkStore()
+store.store_document(
+    doc_id="textbook",
+    title="My Textbook",
+    embedded_chunks=embedded_chunks,
+    metadata_list=metadata,
+)
+
+# Vector similarity search
+query_embedding = embedder.embed_text("What is machine learning?")
+results = store.search_similar(query_embedding, top_k=5)
+
+for chunk, score in results:
+    print(f"[{score:.3f}] {chunk.chunk.content[:100]}...")
+
+# Graph traversal - expand context
+top_chunk = results[0][0]
+parent = store.get_parent(top_chunk.chunk.id)
+siblings = store.get_siblings(top_chunk.chunk.id)
+context = store.get_context_window(top_chunk.chunk.id, window_size=2)
+```
+
 ## Project Structure
 
 ```text
@@ -137,12 +167,19 @@ kidkazz_rag/
 │   │   ├── analyzer.py                    # Markdown quality analysis
 │   │   ├── converter.py                   # PDF conversion wrapper
 │   │   └── selector.py                    # Tool recommendation
-│   └── chunker/                           # Phase 2: Chunking pipeline
+│   ├── chunker/                           # Phase 2: Chunking pipeline
+│   │   ├── __init__.py                    # Public API
+│   │   ├── parser.py                      # Markdown structure extraction
+│   │   ├── chunker.py                     # Hierarchical chunking
+│   │   ├── metadata.py                    # Metadata enrichment
+│   │   └── embedder.py                    # FastEmbed integration
+│   └── storage/                           # Phase 3: Helix-DB integration
 │       ├── __init__.py                    # Public API
-│       ├── parser.py                      # Markdown structure extraction
-│       ├── chunker.py                     # Hierarchical chunking
-│       ├── metadata.py                    # Metadata enrichment
-│       └── embedder.py                    # FastEmbed integration
+│       ├── schema.py                      # Helix-DB schema definitions
+│       ├── converters.py                  # Dataclass <-> Helix format
+│       ├── queries.py                     # HelixQL query classes
+│       ├── mock_store.py                  # In-memory MockChunkStore
+│       └── client.py                      # HelixChunkStore client
 ├── tests/
 │   ├── conftest.py                        # Shared fixtures
 │   ├── test_analyzer.py                   # Phase 1 tests
@@ -151,7 +188,12 @@ kidkazz_rag/
 │   ├── test_parser.py                     # Phase 2 tests
 │   ├── test_chunker.py
 │   ├── test_metadata.py
-│   └── test_embedder.py
+│   ├── test_embedder.py
+│   ├── test_storage_schema.py             # Phase 3 tests
+│   ├── test_storage_converters.py
+│   ├── test_storage_mock.py
+│   ├── test_storage_queries.py
+│   └── test_storage_integration.py
 └── docs/
     ├── design/
     │   └── PLAN_PHASE2.md                 # Phase 2 design document
@@ -218,9 +260,10 @@ python -m pytest tests/ --cov=src --cov-report=term-missing
 # Run specific phase
 python -m pytest tests/test_parser.py tests/test_chunker.py -v  # Phase 2
 python -m pytest tests/test_analyzer.py tests/test_converter.py -v  # Phase 1
+python -m pytest tests/test_storage_*.py -v  # Phase 3
 ```
 
-**Current Coverage:** 223 tests, 89% coverage
+**Current Coverage:** 337 tests, 76% coverage
 
 ## Troubleshooting
 
@@ -241,11 +284,19 @@ python -m pytest tests/test_analyzer.py tests/test_converter.py -v  # Phase 1
 | Slow embedding | Reduce batch_size, or use MockEmbedder for testing |
 | Memory issues | Process documents in smaller sections |
 
+### Storage (Local)
+
+| Issue | Solution |
+|-------|----------|
+| helix-py not installed | `pip install helix-py` |
+| No Helix-DB server | Use MockChunkStore for testing |
+| Connection refused | Start Helix-DB server: `helix deploy --local` |
+
 ## Roadmap
 
 - [x] Phase 1: PDF to Markdown converter (Colab notebook)
 - [x] Phase 2: Hierarchical chunking pipeline
-- [ ] Phase 3: Helix-DB integration (vector + graph storage)
+- [x] Phase 3: Helix-DB integration (vector + graph storage)
 - [ ] Phase 4: MCP server for Claude Code
 - [ ] Phase 5: End-to-end CLI tool
 
@@ -253,6 +304,7 @@ python -m pytest tests/test_analyzer.py tests/test_converter.py -v  # Phase 1
 
 - [Testing Guide](docs/testing/UNIT_TEST.md) - How to run and understand tests
 - [Phase 2 Design](docs/design/PLAN_PHASE2.md) - Chunking pipeline architecture
+- [Phase 3 Design](docs/design/PLAN_PHASE3.md) - Helix-DB storage integration
 
 ## Contributing
 

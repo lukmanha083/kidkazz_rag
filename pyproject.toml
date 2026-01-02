@@ -37,6 +37,13 @@ converter = [
 chunker = [
     "fastembed>=0.2.0",
 ]
+helixdb = [
+    "helix-py>=0.1.0",
+]
+all = [
+    "fastembed>=0.2.0",
+    "helix-py>=0.1.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -44,6 +51,9 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "helix: marks tests requiring real Helix-DB server (deselect with '-m \"not helix\"')",
+]
 
 [tool.coverage.run]
 source = ["src"]
