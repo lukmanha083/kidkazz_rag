@@ -38,16 +38,36 @@ class BaseQuery:
     """
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload."""
+        """
+        Builds the list of operation payloads for this query.
+        
+        Returns:
+            list[dict[str, Any]]: A list of operation payload dictionaries describing the actions to execute.
+        
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
+        """
         raise NotImplementedError
 
     def response(self, response: Any) -> Any:
-        """Process response from database."""
+        """
+        Return the database response unchanged.
+        
+        Returns:
+            The original `response` value unchanged.
+        """
         return response
 
 
 def _get_query_base_class() -> type:
-    """Get the appropriate Query base class."""
+    """
+    Selects the Query base class to use.
+    
+    Attempts to import and return `helix.Query`; if that import fails, returns the module's `BaseQuery` fallback.
+    
+    Returns:
+        The `helix.Query` class when helix-py is available, otherwise `BaseQuery`.
+    """
     try:
         from helix import Query
         return Query
@@ -61,12 +81,15 @@ class AddDocument(_get_query_base_class()):
 
     def __init__(self, doc_id: str, title: str, chunk_count: int) -> None:
         """
-        Initialize AddDocument query.
-
-        Args:
-            doc_id: Unique document identifier
-            title: Document title
-            chunk_count: Number of chunks in document
+        Create an AddDocument query that stores document metadata and a creation timestamp.
+        
+        Parameters:
+            doc_id (str): Unique identifier for the document.
+            title (str): Human-readable title of the document.
+            chunk_count (int): Number of chunks contained in the document.
+        
+        Notes:
+            Sets the `created_at` attribute to the current time as integer seconds since the epoch.
         """
         super().__init__()
         self.doc_id = doc_id
@@ -75,7 +98,13 @@ class AddDocument(_get_query_base_class()):
         self.created_at = int(time.time())
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for adding document."""
+        """
+        Builds the payload to add a Document node to Helix-DB.
+        
+        Returns:
+            list[dict[str, Any]]: A list with a single operation dict for `add_node` targeting `Document`,
+            containing `doc_id`, `title`, `chunk_count`, and `created_at` in `properties`.
+        """
         return [{
             "operation": "add_node",
             "node_type": "Document",
@@ -88,7 +117,15 @@ class AddDocument(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Return a successful QueryResult containing this query's document id.
+        
+        Parameters:
+            response (Any): Raw response from the database or execution engine (ignored).
+        
+        Returns:
+            QueryResult: success=True and data set to {'doc_id': self.doc_id}.
+        """
         return QueryResult(success=True, data={"doc_id": self.doc_id})
 
 
@@ -97,16 +134,21 @@ class DeleteDocument(_get_query_base_class()):
 
     def __init__(self, doc_id: str) -> None:
         """
-        Initialize DeleteDocument query.
-
-        Args:
-            doc_id: Document identifier to delete
+        Create a DeleteDocument query for the specified document.
+        
+        Parameters:
+            doc_id (str): The document identifier to delete.
         """
         super().__init__()
         self.doc_id = doc_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for deleting document."""
+        """
+        Builds the operation payload to delete a Document and cascade-remove its HasChunk edges.
+        
+        Returns:
+            list[dict[str, Any]]: A list containing a single delete_cascade operation payload filtered by the instance's `doc_id`.
+        """
         return [{
             "operation": "delete_cascade",
             "start_node": "Document",
@@ -115,7 +157,15 @@ class DeleteDocument(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Return a successful QueryResult containing this query's document id.
+        
+        Parameters:
+            response (Any): Raw response from the database or execution engine (ignored).
+        
+        Returns:
+            QueryResult: success=True and data set to {'doc_id': self.doc_id}.
+        """
         return QueryResult(success=True, data={"doc_id": self.doc_id})
 
 
@@ -130,12 +180,12 @@ class AddChunkWithEmbedding(_get_query_base_class()):
         doc_id: str,
     ) -> None:
         """
-        Initialize AddChunkWithEmbedding query.
-
-        Args:
-            chunk_props: Dictionary of chunk properties
-            embedding: Vector embedding (384 dims)
-            doc_id: Parent document ID
+        Create a query that adds a Chunk node with its embedding and links it to a parent Document.
+        
+        Parameters:
+            chunk_props (dict[str, Any]): Properties for the Chunk node; must include `chunk_id`.
+            embedding (list[float]): Embedding vector for the chunk (expected dimensionality: 384).
+            doc_id (str): Identifier of the parent Document to link the chunk to.
         """
         super().__init__()
         self.chunk_props = chunk_props
@@ -143,7 +193,12 @@ class AddChunkWithEmbedding(_get_query_base_class()):
         self.doc_id = doc_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for adding chunk with embedding."""
+        """
+        Builds the operation payloads to add a Chunk node, its embedding vector, and edges linking the vector to the chunk and the chunk to its parent Document.
+        
+        Returns:
+            list[dict[str, Any]]: A list of operation payload dictionaries: an `add_node` for `Chunk`, an `add_vector` for `ChunkVector`, an `add_edge` (`HasEmbedding`) from the chunk to its vector, and an `add_edge` (`HasChunk`) from the document to the chunk.
+        """
         return [
             # Add chunk node
             {
@@ -174,7 +229,12 @@ class AddChunkWithEmbedding(_get_query_base_class()):
         ]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Return a QueryResult indicating the chunk was added and include the chunk's id.
+        
+        Returns:
+            QueryResult: success is `True`; `data` contains `{"chunk_id": <chunk_id from self.chunk_props>}`.
+        """
         return QueryResult(
             success=True,
             data={"chunk_id": self.chunk_props["chunk_id"]},
@@ -191,12 +251,12 @@ class AddChunkRelationship(_get_query_base_class()):
         to_chunk_id: str,
     ) -> None:
         """
-        Initialize AddChunkRelationship query.
-
-        Args:
-            edge_type: Type of edge (ParentOf, NextSibling, etc.)
-            from_chunk_id: Source chunk ID
-            to_chunk_id: Target chunk ID
+        Initialize an AddChunkRelationship query that adds an edge between two chunk nodes.
+        
+        Parameters:
+            edge_type (str): Name/type of the relationship edge (e.g., "ParentOf", "NextSibling").
+            from_chunk_id (str): ID of the source chunk node.
+            to_chunk_id (str): ID of the target chunk node.
         """
         super().__init__()
         self.edge_type = edge_type
@@ -204,7 +264,12 @@ class AddChunkRelationship(_get_query_base_class()):
         self.to_chunk_id = to_chunk_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for adding chunk relationship."""
+        """
+        Add an edge of the specified type between two Chunk nodes identified by their chunk IDs.
+        
+        Returns:
+            list[dict[str, Any]]: A single-element list containing the operation payload to add the edge between the source and target Chunk nodes.
+        """
         return [{
             "operation": "add_edge",
             "edge_type": self.edge_type,
@@ -213,7 +278,15 @@ class AddChunkRelationship(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Produce a QueryResult indicating success with no payload.
+        
+        Parameters:
+            response (Any): The raw response from the query (ignored).
+        
+        Returns:
+            QueryResult: `success=True` with `data=None` and `error=None`.
+        """
         return QueryResult(success=True)
 
 
@@ -222,16 +295,21 @@ class GetChunk(_get_query_base_class()):
 
     def __init__(self, chunk_id: str) -> None:
         """
-        Initialize GetChunk query.
-
-        Args:
-            chunk_id: Chunk identifier
+        Initialize a GetChunk query for retrieving a chunk by its identifier.
+        
+        Parameters:
+            chunk_id (str): Identifier of the chunk to retrieve.
         """
         super().__init__()
         self.chunk_id = chunk_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for getting chunk."""
+        """
+        Return the payload for a get_node query that retrieves a Chunk by its chunk_id and includes its vector.
+        
+        Returns:
+            list[dict[str, Any]]: A single-item list containing an operation dictionary with keys "operation", "node_type", "filter", and "include_vector"; the "filter" matches this instance's `chunk_id`.
+        """
         return [{
             "operation": "get_node",
             "node_type": "Chunk",
@@ -240,7 +318,16 @@ class GetChunk(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Convert a raw chunk retrieval response into a standardized QueryResult.
+        
+        Parameters:
+            response (Any): Raw payload returned by the chunk query; treated as "found" if truthy.
+        
+        Returns:
+            QueryResult: If `response` is truthy, `success=True` and `data` contains the response.
+                         If `response` is falsy, `success=False` and `error` is "Chunk not found".
+        """
         if response:
             return QueryResult(success=True, data=response)
         return QueryResult(success=False, error="Chunk not found")
@@ -251,16 +338,21 @@ class GetChunkWithContext(_get_query_base_class()):
 
     def __init__(self, chunk_id: str) -> None:
         """
-        Initialize GetChunkWithContext query.
-
-        Args:
-            chunk_id: Chunk identifier
+        Create a query to retrieve a chunk and its related context (parent, siblings, neighbors).
+        
+        Parameters:
+            chunk_id (str): Identifier of the chunk to retrieve.
         """
         super().__init__()
         self.chunk_id = chunk_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for getting chunk with context."""
+        """
+        Builds a traverse query payload to retrieve a Chunk and its related context (parent, siblings, next, prev).
+        
+        Returns:
+            list[dict[str, Any]]: A single-element list containing a traversal operation payload that starts from the Chunk filtered by self.chunk_id and requests the 'chunk', 'parent', 'siblings', 'next', and 'prev' nodes.
+        """
         return [{
             "operation": "traverse",
             "start": {"node_type": "Chunk", "filter": {"chunk_id": self.chunk_id}},
@@ -274,7 +366,15 @@ class GetChunkWithContext(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Wraps a raw backend response into a successful QueryResult.
+        
+        Parameters:
+            response (Any): Raw response payload produced by executing the query.
+        
+        Returns:
+            QueryResult: A result object with `success` set to `True` and `data` containing the provided response.
+        """
         return QueryResult(success=True, data=response)
 
 
@@ -292,15 +392,15 @@ class SearchSimilarChunks(_get_query_base_class()):
         threshold: float = 0.0,
     ) -> None:
         """
-        Initialize SearchSimilarChunks query.
-
-        Args:
-            query_embedding: Query vector (384 dims)
-            top_k: Number of results
-            doc_id: Filter by document (optional)
-            level: Filter by hierarchy level (optional)
-            semantic_type: Filter by semantic type (optional)
-            threshold: Minimum similarity score
+        Create a SearchSimilarChunks query configured with a query vector and optional filters.
+        
+        Parameters:
+            query_embedding (list[float]): Query embedding vector used for similarity search.
+            top_k (int): Maximum number of results to return.
+            doc_id (Optional[str]): If provided, restrict results to this document ID.
+            level (Optional[int]): If provided, restrict results to this hierarchy level.
+            semantic_type (Optional[str]): If provided, restrict results to this semantic type.
+            threshold (float): Minimum similarity score for returned results.
         """
         super().__init__()
         self.query_embedding = query_embedding
@@ -311,7 +411,12 @@ class SearchSimilarChunks(_get_query_base_class()):
         self.threshold = threshold
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for vector search."""
+        """
+        Builds the payload for a vector similarity search over chunk vectors.
+        
+        Returns:
+            A list containing a single operation dictionary for a `vector_search` targeting `ChunkVector` with the configured `query_embedding`, `top_k`, `threshold`, and any provided filters (`doc_id`, `level`, `semantic_type`); `return_nodes` is set to `True`.
+        """
         filters: dict[str, Any] = {}
         if self.doc_id:
             filters["doc_id"] = self.doc_id
@@ -331,7 +436,15 @@ class SearchSimilarChunks(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Wraps a raw backend response into a successful QueryResult.
+        
+        Parameters:
+            response (Any): Raw response payload produced by executing the query.
+        
+        Returns:
+            QueryResult: A result object with `success` set to `True` and `data` containing the provided response.
+        """
         return QueryResult(success=True, data=response)
 
 
@@ -344,18 +457,23 @@ class SearchKeyword(_get_query_base_class()):
         doc_id: Optional[str] = None,
     ) -> None:
         """
-        Initialize SearchKeyword query.
-
-        Args:
-            keyword: Search term
-            doc_id: Filter by document (optional)
+        Create a SearchKeyword query for full-text searching chunk content.
+        
+        Parameters:
+            keyword (str): Term to search for within chunk content.
+            doc_id (Optional[str]): Optional document ID to restrict results to a single document.
         """
         super().__init__()
         self.keyword = keyword
         self.doc_id = doc_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for keyword search."""
+        """
+        Builds the Helix-DB payload for a keyword search against chunk content.
+        
+        Returns:
+            payload (list[dict[str, Any]]): A single-operation list containing a `keyword_search` dictionary targeting node_type `Chunk`, field `content`, with `keyword` set from the instance and `filters` including `doc_id` when provided.
+        """
         filters: dict[str, Any] = {}
         if self.doc_id:
             filters["doc_id"] = self.doc_id
@@ -369,7 +487,15 @@ class SearchKeyword(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Wraps a raw backend response into a successful QueryResult.
+        
+        Parameters:
+            response (Any): Raw response payload produced by executing the query.
+        
+        Returns:
+            QueryResult: A result object with `success` set to `True` and `data` containing the provided response.
+        """
         return QueryResult(success=True, data=response)
 
 
@@ -383,18 +509,25 @@ class GetDocumentChunks(_get_query_base_class()):
         level: Optional[int] = None,
     ) -> None:
         """
-        Initialize GetDocumentChunks query.
-
-        Args:
-            doc_id: Document identifier
-            level: Filter by hierarchy level (optional)
+        Initialize a GetDocumentChunks query for retrieving chunks of a document.
+        
+        Parameters:
+            doc_id (str): Document identifier to retrieve chunks for.
+            level (Optional[int]): Optional hierarchy level to filter returned chunks.
         """
         super().__init__()
         self.doc_id = doc_id
         self.level = level
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for getting document chunks."""
+        """
+        Build a traverse payload to retrieve chunks belonging to a document.
+        
+        Includes an optional `level` filter and orders returned chunks by `sequence_position`.
+        
+        Returns:
+            list[dict[str, Any]]: A single-operation payload for a "traverse" operation that starts from the Document identified by `doc_id`, traverses `HasChunk` edges outward, applies filters (`doc_id` and optional `level`), and requests results ordered by `sequence_position`.
+        """
         filters: dict[str, Any] = {"doc_id": self.doc_id}
         if self.level is not None:
             filters["level"] = self.level
@@ -408,7 +541,15 @@ class GetDocumentChunks(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Wraps a raw backend response into a successful QueryResult.
+        
+        Parameters:
+            response (Any): Raw response payload produced by executing the query.
+        
+        Returns:
+            QueryResult: A result object with `success` set to `True` and `data` containing the provided response.
+        """
         return QueryResult(success=True, data=response)
 
 
@@ -416,7 +557,12 @@ class ListDocuments(_get_query_base_class()):
     """List all documents."""
 
     def query(self) -> list[dict[str, Any]]:
-        """Return query payload for listing documents."""
+        """
+        Builds the query payload to retrieve all Document nodes ordered by creation time.
+        
+        Returns:
+            list[dict[str, Any]]: A single-item list containing a `get_all` operation payload for node_type `Document` ordered by `created_at`.
+        """
         return [{
             "operation": "get_all",
             "node_type": "Document",
@@ -424,5 +570,13 @@ class ListDocuments(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """
+        Wraps a raw backend response into a successful QueryResult.
+        
+        Parameters:
+            response (Any): Raw response payload produced by executing the query.
+        
+        Returns:
+            QueryResult: A result object with `success` set to `True` and `data` containing the provided response.
+        """
         return QueryResult(success=True, data=response)

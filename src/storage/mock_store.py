@@ -45,13 +45,13 @@ class MockChunkStore:
         metadata_list: list[ChunkMetadata],
     ) -> None:
         """
-        Store a complete document with all chunks, embeddings, and relationships.
-
-        Args:
-            doc_id: Unique document identifier
-            title: Document title
-            embedded_chunks: List of chunks with embeddings
-            metadata_list: Corresponding metadata for each chunk
+        Store a document and its chunks, embeddings, and per-chunk metadata in the in-memory store.
+        
+        Parameters:
+            doc_id (str): Unique identifier for the document.
+            title (str): Document title.
+            embedded_chunks (list[EmbeddedChunk]): Ordered list of chunks with their embeddings and model names. Each element's chunk.id is used as the storage key.
+            metadata_list (list[ChunkMetadata]): Ordered list of metadata corresponding to each element in `embedded_chunks`. Must be the same length as `embedded_chunks` and paired by index.
         """
         import time
 
@@ -93,13 +93,10 @@ class MockChunkStore:
 
     def get_chunk(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """
-        Retrieve a single chunk by ID with its embedding.
-
-        Args:
-            chunk_id: Unique chunk identifier
-
+        Retrieve the EmbeddedChunk (including its embedding and model name) for the given chunk ID.
+        
         Returns:
-            EmbeddedChunk if found, None otherwise
+            EmbeddedChunk for the chunk ID, or `None` if the chunk does not exist.
         """
         if chunk_id not in self._chunks:
             return None
@@ -108,13 +105,13 @@ class MockChunkStore:
 
     def delete_chunk(self, chunk_id: str) -> bool:
         """
-        Delete a chunk and its embedding.
-
-        Args:
-            chunk_id: Unique chunk identifier
-
+        Deletes a chunk and its embedding from the store.
+        
+        Parameters:
+            chunk_id (str): ID of the chunk to delete.
+        
         Returns:
-            True if deleted, False if not found
+            bool: `True` if the chunk was deleted, `False` if the chunk_id was not found.
         """
         if chunk_id not in self._chunks:
             return False
@@ -150,15 +147,15 @@ class MockChunkStore:
         embedding: Optional[list[float]] = None,
     ) -> bool:
         """
-        Update chunk content and/or embedding.
-
-        Args:
-            chunk_id: Unique chunk identifier
-            content: New content (optional)
-            embedding: New embedding (optional)
-
+        Update a stored chunk's content and/or embedding.
+        
+        Parameters:
+            chunk_id (str): Identifier of the chunk to update.
+            content (Optional[str]): New content to replace the chunk's existing content.
+            embedding (Optional[list[float]]): New embedding vector to replace the stored embedding.
+        
         Returns:
-            True if updated, False if not found
+            bool: `True` if the chunk was found and updated, `False` otherwise.
         """
         if chunk_id not in self._chunks:
             return False
@@ -174,13 +171,13 @@ class MockChunkStore:
 
     def delete_document(self, doc_id: str) -> bool:
         """
-        Delete a document and all its chunks.
-
-        Args:
-            doc_id: Unique document identifier
-
+        Remove a document and all associated chunks, embeddings, and model-name entries from the store.
+        
+        Parameters:
+            doc_id (str): Unique identifier of the document to delete.
+        
         Returns:
-            True if deleted, False if not found
+            bool: `True` if the document and its associated data were found and deleted, `False` if the document was not found.
         """
         if doc_id not in self._documents:
             return False
@@ -209,18 +206,18 @@ class MockChunkStore:
         threshold: float = 0.0,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
-        Find chunks similar to query embedding.
-
-        Args:
-            query_embedding: Query vector (384 dims)
-            top_k: Number of results
-            doc_id: Filter by document (optional)
-            level: Filter by hierarchy level (optional)
-            semantic_type: Filter by semantic type (optional)
-            threshold: Minimum similarity score (default: 0.0)
-
+        Return the top-k chunks whose embeddings are most similar to the provided query embedding.
+        
+        Parameters:
+            query_embedding (list[float]): Query embedding vector.
+            top_k (int): Maximum number of results to return (default 5).
+            doc_id (Optional[str]): If provided, restrict results to chunks from this document.
+            level (Optional[int]): If provided, restrict results to chunks with this hierarchy level.
+            semantic_type (Optional[str]): If provided, restrict results to chunks with this semantic type.
+            threshold (float): Minimum similarity score required for a chunk to be included (default 0.0).
+        
         Returns:
-            List of (EmbeddedChunk, similarity_score) tuples, sorted by score
+            list[tuple[EmbeddedChunk, float]]: A list of (EmbeddedChunk, similarity_score) tuples sorted by similarity descending. The similarity_score is the cosine similarity between the query and chunk embeddings.
         """
         results: list[tuple[str, float]] = []
 
@@ -259,15 +256,15 @@ class MockChunkStore:
         case_sensitive: bool = False,
     ) -> list[EmbeddedChunk]:
         """
-        Full-text keyword search in chunk content.
-
-        Args:
-            keyword: Search term
-            doc_id: Filter by document (optional)
-            case_sensitive: Whether search is case-sensitive
-
+        Perform a full-text search for a keyword across stored chunk contents.
+        
+        Parameters:
+            keyword (str): Term to search for within chunk content.
+            doc_id (Optional[str]): If provided, limit search to chunks belonging to this document.
+            case_sensitive (bool): If True, perform a case-sensitive match; otherwise match case-insensitively.
+        
         Returns:
-            List of matching EmbeddedChunks
+            list[EmbeddedChunk]: EmbeddedChunk objects whose content contains the keyword.
         """
         results: list[EmbeddedChunk] = []
         search_term = keyword if case_sensitive else keyword.lower()
@@ -288,13 +285,13 @@ class MockChunkStore:
 
     def get_parent(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """
-        Get parent chunk (Level 2 -> Level 1).
-
-        Args:
-            chunk_id: Child chunk ID
-
+        Return the parent EmbeddedChunk of the given chunk.
+        
+        Parameters:
+            chunk_id (str): ID of the child chunk whose parent should be retrieved.
+        
         Returns:
-            Parent EmbeddedChunk if exists, None otherwise
+            Optional[EmbeddedChunk]: The parent EmbeddedChunk if found, `None` otherwise.
         """
         if chunk_id not in self._chunks:
             return None
@@ -307,13 +304,13 @@ class MockChunkStore:
 
     def get_children(self, chunk_id: str) -> list[EmbeddedChunk]:
         """
-        Get child chunks (Level 1 -> Level 2).
-
-        Args:
-            chunk_id: Parent chunk ID
-
+        Return the child chunks of the given parent chunk in stored order.
+        
+        Parameters:
+            chunk_id (str): ID of the parent chunk.
+        
         Returns:
-            List of child EmbeddedChunks
+            list[EmbeddedChunk]: Child EmbeddedChunks in the parent's stored order; returns an empty list if the parent is not found or has no children.
         """
         if chunk_id not in self._chunks:
             return []
@@ -326,13 +323,13 @@ class MockChunkStore:
 
     def get_siblings(self, chunk_id: str) -> list[EmbeddedChunk]:
         """
-        Get sibling chunks (same parent, excluding self).
-
-        Args:
-            chunk_id: Chunk ID
-
+        Get sibling chunks that share the same parent as the given chunk, excluding the chunk itself.
+        
+        Parameters:
+            chunk_id (str): ID of the chunk whose siblings to retrieve.
+        
         Returns:
-            List of sibling EmbeddedChunks
+            list[EmbeddedChunk]: List of sibling EmbeddedChunk objects; empty list if the chunk is not found or has no siblings.
         """
         if chunk_id not in self._chunks:
             return []
@@ -349,14 +346,14 @@ class MockChunkStore:
         window_size: int = 1,
     ) -> list[EmbeddedChunk]:
         """
-        Get chunk with surrounding context (prev/next neighbors).
-
-        Args:
-            chunk_id: Center chunk ID
-            window_size: Number of chunks before and after
-
+        Return the center chunk and up to window_size preceding and following sibling chunks in document order.
+        
+        Parameters:
+            chunk_id (str): ID of the center chunk.
+            window_size (int): Number of neighbor chunks to include before and after the center.
+        
         Returns:
-            List of EmbeddedChunks in document order
+            list[EmbeddedChunk]: Reconstructed EmbeddedChunks ordered as previous chunks (earliest first), the center chunk, then next chunks. Returns an empty list if chunk_id does not exist.
         """
         if chunk_id not in self._chunks:
             return []
@@ -396,14 +393,16 @@ class MockChunkStore:
         level: Optional[int] = None,
     ) -> list[EmbeddedChunk]:
         """
-        Get all chunks for a document.
-
-        Args:
-            doc_id: Document identifier
-            level: Filter by hierarchy level (optional)
-
+        Return all EmbeddedChunk objects for a document, optionally filtered by hierarchy level.
+        
+        If `level` is provided, only chunks whose stored `level` equals that value are returned. Results are sorted by the stored `sequence_position` in ascending order.
+        
+        Parameters:
+            doc_id (str): Document identifier.
+            level (Optional[int]): Hierarchy level to filter by (e.g., 0, 1, 2); if omitted, returns chunks at all levels.
+        
         Returns:
-            List of EmbeddedChunks for the document
+            list[EmbeddedChunk]: Embedded chunks belonging to the document, sorted by `sequence_position`.
         """
         results: list[EmbeddedChunk] = []
 
@@ -423,22 +422,29 @@ class MockChunkStore:
 
     def list_documents(self) -> list[dict[str, Any]]:
         """
-        List all documents with metadata.
-
+        Return metadata for all stored documents.
+        
         Returns:
-            List of document metadata dictionaries
+            A list of document metadata dictionaries. Each dictionary contains the document's `id`, `title`, `chunk_count`, and `created_at`.
         """
         return list(self._documents.values())
 
     def get_document_stats(self, doc_id: str) -> Optional[dict[str, Any]]:
         """
-        Get statistics for a document.
-
-        Args:
-            doc_id: Document identifier
-
+        Compute aggregated statistics for the specified document.
+        
+        Parameters:
+            doc_id (str): Identifier of the document to summarize.
+        
         Returns:
-            Dictionary with document statistics, or None if not found
+            dict | None: A dictionary with keys:
+                - "doc_id": the requested document id
+                - "title": document title (empty string if missing)
+                - "total_chunks": number of chunks belonging to the document
+                - "level_counts": mapping of level (0, 1, 2) to counts (missing levels default to 0)
+                - "type_counts": mapping of semantic_type to counts
+                - "total_tokens": sum of token_count across the document's chunks
+            Returns None if the document is not found.
         """
         if doc_id not in self._documents:
             return None

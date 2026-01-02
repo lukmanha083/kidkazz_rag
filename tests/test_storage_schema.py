@@ -180,7 +180,11 @@ class TestValidateChunkNode:
         assert any("chunk_id" in e for e in errors)
 
     def test_invalid_level_type(self):
-        """Should return error for invalid level type."""
+        """
+        Ensure validate_chunk_node reports an error when the `level` field is not an integer.
+        
+        Asserts that the returned errors include a message referencing `level` and the word "integer".
+        """
         node = {
             "chunk_id": "test_1",
             "content": "Test",
