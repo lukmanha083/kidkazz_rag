@@ -84,10 +84,10 @@ EDGE_TYPES: dict[str, tuple[str, str]] = {
 
 def get_schema_definition() -> dict[str, Any]:
     """
-    Get complete schema definition as a dictionary.
-
+    Return the complete KidKazz schema definition.
+    
     Returns:
-        Dictionary with nodes, edges, and vectors definitions
+        dict: Mapping with keys "nodes" (node name -> node schema) and "edges" (edge name -> edge definition).
     """
     return {
         "nodes": {
@@ -101,17 +101,13 @@ def get_schema_definition() -> dict[str, Any]:
 
 def create_kidkazz_schema(config: Optional[SchemaConfig] = None) -> Any:
     """
-    Create Helix-DB schema for KidKazz RAG.
-
-    Args:
-        config: Optional schema configuration
-
+    Constructs the KidKazz Helix-DB schema for documents, hierarchical chunks, and chunk embeddings.
+    
+    Parameters:
+        config (SchemaConfig, optional): Overrides defaults for vector type, dimensions, and database name.
+    
     Returns:
-        Helix Schema object (if helix-py installed) or schema dict
-
-    Note:
-        Requires helix-py to be installed for actual Schema creation.
-        Returns a dictionary definition if helix-py is not available.
+        Schema object if helix-py is available; otherwise a dict representing the schema definition.
     """
     config = config or SchemaConfig()
 
@@ -149,17 +145,16 @@ def initialize_schema(
     config: Optional[SchemaConfig] = None,
 ) -> bool:
     """
-    Initialize schema in a Helix-DB instance.
-
-    Args:
-        config: Optional schema configuration
-
+    Initialize the KidKazz Helix-DB schema in a Helix-DB instance.
+    
+    Parameters:
+        config (Optional[SchemaConfig]): Optional configuration for schema creation; uses defaults when omitted.
+    
     Returns:
-        True if schema was initialized successfully
-
+        True if a Helix Schema object was created and persisted, False if a dictionary schema definition was returned instead.
+    
     Raises:
-        ImportError: If helix-py is not installed
-        RuntimeError: If schema initialization fails
+        ImportError: If helix-py is not installed.
     """
     try:
         from helix import Schema
@@ -179,13 +174,18 @@ def initialize_schema(
 
 def validate_chunk_node(node: dict[str, Any]) -> list[str]:
     """
-    Validate a chunk node against the schema.
-
-    Args:
-        node: Dictionary of chunk node properties
-
+    Validate a chunk node dictionary against the KidKazz Chunk schema.
+    
+    Performs presence checks for required fields and basic value/type validations:
+    - Required: "chunk_id", "content", "level", "token_count".
+    - "level" must be an integer equal to 0, 1, or 2.
+    - If present, "semantic_type" must be one of: "definition", "example", "procedure", "theorem", "narrative".
+    
+    Parameters:
+        node (dict[str, Any]): Chunk node properties to validate.
+    
     Returns:
-        List of validation error messages (empty if valid)
+        list[str]: Validation error messages; empty list if the node is valid.
     """
     errors: list[str] = []
 
@@ -212,13 +212,15 @@ def validate_chunk_node(node: dict[str, Any]) -> list[str]:
 
 def validate_document_node(node: dict[str, Any]) -> list[str]:
     """
-    Validate a document node against the schema.
-
-    Args:
-        node: Dictionary of document node properties
-
+    Validate a Document node dictionary against the module's Document schema.
+    
+    Checks that required fields 'doc_id' and 'title' are present, and that 'chunk_count' is an int when provided.
+    
+    Parameters:
+        node (dict[str, Any]): Document node properties to validate.
+    
     Returns:
-        List of validation error messages (empty if valid)
+        list[str]: Validation error messages; empty list if the node is valid.
     """
     errors: list[str] = []
 

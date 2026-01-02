@@ -93,7 +93,11 @@ class TestChunkToHelixNode:
         assert result["has_list"] is False
 
     def test_handles_none_optional_fields(self):
-        """Should handle None values for optional fields."""
+        """
+        Convert optional None fields on a Chunk to empty strings in the Helix node representation.
+        
+        Verifies that `parent_id` and `source_section` set to None become empty strings in the resulting node.
+        """
         chunk = Chunk(
             id="test_1",
             content="Test",

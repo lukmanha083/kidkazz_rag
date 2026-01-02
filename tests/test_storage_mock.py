@@ -9,19 +9,38 @@ from src.storage.mock_store import MockChunkStore
 
 @pytest.fixture
 def mock_store():
-    """Create fresh mock store."""
+    """
+    Return a fresh in-memory MockChunkStore for use in tests.
+    
+    Returns:
+        MockChunkStore: A new, empty MockChunkStore instance.
+    """
     return MockChunkStore()
 
 
 @pytest.fixture
 def mock_embedder():
-    """Create mock embedder."""
+    """
+    Create a MockEmbedder configured to produce 384-dimensional embeddings.
+    
+    Returns:
+        MockEmbedder: An embedder instance with embedding_dim set to 384.
+    """
     return MockEmbedder(embedding_dim=384)
 
 
 @pytest.fixture
 def sample_chunks():
-    """Create sample chunks with relationships."""
+    """
+    Create three sample Chunk objects representing a parent with two sequential children.
+    
+    The returned list contains:
+    - a level-1 parent chunk (id "doc_l1_1") that lists its two children in `child_ids`.
+    - two level-2 child chunks ("doc_l2_1", "doc_l2_2") that reference the parent via `parent_id`, form a sequential link via `next_id`/`prev_id`, and include `section_path` entries.
+    
+    Returns:
+        list[Chunk]: A list of chunks in the order [parent, first child, second child].
+    """
     # Level 1 parent chunk
     parent = Chunk(
         id="doc_l1_1",
@@ -56,13 +75,29 @@ def sample_chunks():
 
 @pytest.fixture
 def sample_embedded_chunks(sample_chunks, mock_embedder):
-    """Create sample embedded chunks."""
+    """
+    Create embedded versions of the provided sample chunks using the given embedder.
+    
+    Returns:
+        list: The input chunks with embeddings attached (one embedding per chunk).
+    """
     return mock_embedder.embed_chunks(sample_chunks)
 
 
 @pytest.fixture
 def sample_metadata(sample_chunks):
-    """Create sample metadata for chunks."""
+    """
+    Create a list of three sample ChunkMetadata objects used by tests.
+    
+    Parameters:
+        sample_chunks (list[Chunk]): Ordered list of three Chunk objects whose ids are used as `chunk_id` values (expected order: root/level-1 then two level-2 children).
+    
+    Returns:
+        list[ChunkMetadata]: Three metadata objects for document `"test_doc"`:
+            - index 0: semantic_type `"narrative"`, sequence_position 0, no siblings.
+            - index 1: semantic_type `"definition"`, sequence_position 1, sibling `"doc_l2_2"`, `has_code=True`.
+            - index 2: semantic_type `"example"`, sequence_position 2, sibling `"doc_l2_1"`, `has_table=True`.
+    """
     return [
         ChunkMetadata(
             chunk_id=sample_chunks[0].id,
@@ -215,7 +250,13 @@ class TestUpdateChunk:
         assert mock_store._chunks["doc_l2_1"]["content"] == "Updated content"
 
     def test_updates_embedding(self, mock_store, sample_embedded_chunks, sample_metadata):
-        """Should update embedding."""
+        """
+        Verifies that updating a chunk's embedding replaces the stored embedding for that chunk.
+        
+        The test stores a document with precomputed embeddings, updates the embedding of chunk `doc_l2_1`,
+        and asserts that the update returns success and that the store's internal embeddings map
+        contains the new embedding for `doc_l2_1`.
+        """
         mock_store.store_document("doc1", "Title", sample_embedded_chunks, sample_metadata)
         new_embedding = [1.0] * 384
 
@@ -338,7 +379,12 @@ class TestSearchKeyword:
         assert len(results) >= 1
 
     def test_case_sensitive_option(self, mock_store, sample_embedded_chunks, sample_metadata):
-        """Should support case-sensitive search."""
+        """
+        Verifies that keyword search respects case sensitivity when requested.
+        
+        Stores sample chunks and asserts that a lowercase query returns no results with case_sensitive=True,
+        while the correctly capitalized query returns one or more matches.
+        """
         mock_store.store_document("doc1", "Title", sample_embedded_chunks, sample_metadata)
 
         # Sample data has "First" (capitalized), searching "first" case-sensitively

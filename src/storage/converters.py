@@ -11,14 +11,14 @@ def chunk_to_helix_node(
     metadata: Optional[ChunkMetadata] = None,
 ) -> dict[str, Any]:
     """
-    Convert Chunk and optional ChunkMetadata to Helix-DB node properties.
-
-    Args:
-        chunk: The chunk dataclass
-        metadata: Optional metadata for additional fields
-
+    Convert a Chunk (and optional ChunkMetadata) into a Helix-DB node property dictionary.
+    
+    Parameters:
+        chunk (Chunk): Chunk dataclass to convert.
+        metadata (Optional[ChunkMetadata]): Optional metadata to include additional document-level fields.
+    
     Returns:
-        Dictionary of node properties for Helix-DB
+        dict[str, Any]: Helix-DB node properties. Always includes keys like `chunk_id`, `content`, `level`, `token_count`, `word_count`, `section_path` (JSON string), `source_section`, `parent_id`, `child_ids` (JSON string), `prev_id`, and `next_id`. If `metadata` is provided, also includes `document_id`, `semantic_type`, `topic_tags` (JSON string), `sequence_position`, `sibling_ids` (JSON string), and boolean flags `has_table`, `has_code`, `has_math`, `has_list`.
     """
     node: dict[str, Any] = {
         "chunk_id": chunk.id,
@@ -53,13 +53,15 @@ def chunk_to_helix_node(
 
 def helix_node_to_chunk(node: dict[str, Any]) -> Chunk:
     """
-    Convert Helix-DB node properties to Chunk dataclass.
-
-    Args:
-        node: Dictionary of node properties from Helix-DB
-
+    Reconstruct a Chunk dataclass from a Helix-DB node property dictionary.
+    
+    Parses JSON-encoded 'section_path' and 'child_ids' fields when present and maps node properties to the corresponding Chunk fields; optional relational IDs default to None if missing.
+    
+    Parameters:
+        node (dict[str, Any]): Helix-DB node properties.
+    
     Returns:
-        Reconstructed Chunk dataclass
+        Chunk: The reconstructed Chunk with fields populated from the node.
     """
     # Parse JSON fields
     section_path = json.loads(node.get("section_path", "[]"))
@@ -81,13 +83,16 @@ def helix_node_to_chunk(node: dict[str, Any]) -> Chunk:
 
 def helix_node_to_metadata(node: dict[str, Any]) -> ChunkMetadata:
     """
-    Convert Helix-DB node properties to ChunkMetadata dataclass.
-
-    Args:
-        node: Dictionary of node properties from Helix-DB
-
+    Convert a Helix-DB node dictionary into a ChunkMetadata instance.
+    
+    Parses JSON-encoded list fields (topic_tags, sibling_ids, child_ids, section_path)
+    and applies sensible defaults for optional or missing properties.
+    
+    Parameters:
+        node (dict[str, Any]): Helix-DB node properties for a chunk.
+    
     Returns:
-        Reconstructed ChunkMetadata dataclass
+        ChunkMetadata: Reconstructed ChunkMetadata with parsed list fields and defaults for missing optional values.
     """
     # Parse JSON fields
     topic_tags = json.loads(node.get("topic_tags", "[]"))
@@ -142,15 +147,15 @@ def helix_to_embedded_chunk(
     model_name: str,
 ) -> EmbeddedChunk:
     """
-    Reconstruct EmbeddedChunk from Helix-DB data.
-
-    Args:
-        node: Node properties from Helix-DB
-        embedding: Vector embedding
-        model_name: Name of embedding model
-
+    Create an EmbeddedChunk from a Helix-DB node and the provided embedding information.
+    
+    Parameters:
+        node: Helix-DB node properties used to reconstruct the underlying Chunk.
+        embedding: Embedding vector associated with the chunk.
+        model_name: Name of the embedding model that produced the embedding.
+    
     Returns:
-        Reconstructed EmbeddedChunk
+        An EmbeddedChunk composed of the reconstructed Chunk, the provided embedding, and the model name.
     """
     chunk = helix_node_to_chunk(node)
     return EmbeddedChunk(
@@ -167,16 +172,13 @@ def document_to_helix_node(
     created_at: Optional[int] = None,
 ) -> dict[str, Any]:
     """
-    Create Helix-DB document node properties.
-
-    Args:
-        doc_id: Unique document identifier
-        title: Document title
-        chunk_count: Number of chunks in document
-        created_at: Unix timestamp (auto-generated if not provided)
-
+    Create a Helix-DB document node property dictionary for the given document.
+    
+    Parameters:
+        created_at (Optional[int]): Unix timestamp to set as the document creation time; if `None`, the current Unix time is used.
+    
     Returns:
-        Dictionary of document node properties
+        dict[str, Any]: Document node properties with keys `doc_id`, `title`, `chunk_count`, and `created_at`.
     """
     import time
 
@@ -190,13 +192,17 @@ def document_to_helix_node(
 
 def helix_node_to_document(node: dict[str, Any]) -> dict[str, Any]:
     """
-    Convert Helix-DB document node to dictionary.
-
-    Args:
-        node: Document node properties from Helix-DB
-
+    Convert a Helix-DB document node dictionary into a plain document metadata dictionary.
+    
+    Parameters:
+        node (dict): Helix-DB document node properties; must contain the key `doc_id`.
+    
     Returns:
-        Dictionary with document metadata
+        dict: A dictionary with keys:
+            - `doc_id` (str): Document identifier from `node["doc_id"]`.
+            - `title` (str): Document title, empty string if missing.
+            - `chunk_count` (int): Number of chunks, `0` if missing.
+            - `created_at` (int): Unix timestamp of creation, `0` if missing.
     """
     return {
         "doc_id": node["doc_id"],

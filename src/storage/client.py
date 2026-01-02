@@ -79,19 +79,49 @@ class ChunkStoreProtocol(Protocol):
         embedded_chunks: list[EmbeddedChunk],
         metadata_list: list[ChunkMetadata],
     ) -> None:
-        """Store a document with all chunks."""
+        """
+        Store a document and persist its chunks, embeddings, and hierarchical relationships.
+        
+        Parameters:
+            doc_id (str): Unique identifier for the document.
+            title (str): Document title to store with the document node.
+            embedded_chunks (list[EmbeddedChunk]): Ordered list of chunks containing content and embeddings.
+            metadata_list (list[ChunkMetadata]): List of metadata objects corresponding by index to `embedded_chunks`; must be the same length.
+        
+        Notes:
+            - Persists a document node, creates chunk nodes with their embeddings, and creates "ParentOf" and "NextSibling" relationships between chunks where applicable.
+            - May raise ImportError if the underlying `helix` client library is not installed.
+        """
         ...
 
     def get_chunk(self, chunk_id: str) -> Optional[EmbeddedChunk]:
-        """Get a chunk by ID."""
+        """
+        Retrieve a chunk by its ID, including its embedding and model metadata.
+        
+        Returns:
+            EmbeddedChunk or None: The chunk with its embedding and model information if found, `None` if no chunk exists with the given `chunk_id`.
+        """
         ...
 
     def delete_chunk(self, chunk_id: str) -> bool:
-        """Delete a chunk."""
+        """
+        Delete a chunk and its relationships from the store.
+        
+        Parameters:
+            chunk_id (str): Identifier of the chunk to delete.
+        
+        Returns:
+            bool: `True` if the chunk existed and was deleted, `False` if the chunk was not found.
+        """
         ...
 
     def delete_document(self, doc_id: str) -> bool:
-        """Delete a document and all its chunks."""
+        """
+        Delete a document and all associated chunks from the store.
+        
+        Returns:
+            bool: `True` if the document was deleted, `False` otherwise.
+        """
         ...
 
     def search_similar(
@@ -103,19 +133,53 @@ class ChunkStoreProtocol(Protocol):
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
     ) -> list[tuple[EmbeddedChunk, float]]:
-        """Find similar chunks by vector search."""
+        """
+        Perform a vector-based similarity search to find chunks nearest to a query embedding.
+        
+        Parameters:
+            query_embedding (list[float]): Query vector to compare against stored chunk embeddings.
+            top_k (int): Maximum number of results to return.
+            doc_id (Optional[str]): If provided, restrict results to chunks belonging to this document.
+            level (Optional[int]): If provided, restrict results to chunks at this hierarchical level.
+            semantic_type (Optional[str]): If provided, restrict results to chunks with this semantic type.
+            threshold (float): Minimum similarity score required for a result to be included.
+        
+        Returns:
+            list[tuple[EmbeddedChunk, float]]: A list of (chunk, score) pairs ordered by descending similarity score; `score` is the similarity between `query_embedding` and the chunk's embedding.
+        """
         ...
 
     def get_parent(self, chunk_id: str) -> Optional[EmbeddedChunk]:
-        """Get parent chunk."""
+        """
+        Retrieve the immediate parent chunk of the specified chunk.
+        
+        Returns:
+            EmbeddedChunk: The parent chunk if it exists, `None` otherwise.
+        """
         ...
 
     def get_children(self, chunk_id: str) -> list[EmbeddedChunk]:
-        """Get child chunks."""
+        """
+        Return the immediate child chunks of the specified parent chunk.
+        
+        Parameters:
+            chunk_id (str): ID of the parent chunk whose direct children should be retrieved.
+        
+        Returns:
+            list[EmbeddedChunk]: List of child chunks (including their embeddings and metadata); empty list if no children are found or the operation fails.
+        """
         ...
 
     def get_siblings(self, chunk_id: str) -> list[EmbeddedChunk]:
-        """Get sibling chunks."""
+        """
+        Retrieve sibling chunks that share the same parent as the given chunk, excluding the chunk itself.
+        
+        Parameters:
+        	chunk_id (str): Identifier of the center chunk whose siblings are requested.
+        
+        Returns:
+        	list[EmbeddedChunk]: Sibling chunks in document order; an empty list if the chunk has no parent, the chunk is not found, or there are no siblings.
+        """
         ...
 
     def get_context_window(
@@ -123,11 +187,25 @@ class ChunkStoreProtocol(Protocol):
         chunk_id: str,
         window_size: int = 1,
     ) -> list[EmbeddedChunk]:
-        """Get chunk with surrounding context."""
+        """
+        Retrieve a window of chunks around a center chunk in document order.
+        
+        Parameters:
+            chunk_id (str): ID of the center chunk to build the window around.
+            window_size (int): Number of neighboring chunks to include on each side of the center chunk.
+        
+        Returns:
+            list[EmbeddedChunk]: Chunks ordered from earlier to later in the document (previous neighbors, center, next neighbors). Returns an empty list if the center chunk is not found.
+        """
         ...
 
     def list_documents(self) -> list[dict[str, Any]]:
-        """List all documents."""
+        """
+        Retrieve metadata for all stored documents.
+        
+        Returns:
+            list[dict[str, Any]]: A list of document metadata dictionaries (e.g., containing keys like `doc_id` and `title`). Returns an empty list if no documents are found or the query fails.
+        """
         ...
 
 
@@ -144,20 +222,27 @@ class HelixChunkStore:
 
     def __init__(self, config: Optional[HelixConfig] = None) -> None:
         """
-        Initialize Helix-DB connection.
-
-        Args:
-            config: Optional connection configuration
-
-        Note:
-            Connection is lazy-initialized on first operation.
+        Create a HelixChunkStore configured for connecting to Helix-DB.
+        
+        Parameters:
+            config (Optional[HelixConfig]): Configuration for the connection; defaults to a local HelixConfig().
+        
+        Notes:
+            The actual connection is created lazily on first use.
         """
         self.config = config or HelixConfig()
         self._client: Any = None
         self._initialized = False
 
     def _ensure_connected(self) -> None:
-        """Ensure connection to Helix-DB is established."""
+        """
+        Ensure a Helix-DB client connection is created and cached.
+        
+        If a connection has not already been initialized, creates a helix.Client using values from self.config, assigns it to self._client, and sets self._initialized to True.
+        
+        Raises:
+            ImportError: If the `helix` package is not installed (suggests installing `helix-py`).
+        """
         if self._initialized:
             return
 
@@ -184,17 +269,16 @@ class HelixChunkStore:
         metadata_list: list[ChunkMetadata],
     ) -> None:
         """
-        Store a complete document with all chunks, embeddings, and relationships.
-
-        Args:
-            doc_id: Unique document identifier
-            title: Document title
-            embedded_chunks: List of chunks with embeddings
-            metadata_list: Corresponding metadata for each chunk
-
+        Store a document and its chunks into Helix-DB, including embeddings and parent/next relationships.
+        
+        Parameters:
+            doc_id (str): Unique identifier for the document.
+            title (str): Document title.
+            embedded_chunks (list[EmbeddedChunk]): Chunks paired with their embeddings to store.
+            metadata_list (list[ChunkMetadata]): Metadata entries corresponding to each chunk.
+        
         Raises:
-            ImportError: If helix-py is not installed
-            RuntimeError: If storage operation fails
+            ImportError: If the helix-py client library is not installed.
         """
         self._ensure_connected()
 
@@ -260,13 +344,13 @@ class HelixChunkStore:
 
     def delete_chunk(self, chunk_id: str) -> bool:
         """
-        Delete a chunk and its relationships.
-
-        Args:
-            chunk_id: Unique chunk identifier
-
+        Delete a chunk and all its relationships from the store.
+        
+        Parameters:
+            chunk_id (str): Unique identifier of the chunk to delete.
+        
         Returns:
-            True if deleted, False if not found
+            bool: `True` if the chunk existed and was deleted, `False` if the chunk was not found.
         """
         self._ensure_connected()
 
@@ -291,15 +375,15 @@ class HelixChunkStore:
         embedding: Optional[list[float]] = None,
     ) -> bool:
         """
-        Update chunk content and/or embedding.
-
-        Args:
-            chunk_id: Unique chunk identifier
-            content: New content (optional)
-            embedding: New embedding (optional)
-
+        Update the content and/or embedding of an existing chunk.
+        
+        Parameters:
+            chunk_id (str): Unique identifier of the chunk to update.
+            content (Optional[str]): New textual content for the chunk. If provided, the chunk's word count will be updated.
+            embedding (Optional[list[float]]): New vector embedding for the chunk.
+        
         Returns:
-            True if updated, False if not found
+            bool: True if the chunk was found and at least one update was applied, False if the chunk does not exist.
         """
         self._ensure_connected()
 
@@ -357,18 +441,18 @@ class HelixChunkStore:
         threshold: float = 0.0,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
-        Find chunks similar to query embedding.
-
-        Args:
-            query_embedding: Query vector (384 dims)
-            top_k: Number of results
-            doc_id: Filter by document (optional)
-            level: Filter by hierarchy level (optional)
-            semantic_type: Filter by semantic type (optional)
-            threshold: Minimum similarity score (default: 0.0)
-
+        Retrieve chunks most similar to a query embedding.
+        
+        Parameters:
+            query_embedding (list[float]): Embedding vector for the query.
+            top_k (int): Maximum number of results to return.
+            doc_id (Optional[str]): If provided, restrict results to this document.
+            level (Optional[int]): If provided, restrict results to this hierarchy level.
+            semantic_type (Optional[str]): If provided, restrict results to this semantic type.
+            threshold (float): Minimum similarity score to include a result.
+        
         Returns:
-            List of (EmbeddedChunk, similarity_score) tuples, sorted by score
+            list[tuple[EmbeddedChunk, float]]: Pairs of matching chunks and their similarity scores, sorted by score descending.
         """
         self._ensure_connected()
 
@@ -426,14 +510,14 @@ class HelixChunkStore:
         doc_id: Optional[str] = None,
     ) -> list[EmbeddedChunk]:
         """
-        Full-text keyword search in chunk content.
-
-        Args:
-            keyword: Search term
-            doc_id: Filter by document (optional)
-
+        Find chunks whose content matches a keyword and return them as EmbeddedChunk objects.
+        
+        Parameters:
+            keyword (str): Term to search for in chunk content.
+            doc_id (Optional[str]): Optional document ID to restrict the search.
+        
         Returns:
-            List of matching EmbeddedChunks
+            list[EmbeddedChunk]: Matching chunks converted to EmbeddedChunk objects.
         """
         self._ensure_connected()
 
@@ -456,13 +540,10 @@ class HelixChunkStore:
 
     def get_parent(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """
-        Get parent chunk (Level 2 -> Level 1).
-
-        Args:
-            chunk_id: Child chunk ID
-
+        Return the parent chunk one level up for the given chunk ID.
+        
         Returns:
-            Parent EmbeddedChunk if exists, None otherwise
+            The parent EmbeddedChunk if it exists, `None` otherwise.
         """
         self._ensure_connected()
 
@@ -484,13 +565,13 @@ class HelixChunkStore:
 
     def get_children(self, chunk_id: str) -> list[EmbeddedChunk]:
         """
-        Get child chunks (Level 1 -> Level 2).
-
-        Args:
-            chunk_id: Parent chunk ID
-
+        Retrieve direct child chunks whose `parent_id` equals the given chunk ID.
+        
+        Parameters:
+            chunk_id (str): ID of the parent chunk whose immediate children to retrieve.
+        
         Returns:
-            List of child EmbeddedChunks
+            list[EmbeddedChunk]: List of child EmbeddedChunk objects (may be empty).
         """
         self._ensure_connected()
 
@@ -516,13 +597,13 @@ class HelixChunkStore:
 
     def get_siblings(self, chunk_id: str) -> list[EmbeddedChunk]:
         """
-        Get sibling chunks (same parent, excluding self).
-
-        Args:
-            chunk_id: Chunk ID
-
+        Retrieve sibling chunks that share the same parent as the given chunk, excluding the chunk itself.
+        
+        Parameters:
+            chunk_id (str): ID of the chunk whose siblings to retrieve.
+        
         Returns:
-            List of sibling EmbeddedChunks
+            list[EmbeddedChunk]: List of sibling EmbeddedChunk objects; returns an empty list if the chunk has no siblings or the query fails.
         """
         self._ensure_connected()
 
@@ -606,14 +687,13 @@ class HelixChunkStore:
         level: Optional[int] = None,
     ) -> list[EmbeddedChunk]:
         """
-        Get all chunks for a document.
-
-        Args:
-            doc_id: Document identifier
-            level: Filter by hierarchy level (optional)
-
+        Retrieve all embedded chunks for a document, optionally filtering by hierarchy level.
+        
+        Parameters:
+            level (Optional[int]): If provided, only return chunks at this hierarchy level (e.g., 0 for top-level).
+        
         Returns:
-            List of EmbeddedChunks for the document
+            list[EmbeddedChunk]: EmbeddedChunk objects for the document; returns an empty list if no chunks are found or the query fails.
         """
         self._ensure_connected()
 
@@ -637,9 +717,9 @@ class HelixChunkStore:
     def list_documents(self) -> list[dict[str, Any]]:
         """
         List all documents with metadata.
-
+        
         Returns:
-            List of document metadata dictionaries
+            A list of document metadata dictionaries; returns an empty list if no documents are found or the query fails.
         """
         self._ensure_connected()
 
@@ -653,13 +733,17 @@ class HelixChunkStore:
 
     def get_document_stats(self, doc_id: str) -> Optional[dict[str, Any]]:
         """
-        Get statistics for a document.
-
-        Args:
-            doc_id: Document identifier
-
+        Compute basic statistics for a document's chunks.
+        
         Returns:
-            Dictionary with document statistics, or None if not found
+            A dict with the document statistics containing:
+                - "doc_id": the requested document id.
+                - "title": document title (empty string if unavailable).
+                - "total_chunks": number of chunks for the document.
+                - "level_counts": mapping of level (0, 1, 2) to chunk counts.
+                - "type_counts": mapping of semantic type to counts (may be empty).
+                - "total_tokens": sum of token_count across all chunks.
+            `None` if the document has no chunks or cannot be found.
         """
         self._ensure_connected()
 
@@ -699,9 +783,18 @@ class HelixChunkStore:
             self._initialized = False
 
     def __enter__(self) -> "HelixChunkStore":
-        """Context manager entry."""
+        """
+        Enter a context and return this HelixChunkStore instance.
+        
+        Returns:
+            HelixChunkStore: The same store instance to be used within the context manager.
+        """
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Context manager exit."""
+        """
+        Close the HelixChunkStore and release its connection resources when exiting a context.
+        
+        This method is invoked by the context-manager protocol to ensure the store's connection is closed and internal state is reset.
+        """
         self.close()

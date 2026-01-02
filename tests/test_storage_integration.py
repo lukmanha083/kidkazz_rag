@@ -14,13 +14,23 @@ from src.storage.mock_store import MockChunkStore
 
 @pytest.fixture
 def mock_store():
-    """Create fresh mock store."""
+    """
+    Provide a fresh MockChunkStore instance for tests.
+    
+    Returns:
+        MockChunkStore: A new, empty MockChunkStore instance ready for use in tests.
+    """
     return MockChunkStore()
 
 
 @pytest.fixture
 def mock_embedder():
-    """Create mock embedder."""
+    """
+    Provide a MockEmbedder configured with a 384-dimensional embedding space.
+    
+    Returns:
+        MockEmbedder: an embedder instance with `embedding_dim` set to 384
+    """
     return MockEmbedder(embedding_dim=384)
 
 
@@ -293,7 +303,11 @@ class TestKeywordSearch:
     """Tests for keyword search functionality."""
 
     def test_keyword_search_finds_exact_terms(self, mock_store, mock_embedder):
-        """Should find chunks containing exact keyword."""
+        """
+        Finds chunks containing the exact keyword "Python".
+        
+        Verifies that a keyword search returns exactly one result and that the returned chunk has id "python".
+        """
         chunks = [
             Chunk(id="python", content="Python is a programming language", level=2, token_count=5),
             Chunk(id="java", content="Java is also a programming language", level=2, token_count=5),
