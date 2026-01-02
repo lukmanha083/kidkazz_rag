@@ -196,7 +196,8 @@ kidkazz_rag/
 │   └── test_storage_integration.py
 └── docs/
     ├── design/
-    │   └── PLAN_PHASE2.md                 # Phase 2 design document
+    │   ├── PLAN_PHASE2.md                 # Phase 2 design document
+    │   └── PLAN_PHASE3.md                 # Phase 3 design document
     └── testing/
         └── UNIT_TEST.md                   # Testing guide
 ```
@@ -238,6 +239,36 @@ The chunker never splits:
 - Code blocks (``` or ~~~)
 - Tables (markdown tables)
 - Math blocks ($$ or \[\])
+
+## Storage Layer Details
+
+### Helix-DB Schema
+
+The storage layer uses a three-node graph structure:
+
+| Node Type | Purpose | Key Fields |
+|-----------|---------|------------|
+| Document | Container | doc_id, title, chunk_count |
+| Chunk | Content + metadata | chunk_id, content, level, semantic_type |
+| ChunkVector | Embedding | embedding (384 dims) |
+
+### Edge Relationships
+
+| Edge Type | From → To | Purpose |
+|-----------|-----------|---------|
+| HasChunk | Document → Chunk | Document contains chunks |
+| ParentOf | Chunk → Chunk | L1 → L2 hierarchy |
+| NextSibling | Chunk → Chunk | Sequential order |
+| HasEmbedding | Chunk → ChunkVector | Chunk has embedding |
+
+### Storage Implementations
+
+| Implementation | Use Case | Database Required |
+|----------------|----------|-------------------|
+| MockChunkStore | Unit testing, development | No |
+| HelixChunkStore | Production | Yes (Helix-DB server) |
+
+Both implementations share the same `ChunkStoreProtocol` interface for easy swapping.
 
 ## Tool Selection Guide
 

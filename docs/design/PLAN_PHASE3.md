@@ -60,7 +60,7 @@ Build a storage layer for hierarchical chunks with vector embeddings using Helix
 
 ## Module Structure
 
-```
+```text
 src/
 ├── chunker/           # Phase 2 (existing)
 └── storage/           # Phase 3 (new)
