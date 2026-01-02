@@ -134,7 +134,13 @@ def split_text_with_overlap(
         while start < len(text):
             end = min(start + max_chars, len(text))
             chunks.append(text[start:end])
-            start = end - overlap_chars
+            # Ensure we always make progress to avoid infinite loop
+            next_start = end - overlap_chars
+            if next_start <= start:
+                # If overlap would prevent progress, move to end
+                start = end
+            else:
+                start = next_start
 
     return chunks
 
@@ -176,13 +182,6 @@ def create_hierarchical_chunks(
     # Track all chunks
     all_chunks: list[Chunk] = []
     chunk_counter = {"level1": 0, "level2": 0}
-
-    def is_in_special_block(text: str) -> bool:
-        """Check if text contains a special block that shouldn't be split."""
-        for block in special_blocks:
-            if block.content in text:
-                return True
-        return False
 
     def create_level2_chunks(
         section_content: str,

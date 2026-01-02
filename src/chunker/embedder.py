@@ -148,11 +148,24 @@ class ChunkEmbedder:
         if not texts:
             return
 
-        # Handle empty texts by replacing with placeholder
-        processed_texts = [t if t.strip() else " " for t in texts]
+        # Track which texts are empty (return zero vector) vs non-empty (embed)
+        empty_mask = [not t.strip() for t in texts]
+        non_empty_texts = [t for t in texts if t.strip()]
+        zero_vector = [0.0] * self.get_embedding_dim()
 
-        for embedding in self._model.embed(processed_texts, batch_size=batch_size):
-            yield embedding.tolist()
+        # Get embeddings for non-empty texts
+        non_empty_embeddings = list(
+            self._model.embed(non_empty_texts, batch_size=batch_size)
+        ) if non_empty_texts else []
+
+        # Yield embeddings in original order
+        non_empty_idx = 0
+        for is_empty in empty_mask:
+            if is_empty:
+                yield zero_vector
+            else:
+                yield non_empty_embeddings[non_empty_idx].tolist()
+                non_empty_idx += 1
 
     def embed_chunk(self, chunk: Chunk) -> EmbeddedChunk:
         """

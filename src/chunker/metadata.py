@@ -115,19 +115,17 @@ def infer_semantic_type(content: str) -> str:
     Returns:
         Semantic type string
     """
-    content_lower = content.lower()
-
-    # Check patterns in priority order
+    # Check patterns in priority order (use IGNORECASE for all patterns)
     for pattern in THEOREM_PATTERNS:
         if re.search(pattern, content, re.IGNORECASE | re.MULTILINE):
             return "theorem"
 
     for pattern in DEFINITION_PATTERNS:
-        if re.search(pattern, content_lower):
+        if re.search(pattern, content, re.IGNORECASE | re.MULTILINE):
             return "definition"
 
     for pattern in EXAMPLE_PATTERNS:
-        if re.search(pattern, content_lower):
+        if re.search(pattern, content, re.IGNORECASE | re.MULTILINE):
             return "example"
 
     # Check for procedure (multiple indicators needed)
