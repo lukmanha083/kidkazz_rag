@@ -1,0 +1,67 @@
+"""Main CLI entry point for KidKazz RAG."""
+
+from typing import Optional
+
+import typer
+
+from .commands import config_cmd, db, docs, ingest, search
+
+# Create main app
+app = typer.Typer(
+    name="kidkazz",
+    help="KidKazz RAG - Convert PDFs to searchable knowledge bases",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+
+# Register command groups
+app.add_typer(ingest.app, name="ingest", help="Ingest documents into knowledge base")
+app.add_typer(search.app, name="search", help="Search the knowledge base")
+app.add_typer(docs.app, name="docs", help="Manage documents")
+app.add_typer(db.app, name="db", help="Database operations")
+app.add_typer(config_cmd.app, name="config", help="Configuration management")
+
+
+@app.callback()
+def main_callback(
+    ctx: typer.Context,
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Enable verbose output",
+    ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Suppress non-essential output",
+    ),
+) -> None:
+    """KidKazz RAG - Convert PDFs to searchable knowledge bases.
+
+    Use --help on any command for more information.
+    """
+    # Store options in context for subcommands
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
+    ctx.obj["quiet"] = quiet
+
+
+@app.command()
+def version() -> None:
+    """Show version information."""
+    from rich.console import Console
+
+    console = Console()
+    console.print("[bold]KidKazz RAG[/bold] version 0.1.0")
+    console.print("Python RAG system for PDF textbooks")
+
+
+def cli() -> None:
+    """Entry point for console script."""
+    app()
+
+
+if __name__ == "__main__":
+    cli()
