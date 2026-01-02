@@ -34,6 +34,9 @@ converter = [
     "docling>=1.0.0",
     "nougat-ocr>=0.1.0",
 ]
+chunker = [
+    "fastembed>=0.2.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
