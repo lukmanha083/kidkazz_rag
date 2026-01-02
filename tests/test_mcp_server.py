@@ -11,7 +11,7 @@ from src.mcp_server.server import create_server, run_server
 pytestmark = pytest.mark.mcp
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def mcp_available():
     """Skip test if MCP is not available."""
     pytest.importorskip("mcp")
@@ -20,27 +20,27 @@ def mcp_available():
 class TestCreateServer:
     """Tests for create_server function."""
 
-    def test_creates_fastmcp_instance(self, mcp_available):
+    def test_creates_fastmcp_instance(self):
         """Test create_server returns FastMCP instance."""
         config = MCPServerConfig(store_type="mock", embedder_type="mock")
         server = create_server(config)
         # FastMCP should have these attributes
         assert hasattr(server, "run")
 
-    def test_uses_default_config(self, mcp_available):
+    def test_uses_default_config(self):
         """Test create_server uses from_env when no config provided."""
         with patch.dict("os.environ", {"KIDKAZZ_STORE_TYPE": "mock"}, clear=True):
             server = create_server()
             assert hasattr(server, "run")
 
-    def test_uses_provided_state(self, mcp_available):
+    def test_uses_provided_state(self):
         """Test create_server uses provided ServerState."""
         config = MCPServerConfig(store_type="mock", embedder_type="mock")
         state = ServerState(config)
         server = create_server(state=state)
         assert hasattr(server, "run")
 
-    def test_server_has_name(self, mcp_available):
+    def test_server_has_name(self):
         """Test server has correct name."""
         config = MCPServerConfig(store_type="mock", embedder_type="mock")
         server = create_server(config)
@@ -77,7 +77,7 @@ class TestRunServer:
 class TestServerIntegration:
     """Integration tests for server components."""
 
-    def test_tools_registered(self, mcp_available):
+    def test_tools_registered(self):
         """Test all tools are registered on server creation."""
         config = MCPServerConfig(store_type="mock", embedder_type="mock")
         server = create_server(config)
@@ -86,7 +86,7 @@ class TestServerIntegration:
         # We can verify by checking the server was created successfully
         assert server is not None
 
-    def test_resources_registered(self, mcp_available):
+    def test_resources_registered(self):
         """Test all resources are registered on server creation."""
         config = MCPServerConfig(store_type="mock", embedder_type="mock")
         server = create_server(config)
@@ -94,18 +94,18 @@ class TestServerIntegration:
         # Verify server created with resources
         assert server is not None
 
-    def test_server_with_mock_store(self, mcp_available):
+    def test_server_with_mock_store(self):
         """Test server works with mock store."""
         config = MCPServerConfig(store_type="mock", embedder_type="mock")
         state = ServerState(config)
 
         # Access store to trigger lazy loading
-        store = state.store
+        assert state.store is not None
 
         server = create_server(state=state)
         assert server is not None
 
-    def test_server_lazy_loading(self, mcp_available):
+    def test_server_lazy_loading(self):
         """Test server components are lazy loaded."""
         config = MCPServerConfig(store_type="mock", embedder_type="mock")
         state = ServerState(config)

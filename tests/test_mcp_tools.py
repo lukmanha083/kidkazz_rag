@@ -191,6 +191,8 @@ class TestSearchKeyword:
         search = registered_tools["search_keyword"]
         results_lower = search(keyword="machine", case_sensitive=True)
         results_upper = search(keyword="MACHINE", case_sensitive=True)
+        # Case sensitive search for lowercase should find results
+        assert len(results_lower) > 0
         # Case sensitive search for uppercase should find nothing
         assert len(results_upper) == 0
 

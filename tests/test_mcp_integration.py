@@ -82,7 +82,7 @@ def textbook_chunks():
 
 
 @pytest.fixture
-def textbook_metadata(textbook_chunks):
+def textbook_metadata(textbook_chunks):  # noqa: ARG001 - dependency only
     """Create metadata for textbook chunks."""
     return [
         ChunkMetadata(

@@ -25,10 +25,10 @@ from .server import create_server, run_server
 from .__main__ import main
 
 __all__ = [
+    "LazyEmbedder",
     "MCPServerConfig",
     "ServerState",
-    "LazyEmbedder",
     "create_server",
-    "run_server",
     "main",
+    "run_server",
 ]

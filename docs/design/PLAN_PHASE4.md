@@ -226,7 +226,7 @@ kidkazz-mcp = "src.mcp_server:main"
 | test_mcp_server.py | ~8 | Server creation, registration |
 | test_mcp_integration.py | ~15 | End-to-end workflows |
 
-**Total: ~95 new tests**
+### Total: ~95 new tests
 
 ---
 
