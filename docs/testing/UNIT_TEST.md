@@ -30,13 +30,17 @@ PYTHONPATH=. pytest tests/ --cov=src --cov-report=term-missing
 ```text
 ========================= test session starts ==========================
 platform linux -- Python 3.13.11, pytest-9.0.2
-collected 84 items
+collected 223 items
 
-tests/test_analyzer.py   ............................ [ 40%]
-tests/test_converter.py  ........................    [ 67%]
+tests/test_analyzer.py   ............................ [ 12%]
+tests/test_chunker.py    ........................................... [ 31%]
+tests/test_converter.py  ........................    [ 42%]
+tests/test_embedder.py   ...........................  [ 54%]
+tests/test_metadata.py   .......................................  [ 72%]
+tests/test_parser.py     ............................  [ 84%]
 tests/test_selector.py   ...........................  [100%]
 
-========================= 84 passed in 0.39s ===========================
+========================= 223 passed in 0.39s ===========================
 ```
 
 ### Coverage Report
@@ -44,12 +48,17 @@ tests/test_selector.py   ...........................  [100%]
 ```text
 Name                             Stmts   Miss  Cover   Missing
 --------------------------------------------------------------
+src/chunker/__init__.py              5      0   100%
+src/chunker/chunker.py             185     25    86%
+src/chunker/embedder.py            103     31    70%
+src/chunker/metadata.py             93      0   100%
+src/chunker/parser.py              141      0   100%
 src/pdf_converter/__init__.py        4      0   100%
 src/pdf_converter/analyzer.py       61      1    98%   93
 src/pdf_converter/converter.py      86     21    76%   170-194, 204, 231, 240-242, 264-265
 src/pdf_converter/selector.py       32      0   100%
 --------------------------------------------------------------
-TOTAL                              183     22    88%
+TOTAL                              710     78    89%
 ```
 
 ---
@@ -347,14 +356,235 @@ Lines 170-194 in converter.py are the actual subprocess calls to external tools 
 
 ---
 
+## Phase 2: Hierarchical Chunking
+
+### 4. test_parser.py - Markdown Structure Parsing
+
+**Location:** `tests/test_parser.py`
+
+**Run:**
+```bash
+PYTHONPATH=. pytest tests/test_parser.py -v
+```
+
+**Test Classes:**
+
+#### TestParseMarkdownStructure (12 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_empty_content` | Handle empty content |
+| `test_content_without_headings` | Single root with all content |
+| `test_single_heading` | Parse single heading |
+| `test_multiple_headings_same_level` | Multiple h1 headings |
+| `test_nested_headings` | h2 under h1 nesting |
+| `test_deeply_nested_headings` | h1 > h2 > h3 nesting |
+| `test_sibling_sections_with_children` | Multiple h2 under h1 |
+| `test_content_before_first_heading` | Capture intro content |
+| `test_heading_with_special_chars` | Headings with `code` etc. |
+| `test_full_content_property` | Returns content with children |
+| `test_word_count_property` | Calculate word count |
+
+#### TestExtractSpecialBlocks (8 tests)
+
+| Test | Block Type | Expected |
+|------|------------|----------|
+| `test_empty_content` | Empty | Empty list |
+| `test_code_block_backticks` | Code (```) | Extracts with language |
+| `test_code_block_tildes` | Code (~~~) | Extracts code |
+| `test_table_detection` | Table | Extracts table |
+| `test_math_block_double_dollar` | Math ($$) | Extracts math |
+| `test_math_block_latex_brackets` | Math (\\[\\]) | Extracts math |
+| `test_multiple_blocks` | Mixed | All types extracted |
+| `test_preserves_line_numbers` | Any | Start/end lines tracked |
+
+#### TestBuildSectionPath, TestFlattenSections, TestGetSectionByLine, TestGetHeadingHierarchy (8 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_path_to_child` | Build path from root to child |
+| `test_path_to_root_child` | Path for direct child of root |
+| `test_path_not_found` | Empty list if target not found |
+| `test_empty_document` | Empty list for no headings |
+| `test_flattens_nested_structure` | Flatten in document order |
+| `test_finds_section` | Find section by line number |
+| `test_returns_none_for_root_only` | None for content before headings |
+| `test_returns_heading` | Return section heading |
+
+---
+
+### 5. test_chunker.py - Hierarchical Chunking Logic
+
+**Location:** `tests/test_chunker.py`
+
+**Run:**
+```bash
+PYTHONPATH=. pytest tests/test_chunker.py -v
+```
+
+**Test Classes:**
+
+#### TestEstimateTokens (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_empty_string` | Returns 0 for empty |
+| `test_short_text` | Estimate for short text |
+| `test_longer_text` | Estimate for longer text |
+| `test_proportional_to_length` | Longer = more tokens |
+
+#### TestSplitTextWithOverlap (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_empty_text` | Empty list for empty |
+| `test_whitespace_only` | Empty list for whitespace |
+| `test_short_text_single_chunk` | Single chunk for short |
+| `test_splits_long_text` | Multiple chunks for long |
+| `test_preserves_sentences` | Split at sentence boundaries |
+
+#### TestCreateHierarchicalChunks (12 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_empty_content` | Empty list for empty |
+| `test_simple_document` | Creates chunks |
+| `test_creates_level2_chunks` | Creates leaf chunks |
+| `test_creates_level1_for_large_sections` | Creates parent chunks |
+| `test_parent_child_relationships` | Links parent-child |
+| `test_prev_next_relationships` | Links prev-next |
+| `test_section_path_populated` | Section path set |
+| `test_respects_doc_id_prefix` | Uses doc_id in IDs |
+| `test_handles_code_blocks` | Preserves code blocks |
+| `test_handles_tables` | Preserves tables |
+| `test_intro_content_captured` | Captures intro content |
+
+#### TestGetChunkById, TestGetParentChunk, TestGetChildChunks, TestGetSiblingChunks, TestGetContextWindow (12 tests)
+
+Navigation and context retrieval tests for chunk relationships.
+
+---
+
+### 6. test_metadata.py - Metadata Enrichment
+
+**Location:** `tests/test_metadata.py`
+
+**Run:**
+```bash
+PYTHONPATH=. pytest tests/test_metadata.py -v
+```
+
+**Test Classes:**
+
+#### TestInferSemanticType (10 tests)
+
+| Test | Content Pattern | Expected Type |
+|------|-----------------|---------------|
+| `test_detects_definition` | "is defined as" | definition |
+| `test_detects_definition_is_a` | "is a" | definition |
+| `test_detects_example` | "For example" | example |
+| `test_detects_example_eg` | "For instance" | example |
+| `test_detects_procedure` | "First... Then..." | procedure |
+| `test_detects_theorem` | "Theorem 1:" | theorem |
+| `test_detects_proof` | "Proof:" | theorem |
+| `test_defaults_to_narrative` | General text | narrative |
+| `test_empty_content` | Empty | narrative |
+
+#### TestExtractTopicTags (7 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_extracts_bold_text` | **bold** terms |
+| `test_extracts_italic_text` | _italic_ terms |
+| `test_extracts_defined_terms` | "is a" patterns |
+| `test_extracts_capitalized_phrases` | Multi-word caps |
+| `test_limits_max_tags` | Respects max_tags |
+| `test_empty_content` | Empty list for empty |
+| `test_no_duplicates` | No duplicate tags |
+
+#### TestDetectContentFeatures (8 tests)
+
+| Test | Feature | Detection |
+|------|---------|-----------|
+| `test_detects_table` | has_table | Markdown table |
+| `test_detects_code_block` | has_code | ``` blocks |
+| `test_detects_inline_code` | has_code | `inline` |
+| `test_detects_math_dollar` | has_math | $ math $ |
+| `test_detects_math_double_dollar` | has_math | $$ blocks |
+| `test_detects_bullet_list` | has_list | - items |
+| `test_detects_numbered_list` | has_list | 1. items |
+| `test_no_features` | All false | Plain text |
+
+#### TestChunkMetadata, TestEnrichChunkMetadata, TestEnrichAllChunks, TestFilterChunksByType, TestFilterChunksByTopic (17 tests)
+
+Metadata creation, enrichment, and filtering tests.
+
+---
+
+### 7. test_embedder.py - Embedding Generation
+
+**Location:** `tests/test_embedder.py`
+
+**Run:**
+```bash
+PYTHONPATH=. pytest tests/test_embedder.py -v
+```
+
+**Test Classes:**
+
+#### TestMockEmbedder (13 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_initialization` | Default values |
+| `test_custom_dimension` | Custom embedding dim |
+| `test_embed_text_returns_correct_dimension` | Correct output size |
+| `test_embed_text_deterministic` | Same text = same embedding |
+| `test_embed_text_different_for_different_text` | Different text = different |
+| `test_embed_empty_text` | Zero vector for empty |
+| `test_embeddings_are_normalized` | Unit vectors |
+| `test_embed_texts_generator` | Multiple texts |
+| `test_embed_chunk` | Single chunk |
+| `test_embed_chunks` | Multiple chunks |
+| `test_embed_chunks_empty_list` | Empty list handling |
+
+#### TestCosineSimilarity (6 tests)
+
+| Test | Vectors | Expected |
+|------|---------|----------|
+| `test_identical_vectors` | Same | 1.0 |
+| `test_orthogonal_vectors` | Perpendicular | 0.0 |
+| `test_opposite_vectors` | Opposite | -1.0 |
+| `test_similar_vectors` | Similar | > 0.9 |
+| `test_zero_vector` | Zero | 0.0 |
+| `test_different_dimensions_raises` | Mismatch | ValueError |
+
+#### TestFindSimilarChunks (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_finds_most_similar` | Exact match first |
+| `test_respects_top_k` | Limits results |
+| `test_respects_threshold` | Filters by similarity |
+| `test_empty_chunks_list` | Empty for empty |
+| `test_returns_tuples` | (EmbeddedChunk, score) |
+
+#### TestChunkEmbedderInitialization (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `test_initialization` | No model load initially |
+| `test_custom_model_name` | Custom model name |
+| `test_get_embedding_dim_without_init` | Returns dim without loading |
+| `test_get_embedding_dim_custom_model` | Correct dims for models |
+
+---
+
 ## Next Phases
 
-Additional test modules will be added for each phase:
-
-| Phase | Test File | Status |
+| Phase | Test Files | Status |
 |-------|-----------|--------|
 | 1. PDF Converter | `test_selector.py`, `test_analyzer.py`, `test_converter.py` | Done |
-| 2. LlamaIndex Chunking | `test_chunking.py` | Pending |
-| 3. Embedding Generation | `test_embedding.py` | Pending |
-| 4. Helix-DB Integration | `test_database.py` | Pending |
-| 5. MCP Server | `test_mcp.py` | Pending |
+| 2. Hierarchical Chunking | `test_parser.py`, `test_chunker.py`, `test_metadata.py`, `test_embedder.py` | Done |
+| 3. Helix-DB Integration | `test_database.py` | Pending |
+| 4. MCP Server | `test_mcp.py` | Pending |
