@@ -255,7 +255,7 @@ def build_section_path(
             path = find_path(child, target)
             if path is not None:
                 if current.heading:
-                    return [current.heading] + path
+                    return [current.heading, *path]
                 return path
 
         return None

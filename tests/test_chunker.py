@@ -83,9 +83,11 @@ class TestSplitTextWithOverlap:
         text = "Sentence one here. Sentence two here. Sentence three here."
         result = split_text_with_overlap(text, 30, 10, preserve_sentences=True)
         if len(result) > 1:
-            # Some content from end of chunk 1 should appear in chunk 2
-            # (overlap behavior)
-            pass  # Just verify no crash
+            # Verify some content from chunk 1 appears in chunk 2 (overlap)
+            chunk1_words = set(result[0].split())
+            chunk2_words = set(result[1].split())
+            overlap_words = chunk1_words & chunk2_words
+            assert len(overlap_words) > 0, "Expected overlap between consecutive chunks"
 
 
 class TestGenerateChunkId:

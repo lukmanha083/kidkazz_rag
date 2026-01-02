@@ -188,7 +188,7 @@ class ChunkEmbedder:
         self,
         chunks: list[Chunk],
         batch_size: int = DEFAULT_BATCH_SIZE,
-        show_progress: bool = False,
+        show_progress: bool = False,  # noqa: ARG002 - reserved for future use
     ) -> list[EmbeddedChunk]:
         """
         Generate embeddings for multiple chunks.
@@ -196,7 +196,7 @@ class ChunkEmbedder:
         Args:
             chunks: List of chunks to embed
             batch_size: Batch size for processing
-            show_progress: Show progress indicator
+            show_progress: Show progress indicator (reserved for future implementation)
 
         Returns:
             List of EmbeddedChunks with embeddings
@@ -213,7 +213,7 @@ class ChunkEmbedder:
                 embedding=embedding,
                 model_name=self.model_name,
             )
-            for chunk, embedding in zip(chunks, embeddings)
+            for chunk, embedding in zip(chunks, embeddings, strict=True)
         ]
 
 
@@ -266,9 +266,17 @@ class MockEmbedder:
     def embed_texts(
         self,
         texts: list[str],
-        batch_size: int = DEFAULT_BATCH_SIZE,
+        batch_size: int = DEFAULT_BATCH_SIZE,  # noqa: ARG002 - API compatibility
     ) -> Iterator[list[float]]:
-        """Generate mock embeddings for multiple texts."""
+        """Generate mock embeddings for multiple texts.
+
+        Args:
+            texts: List of texts to embed
+            batch_size: Batch size (unused, for API compatibility with ChunkEmbedder)
+
+        Yields:
+            Mock embedding vectors
+        """
         for text in texts:
             yield self.embed_text(text)
 
@@ -283,10 +291,19 @@ class MockEmbedder:
     def embed_chunks(
         self,
         chunks: list[Chunk],
-        batch_size: int = DEFAULT_BATCH_SIZE,
-        show_progress: bool = False,
+        batch_size: int = DEFAULT_BATCH_SIZE,  # noqa: ARG002 - API compatibility
+        show_progress: bool = False,  # noqa: ARG002 - API compatibility
     ) -> list[EmbeddedChunk]:
-        """Generate mock embeddings for multiple chunks."""
+        """Generate mock embeddings for multiple chunks.
+
+        Args:
+            chunks: List of chunks to embed
+            batch_size: Batch size (unused, for API compatibility with ChunkEmbedder)
+            show_progress: Progress indicator (unused, for API compatibility)
+
+        Returns:
+            List of EmbeddedChunks with mock embeddings
+        """
         return [self.embed_chunk(chunk) for chunk in chunks]
 
 
@@ -304,7 +321,7 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     if len(vec1) != len(vec2):
         raise ValueError("Vectors must have same dimension")
 
-    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    dot_product = sum(a * b for a, b in zip(vec1, vec2, strict=True))
     norm1 = sum(a * a for a in vec1) ** 0.5
     norm2 = sum(b * b for b in vec2) ** 0.5
 
