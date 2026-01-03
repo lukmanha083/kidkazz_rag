@@ -325,7 +325,7 @@ class CloudSync:
         for line in output.split("\n"):
             if "files" in line.lower() and "transferred" in line.lower():
                 parts = line.split()
-                for i, part in enumerate(parts):
+                for part in parts:
                     try:
                         return int(part)
                     except ValueError:

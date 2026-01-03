@@ -309,6 +309,13 @@ def sync(
             console.print("Install from: https://rclone.org/install/")
             raise typer.Exit(1)
 
+        # Validate remote exists
+        if not cloud_sync.validate_remote(config.cloud_remote):
+            console.print(f"[red]Remote '{config.cloud_remote}' not found[/red]")
+            console.print("Configure with: rclone config")
+            console.print("Or list available remotes: kidkazz inbox sync --remotes")
+            raise typer.Exit(1)
+
         # Get inbox path
         inbox_path = Path(config.inbox_path).expanduser()
 
@@ -341,9 +348,9 @@ def sync(
 
     except typer.Exit:
         raise
-    except Exception as e:
+    except OSError as e:
         console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 def _format_size(size: int) -> str:
