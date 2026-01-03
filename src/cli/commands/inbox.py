@@ -16,6 +16,7 @@ from rich.table import Table
 
 from src.cli.config import CLIConfig
 from src.pdf_inbox import PDFInboxManager, PostConversionAction
+from src.pdf_inbox.cloud_sync import CloudSync
 
 app = typer.Typer(
     name="inbox",
@@ -230,6 +231,116 @@ def clear(
 
         console.print(f"[green]Deleted {deleted} file(s)[/green]")
 
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def sync(
+    check: bool = typer.Option(
+        False,
+        "--check",
+        help="Check if rclone is installed",
+    ),
+    remotes: bool = typer.Option(
+        False,
+        "--remotes",
+        help="List configured rclone remotes",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would be synced without syncing",
+    ),
+    download: bool = typer.Option(
+        False,
+        "--download",
+        help="Download from cloud instead of upload",
+    ),
+) -> None:
+    """Sync inbox with cloud storage using rclone.
+
+    By default, uploads local inbox PDFs to the configured remote.
+    Use --download to download from cloud to local inbox.
+    """
+    try:
+        config = CLIConfig.load()
+        cloud_sync = CloudSync(
+            remote_name=config.cloud_remote,
+            remote_path=config.cloud_path,
+        )
+
+        # Handle --check flag
+        if check:
+            if cloud_sync.check_rclone_installed():
+                version = cloud_sync.get_rclone_version()
+                console.print(f"[green]rclone is installed: {version}[/green]")
+            else:
+                console.print("[red]rclone is not installed[/red]")
+                console.print("Install from: https://rclone.org/install/")
+                raise typer.Exit(1)
+            return
+
+        # Handle --remotes flag
+        if remotes:
+            remote_list = cloud_sync.list_remotes()
+            if not remote_list:
+                console.print("[yellow]No remotes configured[/yellow]")
+                console.print("Configure a remote with: rclone config")
+            else:
+                console.print("[bold]Configured remotes:[/bold]")
+                for remote in remote_list:
+                    console.print(f"  - {remote}")
+            return
+
+        # Validate remote is configured for sync operations
+        if not config.cloud_remote:
+            console.print("[red]No cloud remote configured[/red]")
+            console.print(
+                "Configure with: kidkazz config set cloud_remote <remote_name>"
+            )
+            console.print("Or set environment variable: KIDKAZZ_CLOUD_REMOTE")
+            raise typer.Exit(1)
+
+        # Check rclone is installed
+        if not cloud_sync.check_rclone_installed():
+            console.print("[red]rclone is not installed[/red]")
+            console.print("Install from: https://rclone.org/install/")
+            raise typer.Exit(1)
+
+        # Get inbox path
+        inbox_path = Path(config.inbox_path).expanduser()
+
+        # Perform sync
+        if download:
+            console.print(
+                f"[bold]Downloading from {config.cloud_remote}:{config.cloud_path}...[/bold]"
+            )
+            result = cloud_sync.sync_from_remote(
+                local_path=inbox_path,
+                dry_run=dry_run,
+            )
+        else:
+            console.print(
+                f"[bold]Uploading to {config.cloud_remote}:{config.cloud_path}...[/bold]"
+            )
+            result = cloud_sync.sync_to_remote(
+                local_path=inbox_path,
+                dry_run=dry_run,
+            )
+
+        if result.success:
+            action = "Would sync" if dry_run else "Synced"
+            console.print(
+                f"[green]{action} {result.files_synced} file(s)[/green]"
+            )
+        else:
+            console.print(f"[red]Sync failed: {result.error_message}[/red]")
+            raise typer.Exit(1)
+
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
