@@ -3,12 +3,15 @@
 This module defines the data structures used by the PDF inbox feature:
 - ProcessingStatus: Enum for PDF processing states
 - PostConversionAction: Enum for actions after conversion
+- SyncStatus: Enum for cloud sync states
 - PDFFile: Dataclass representing a PDF file
 - InboxConfig: Configuration settings for the inbox
+- SyncResult: Dataclass for sync operation results
+- CloudSyncConfig: Configuration for cloud sync
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -29,6 +32,15 @@ class PostConversionAction(Enum):
     DELETE = "delete"
     MOVE = "move"
     KEEP = "keep"
+
+
+class SyncStatus(Enum):
+    """Status of cloud sync operation."""
+
+    PENDING = "pending"
+    SYNCING = "syncing"
+    SYNCED = "synced"
+    FAILED = "failed"
 
 
 @dataclass
@@ -155,4 +167,68 @@ class InboxConfig:
             post_action=post_action,
             recursive=data.get("recursive", False),
             processed_dir=Path(data.get("processed_dir", "~/.kidkazz/processed")),
+        )
+
+
+@dataclass
+class SyncResult:
+    """Result of a cloud sync operation.
+
+    Attributes:
+        success: Whether the sync was successful.
+        files_synced: Number of files synced.
+        bytes_transferred: Total bytes transferred.
+        direction: Sync direction ("upload" or "download").
+        error_message: Error message if sync failed.
+        timestamp: When the sync occurred.
+    """
+
+    success: bool
+    files_synced: int
+    bytes_transferred: int
+    direction: str
+    error_message: Optional[str] = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class CloudSyncConfig:
+    """Configuration for cloud sync.
+
+    Attributes:
+        remote_name: Name of the rclone remote (e.g., "gdrive").
+        remote_path: Path on the remote (e.g., "kidkazz_inbox").
+        auto_sync: Whether to auto-sync after processing.
+    """
+
+    remote_name: str = ""
+    remote_path: str = ""
+    auto_sync: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert config to dictionary for serialization.
+
+        Returns:
+            Dictionary representation of the config.
+        """
+        return {
+            "remote_name": self.remote_name,
+            "remote_path": self.remote_path,
+            "auto_sync": self.auto_sync,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CloudSyncConfig":
+        """Create config from dictionary.
+
+        Args:
+            data: Dictionary with config values.
+
+        Returns:
+            CloudSyncConfig instance.
+        """
+        return cls(
+            remote_name=data.get("remote_name", ""),
+            remote_path=data.get("remote_path", ""),
+            auto_sync=data.get("auto_sync", False),
         )

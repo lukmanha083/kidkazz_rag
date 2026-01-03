@@ -58,6 +58,10 @@ class CLIConfig:
     inbox_recursive: bool = False
     processed_dir: str = "~/.kidkazz/processed"
 
+    # Cloud sync settings
+    cloud_remote: str = ""
+    cloud_path: str = "kidkazz_inbox"
+
     # Source tracking (which config file each setting came from)
     _sources: dict[str, str] = field(default_factory=dict)
 
@@ -160,6 +164,16 @@ class CLIConfig:
                 self.processed_dir = inbox["processed_dir"]
                 self._sources["processed_dir"] = source
 
+        # Cloud sync settings
+        if "cloud_sync" in data:
+            cloud_sync = data["cloud_sync"]
+            if "remote" in cloud_sync:
+                self.cloud_remote = cloud_sync["remote"]
+                self._sources["cloud_remote"] = source
+            if "path" in cloud_sync:
+                self.cloud_path = cloud_sync["path"]
+                self._sources["cloud_path"] = source
+
     def _load_from_env(self) -> None:
         """Load settings from environment variables."""
         env_mappings: dict[str, tuple[str, type]] = {
@@ -178,6 +192,8 @@ class CLIConfig:
             "KIDKAZZ_POST_ACTION": ("post_action", str),
             "KIDKAZZ_INBOX_RECURSIVE": ("inbox_recursive", lambda x: x.lower() in ("true", "1", "yes")),
             "KIDKAZZ_PROCESSED_DIR": ("processed_dir", str),
+            "KIDKAZZ_CLOUD_REMOTE": ("cloud_remote", str),
+            "KIDKAZZ_CLOUD_PATH": ("cloud_path", str),
         }
 
         for env_var, (attr, converter) in env_mappings.items():
@@ -220,6 +236,10 @@ class CLIConfig:
                 "post_action": self.post_action,
                 "recursive": self.inbox_recursive,
                 "processed_dir": self.processed_dir,
+            },
+            "cloud_sync": {
+                "remote": self.cloud_remote,
+                "path": self.cloud_path,
             },
         }
 
@@ -270,6 +290,8 @@ class CLIConfig:
             "post_action": ("post_action", str),
             "inbox_recursive": ("inbox_recursive", lambda x: x.lower() in ("true", "1", "yes") if isinstance(x, str) else bool(x)),
             "processed_dir": ("processed_dir", str),
+            "cloud_remote": ("cloud_remote", str),
+            "cloud_path": ("cloud_path", str),
         }
 
         if key not in key_mapping:

@@ -1,7 +1,7 @@
 # Kidkazz RAG
 
 [![CodeRabbit Review](https://img.shields.io/badge/CodeRabbit-Reviewed-green?logo=github)](https://coderabbit.ai)
-[![Tests](https://img.shields.io/badge/tests-636%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-676%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
@@ -76,6 +76,7 @@ Chat with your documents                               Terminal access  ├─�
 - Python 3.10+
 - VS Code with [Google Colab Extension](https://marketplace.visualstudio.com/items?itemName=GoogleCloudPlatform.colab-vscode-plugin) (for PDF conversion)
 - Google account (for Colab GPU access)
+- [rclone](https://rclone.org/install/) (optional, for cloud sync)
 
 ## Installation
 
@@ -133,6 +134,86 @@ The PDF Inbox feature provides an end-to-end workflow for managing PDFs from dro
 │  │ after success  │       └─────────────────────────────────────────────┘  │
 │  └────────────────┘                                                         │
 └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Cloud Sync with rclone (Recommended)
+
+Instead of manually uploading PDFs to Colab, you can use `rclone` to automatically sync your inbox to Google Drive, then access files from Colab via Drive mount.
+
+**One-Time rclone Setup:**
+
+```bash
+# Install rclone (Linux/macOS)
+curl https://rclone.org/install.sh | sudo bash
+
+# Or on macOS with Homebrew
+brew install rclone
+
+# Configure Google Drive remote (interactive)
+rclone config
+# → n (new remote)
+# → name: gdrive
+# → storage: Google Drive (number varies)
+# → [follow prompts, browser opens for OAuth]
+# → y (confirm)
+```
+
+**Configure kidkazz cloud sync:**
+
+```bash
+# Set your rclone remote name
+kidkazz config set cloud_remote gdrive
+
+# Set the folder path on Google Drive
+kidkazz config set cloud_path kidkazz_inbox
+```
+
+**Automated Workflow with Cloud Sync:**
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            LOCAL MACHINE                                     │
+│  ┌────────────────┐     ┌────────────────┐                                  │
+│  │  Drop PDF into │────▶│ kidkazz inbox  │                                  │
+│  │  ~/.kidkazz/   │     │ sync           │                                  │
+│  │  inbox/        │     │ (auto-upload)  │                                  │
+│  └────────────────┘     └───────┬────────┘                                  │
+│                                 │                                            │
+└─────────────────────────────────┼────────────────────────────────────────────┘
+                                  │ rclone copy
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         GOOGLE DRIVE                                         │
+│                    kidkazz_inbox/document.pdf                                │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+                                  │ drive.mount()
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    COLAB / VS CODE EXTENSION (GPU)                           │
+│  from google.colab import drive                                              │
+│  drive.mount('/content/drive')                                               │
+│  # PDF at: /content/drive/MyDrive/kidkazz_inbox/document.pdf                │
+│  # Convert → Download markdown → Save to ~/.kidkazz/output/                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Cloud Sync Commands:**
+
+```bash
+# Check rclone is installed
+kidkazz inbox sync --check
+
+# List configured remotes
+kidkazz inbox sync --remotes
+
+# Upload inbox PDFs to Google Drive
+kidkazz inbox sync
+
+# Preview what would sync (dry run)
+kidkazz inbox sync --dry-run
+
+# Download PDFs from Google Drive to local inbox
+kidkazz inbox sync --download
 ```
 
 ### Step-by-Step Instructions
@@ -450,8 +531,9 @@ kidkazz_rag/
 │   │   └── __main__.py                    # Entry point
 │   ├── pdf_inbox/                         # Phase 6: PDF inbox management
 │   │   ├── __init__.py                    # Public API
-│   │   ├── models.py                      # Data models (PDFFile, ProcessingStatus)
-│   │   └── manager.py                     # PDFInboxManager class
+│   │   ├── models.py                      # Data models (PDFFile, ProcessingStatus, SyncStatus)
+│   │   ├── manager.py                     # PDFInboxManager class
+│   │   └── cloud_sync.py                  # CloudSync class (rclone wrapper)
 │   └── cli/                               # Phase 5: CLI tool
 │       ├── __init__.py                    # Public API
 │       ├── main.py                        # Typer app entry point
@@ -495,7 +577,9 @@ kidkazz_rag/
 │   ├── test_cli_integration.py
 │   ├── test_pdf_inbox_models.py           # Phase 6 tests
 │   ├── test_pdf_inbox_manager.py
-│   └── test_pdf_inbox_cli.py
+│   ├── test_pdf_inbox_cli.py
+│   ├── test_cloud_sync.py                 # Cloud sync tests
+│   └── test_cloud_sync_cli.py             # Cloud sync CLI tests
 └── docs/
     ├── design/
     │   ├── PLAN_PHASE2.md                 # Phase 2 design document
@@ -647,7 +731,7 @@ The CLI tool (`kidkazz`) provides command-line access to all RAG functionality w
 | `kidkazz search` | semantic, keyword | Search the knowledge base |
 | `kidkazz docs` | list, stats, export, delete | Manage documents |
 | `kidkazz db` | init, status, clear | Database operations |
-| `kidkazz inbox` | status, list, clear | Manage PDF inbox |
+| `kidkazz inbox` | status, list, clear, sync | Manage PDF inbox |
 | `kidkazz config` | show, set, reset, init | Configuration management |
 
 ### Ingest Commands
@@ -731,6 +815,13 @@ kidkazz inbox list --json
 kidkazz inbox clear --force
 kidkazz inbox clear --failed      # Only failed conversions
 kidkazz inbox clear --completed   # Only completed conversions
+
+# Cloud sync with rclone
+kidkazz inbox sync                # Upload to cloud
+kidkazz inbox sync --download     # Download from cloud
+kidkazz inbox sync --dry-run      # Preview sync
+kidkazz inbox sync --check        # Verify rclone installed
+kidkazz inbox sync --remotes      # List configured remotes
 ```
 
 **Inbox Configuration:**
@@ -744,6 +835,10 @@ kidkazz config set post_action delete
 
 # Enable recursive scanning
 kidkazz config set inbox_recursive true
+
+# Configure cloud sync (requires rclone)
+kidkazz config set cloud_remote gdrive
+kidkazz config set cloud_path kidkazz_inbox
 ```
 
 ### Configuration
@@ -796,6 +891,10 @@ output_path = "~/.kidkazz/output"
 post_action = "delete"   # delete, move, or keep
 recursive = false
 processed_dir = "~/.kidkazz/processed"
+
+[cloud_sync]
+remote = "gdrive"        # rclone remote name
+path = "kidkazz_inbox"   # folder on remote
 ```
 
 ## Tool Selection Guide
@@ -824,7 +923,7 @@ python -m pytest tests/test_mcp_*.py -v                             # Phase 4
 python -m pytest tests/test_cli_*.py -v                             # Phase 5
 ```
 
-**Current Coverage:** 636 tests passing
+**Current Coverage:** 676 tests passing
 
 ## Troubleshooting
 

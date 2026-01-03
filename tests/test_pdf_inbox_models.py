@@ -302,3 +302,161 @@ class TestInboxConfig:
 
         # Should default to DELETE for invalid values
         assert config.post_action == PostConversionAction.DELETE
+
+
+class TestSyncStatus:
+    """Tests for SyncStatus enum."""
+
+    def test_pending_status_exists(self):
+        """Test PENDING status is available."""
+        from src.pdf_inbox.models import SyncStatus
+
+        assert SyncStatus.PENDING.value == "pending"
+
+    def test_syncing_status_exists(self):
+        """Test SYNCING status is available."""
+        from src.pdf_inbox.models import SyncStatus
+
+        assert SyncStatus.SYNCING.value == "syncing"
+
+    def test_synced_status_exists(self):
+        """Test SYNCED status is available."""
+        from src.pdf_inbox.models import SyncStatus
+
+        assert SyncStatus.SYNCED.value == "synced"
+
+    def test_failed_status_exists(self):
+        """Test FAILED status is available."""
+        from src.pdf_inbox.models import SyncStatus
+
+        assert SyncStatus.FAILED.value == "failed"
+
+    def test_status_from_string(self):
+        """Test creating status from string value."""
+        from src.pdf_inbox.models import SyncStatus
+
+        assert SyncStatus("pending") == SyncStatus.PENDING
+        assert SyncStatus("synced") == SyncStatus.SYNCED
+
+
+class TestSyncResult:
+    """Tests for SyncResult dataclass."""
+
+    def test_create_sync_result_success(self):
+        """Test creating a successful SyncResult."""
+        from src.pdf_inbox.models import SyncResult
+
+        result = SyncResult(
+            success=True,
+            files_synced=5,
+            bytes_transferred=1024000,
+            direction="upload",
+        )
+
+        assert result.success is True
+        assert result.files_synced == 5
+        assert result.bytes_transferred == 1024000
+        assert result.direction == "upload"
+        assert result.error_message is None
+
+    def test_create_sync_result_failure(self):
+        """Test creating a failed SyncResult."""
+        from src.pdf_inbox.models import SyncResult
+
+        result = SyncResult(
+            success=False,
+            files_synced=0,
+            bytes_transferred=0,
+            direction="upload",
+            error_message="Remote not found",
+        )
+
+        assert result.success is False
+        assert result.files_synced == 0
+        assert result.error_message == "Remote not found"
+
+    def test_sync_result_has_timestamp(self):
+        """Test SyncResult has timestamp field."""
+        from src.pdf_inbox.models import SyncResult
+
+        result = SyncResult(
+            success=True,
+            files_synced=1,
+            bytes_transferred=100,
+            direction="download",
+        )
+
+        assert result.timestamp is not None
+        assert isinstance(result.timestamp, datetime)
+
+
+class TestCloudSyncConfig:
+    """Tests for CloudSyncConfig dataclass."""
+
+    def test_create_config_defaults(self):
+        """Test creating CloudSyncConfig with defaults."""
+        from src.pdf_inbox.models import CloudSyncConfig
+
+        config = CloudSyncConfig()
+
+        assert config.remote_name == ""
+        assert config.remote_path == ""
+        assert config.auto_sync is False
+
+    def test_create_config_custom(self):
+        """Test creating CloudSyncConfig with custom values."""
+        from src.pdf_inbox.models import CloudSyncConfig
+
+        config = CloudSyncConfig(
+            remote_name="gdrive",
+            remote_path="kidkazz/inbox",
+            auto_sync=True,
+        )
+
+        assert config.remote_name == "gdrive"
+        assert config.remote_path == "kidkazz/inbox"
+        assert config.auto_sync is True
+
+    def test_config_to_dict(self):
+        """Test converting CloudSyncConfig to dictionary."""
+        from src.pdf_inbox.models import CloudSyncConfig
+
+        config = CloudSyncConfig(
+            remote_name="gdrive",
+            remote_path="inbox",
+            auto_sync=False,
+        )
+
+        data = config.to_dict()
+
+        assert data["remote_name"] == "gdrive"
+        assert data["remote_path"] == "inbox"
+        assert data["auto_sync"] is False
+
+    def test_config_from_dict(self):
+        """Test creating CloudSyncConfig from dictionary."""
+        from src.pdf_inbox.models import CloudSyncConfig
+
+        data = {
+            "remote_name": "dropbox",
+            "remote_path": "pdf_inbox",
+            "auto_sync": True,
+        }
+
+        config = CloudSyncConfig.from_dict(data)
+
+        assert config.remote_name == "dropbox"
+        assert config.remote_path == "pdf_inbox"
+        assert config.auto_sync is True
+
+    def test_config_from_dict_with_defaults(self):
+        """Test creating CloudSyncConfig from partial dictionary."""
+        from src.pdf_inbox.models import CloudSyncConfig
+
+        data = {"remote_name": "gdrive"}
+
+        config = CloudSyncConfig.from_dict(data)
+
+        assert config.remote_name == "gdrive"
+        assert config.remote_path == ""
+        assert config.auto_sync is False
