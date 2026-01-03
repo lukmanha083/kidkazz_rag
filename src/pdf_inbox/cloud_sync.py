@@ -153,12 +153,12 @@ class CloudSync:
             )
 
             if result.returncode == 0:
+                # rclone writes verbose/progress output to stderr
+                output = result.stderr.decode()
                 return SyncResult(
                     success=True,
-                    files_synced=self._parse_files_count(result.stdout.decode()),
-                    bytes_transferred=self._parse_bytes_transferred(
-                        result.stdout.decode()
-                    ),
+                    files_synced=self._parse_files_count(output),
+                    bytes_transferred=self._parse_bytes_transferred(output),
                     direction="upload",
                 )
             else:
@@ -228,12 +228,12 @@ class CloudSync:
             )
 
             if result.returncode == 0:
+                # rclone writes verbose/progress output to stderr
+                output = result.stderr.decode()
                 return SyncResult(
                     success=True,
-                    files_synced=self._parse_files_count(result.stdout.decode()),
-                    bytes_transferred=self._parse_bytes_transferred(
-                        result.stdout.decode()
-                    ),
+                    files_synced=self._parse_files_count(output),
+                    bytes_transferred=self._parse_bytes_transferred(output),
                     direction="download",
                 )
             else:

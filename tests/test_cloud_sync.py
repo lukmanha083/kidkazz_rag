@@ -168,8 +168,8 @@ class TestCloudSyncUpload:
         """Test successful upload to remote."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=b"Transferred: 3 files, 100 B\n",
-            stderr=b"",
+            stdout=b"",
+            stderr=b"Transferred: 3 files, 100 B\n",
         )
         from src.pdf_inbox.cloud_sync import CloudSync
 
@@ -204,8 +204,8 @@ class TestCloudSyncUpload:
         """Test dry run upload."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=b"Would copy: document1.pdf\nWould copy: document2.pdf\n",
-            stderr=b"",
+            stdout=b"",
+            stderr=b"Would copy: document1.pdf\nWould copy: document2.pdf\n",
         )
         from src.pdf_inbox.cloud_sync import CloudSync
 
@@ -237,8 +237,8 @@ class TestCloudSyncDownload:
         """Test successful download from remote."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=b"Transferred: 3 files, 500 KB\n",
-            stderr=b"",
+            stdout=b"",
+            stderr=b"Transferred: 3 files, 500 KB\n",
         )
         from src.pdf_inbox.cloud_sync import CloudSync
 

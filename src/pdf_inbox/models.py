@@ -11,7 +11,7 @@ This module defines the data structures used by the PDF inbox feature:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -188,7 +188,7 @@ class SyncResult:
     bytes_transferred: int
     direction: str
     error_message: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
