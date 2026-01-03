@@ -97,143 +97,186 @@ pip install -e ".[cli]"           # CLI tool (typer, rich)
 pip install -e ".[all]"           # All dependencies
 ```
 
-## Google Colab Workflow
+## PDF Inbox Workflow
 
-PDF conversion requires GPU acceleration for optimal performance. We use Google Colab's free GPU runtime to process PDFs in the cloud, then download the converted markdown for local ingestion.
-
-### Why Google Colab?
-
-- **Free GPU access** - NVIDIA T4/A100 GPUs for fast conversion
-- **No local GPU required** - Works on any machine
-- **Pre-configured environment** - All ML dependencies installed
-- **Cloud storage** - Upload large PDFs without local storage limits
+The PDF Inbox feature provides an end-to-end workflow for managing PDFs from drop to knowledge base ingestion, with automatic cleanup after successful conversion.
 
 ### Complete Workflow
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        GOOGLE COLAB (CLOUD)                              │
-│  ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐   │
-│  │ Upload PDF   │───▶│ GPU Kernel       │───▶│ Download Markdown   │   │
-│  │ to Colab     │    │ (T4/A100)        │    │ to local machine    │   │
-│  │              │    │ Marker/Docling   │    │                     │   │
-│  └──────────────┘    └──────────────────┘    └─────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         LOCAL MACHINE (CPU)                              │
-│  ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐   │
-│  │ kidkazz      │───▶│ Chunk & Embed    │───▶│ Store in Helix-DB   │   │
-│  │ ingest       │    │ (FastEmbed)      │    │ or MockStore        │   │
-│  └──────────────┘    └──────────────────┘    └─────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            LOCAL MACHINE                                     │
+│  ┌────────────────┐                                                         │
+│  │  Drop PDF into │──┐                                                      │
+│  │  ~/.kidkazz/   │  │                                                      │
+│  │  inbox/        │  │                                                      │
+│  └────────────────┘  │                                                      │
+│          │           │                                                      │
+│          ▼           │                                                      │
+│  ┌────────────────┐  │    ┌─────────────────────────────────────────────┐  │
+│  │ kidkazz inbox  │  │    │              GOOGLE COLAB (GPU)             │  │
+│  │ status/list    │  │    │  ┌─────────┐  ┌─────────┐  ┌─────────────┐  │  │
+│  │ (view pending) │  │    │  │ Upload  │─▶│ Convert │─▶│ Download    │  │  │
+│  └────────────────┘  │    │  │ PDF     │  │ (GPU)   │  │ Markdown    │  │  │
+│                      │    │  └─────────┘  └─────────┘  └─────────────┘  │  │
+│                      │    └────────────────────│────────────────────────┘  │
+│                      │                         │                            │
+│                      │                         ▼                            │
+│                      │    ┌─────────────────────────────────────────────┐  │
+│                      └───▶│  Save markdown to ~/.kidkazz/output/        │  │
+│                           └─────────────────────────────────────────────┘  │
+│                                                │                            │
+│                                                ▼                            │
+│  ┌────────────────┐       ┌─────────────────────────────────────────────┐  │
+│  │ AUTO-DELETE    │◀──────│  kidkazz ingest markdown                    │  │
+│  │ PDF from inbox │       │  (chunk, embed, store)                      │  │
+│  │ after success  │       └─────────────────────────────────────────────┘  │
+│  └────────────────┘                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Step-by-Step Instructions
 
-**1. Open the Colab Notebook**
+**Step 1: Configure Your Inbox**
 
-Option A: Via VS Code (recommended)
 ```bash
-# Open VS Code in the project directory
-code notebooks/pdf_to_markdown_converter.ipynb
+# Initialize configuration (creates ~/.kidkazz/ directories)
+kidkazz config init
 
-# VS Code will prompt to connect to Colab runtime
-# Click "Connect" and authenticate with your Google account
+# Set inbox path (default: ~/.kidkazz/inbox)
+kidkazz config set inbox_path ~/my_pdfs
+
+# Set output path for converted markdown (default: ~/.kidkazz/output)
+kidkazz config set output_path ~/my_markdown
+
+# Set post-conversion action: delete, move, or keep
+kidkazz config set post_action delete   # Auto-delete after success (recommended)
+kidkazz config set post_action move     # Move to processed/ folder
+kidkazz config set post_action keep     # Keep original PDF
+
+# View current configuration
+kidkazz config show
 ```
 
-Option B: Via Google Colab directly
-```
-1. Go to https://colab.research.google.com
-2. File → Upload notebook → Select pdf_to_markdown_converter.ipynb
-3. Or: File → Open notebook → GitHub → paste repo URL
-```
+**Step 2: Drop PDFs into Inbox**
 
-**2. Enable GPU Runtime**
+```bash
+# Copy PDFs to your inbox directory
+cp textbook.pdf ~/.kidkazz/inbox/
+cp lecture_notes.pdf ~/.kidkazz/inbox/
 
-```
-Runtime → Change runtime type → Hardware accelerator → GPU (T4)
+# Or move them directly
+mv ~/Downloads/*.pdf ~/.kidkazz/inbox/
 ```
 
-This gives you access to NVIDIA T4 GPU (or A100 on Colab Pro).
+**Step 3: Check Inbox Status**
 
-**3. Upload Your PDF to Colab Cloud**
+```bash
+# View inbox summary
+kidkazz inbox status
 
-Option A: Via Files panel
-```
-1. Click the folder icon (📁) in the left sidebar
-2. Click "Upload to session storage" (⬆️)
-3. Select your PDF file
-4. File appears in /content/
-```
+# List all PDFs with details
+kidkazz inbox list
 
-Option B: Via code cell
-```python
-from google.colab import files
-uploaded = files.upload()  # Opens file picker
+# Filter by status
+kidkazz inbox list --status pending
+kidkazz inbox list --status completed
+kidkazz inbox list --status failed
 ```
 
-Option C: Mount Google Drive (for large/multiple PDFs)
-```python
+**Step 4: Convert PDFs in Google Colab**
+
+1. Open `notebooks/pdf_to_markdown_converter.ipynb` in VS Code or Colab
+2. Enable GPU runtime: `Runtime → Change runtime type → GPU (T4)`
+3. Upload PDFs from your inbox to Colab:
+   ```python
+   from google.colab import files
+   uploaded = files.upload()  # Select PDFs from ~/.kidkazz/inbox/
+   ```
+4. Run conversion cells
+5. Download converted markdown:
+   ```python
+   from google.colab import files
+   files.download('output/textbook.md')
+   ```
+6. Save markdown to output directory:
+   ```bash
+   mv ~/Downloads/textbook.md ~/.kidkazz/output/
+   ```
+
+**Step 5: Ingest Markdown (Auto-Deletes PDF)**
+
+```bash
+# Ingest the converted markdown
+kidkazz ingest markdown ~/.kidkazz/output/textbook.md \
+    --doc-id textbook \
+    --title "My Textbook"
+
+# The PDF is automatically deleted from inbox after successful ingestion!
+# (if post_action is set to "delete")
+```
+
+**Step 6: Verify and Clean Up**
+
+```bash
+# Check ingestion succeeded
+kidkazz docs stats textbook
+
+# View inbox status (PDF should be gone)
+kidkazz inbox status
+
+# Clear any failed conversions
+kidkazz inbox clear --failed
+
+# Clear completed entries from tracking
+kidkazz inbox clear --completed
+```
+
+### Post-Conversion Actions
+
+| Action | Behavior | Use Case |
+|--------|----------|----------|
+| `delete` | Remove PDF after successful ingestion | Save disk space (default) |
+| `move` | Move PDF to `processed/` directory | Keep backup of originals |
+| `keep` | Leave PDF in inbox | Manual management |
+
+### Batch Processing Workflow
+
+For processing multiple PDFs:
+
+```bash
+# 1. Drop all PDFs into inbox
+cp ~/textbooks/*.pdf ~/.kidkazz/inbox/
+
+# 2. Check what's pending
+kidkazz inbox list --status pending
+
+# 3. Upload batch to Colab (use Google Drive mount for large batches)
+# In Colab:
 from google.colab import drive
 drive.mount('/content/drive')
-# Access PDFs from your Drive: /content/drive/MyDrive/pdfs/
+# Copy PDFs from local inbox to Drive, then access in Colab
+
+# 4. Convert all PDFs in Colab
+
+# 5. Download all markdown files to output directory
+
+# 6. Batch ingest
+kidkazz ingest batch ~/.kidkazz/output/ --pattern "*.md"
+
+# 7. All successfully ingested PDFs are auto-deleted from inbox
+kidkazz inbox status  # Should show fewer pending files
 ```
 
-**4. Run the Conversion**
-
-Execute the notebook cells in order:
-1. Install dependencies (Marker, Docling, or Nougat)
-2. Configure conversion settings
-3. Run conversion on your uploaded PDF
-4. Preview the markdown output
-
-**5. Download the Converted Markdown**
-
-Option A: Via Files panel
-```
-1. Right-click the .md file in /content/
-2. Click "Download"
-```
-
-Option B: Via code cell
-```python
-from google.colab import files
-files.download('output/your_document.md')
-```
-
-Option C: Save to Google Drive
-```python
-import shutil
-shutil.copy('output/your_document.md', '/content/drive/MyDrive/')
-```
-
-**6. Ingest Locally with CLI**
-
-```bash
-# Move markdown to your local output directory
-mv ~/Downloads/your_document.md output/
-
-# Ingest into knowledge base
-kidkazz ingest markdown output/your_document.md \
-    --doc-id your_document \
-    --title "Your Document Title"
-
-# Verify ingestion
-kidkazz docs stats your_document
-```
-
-### Tips for Best Results
+### Tips
 
 | Scenario | Recommendation |
 |----------|----------------|
-| Large PDFs (>50 pages) | Mount Google Drive to avoid upload timeouts |
-| Multiple PDFs | Use batch upload via Drive mount |
-| Math-heavy content | Use Nougat converter |
-| Table-heavy content | Use Docling converter |
-| General text | Use Marker (fastest) |
-| Session timeout | Save intermediate results to Drive |
+| Large PDFs (>50 pages) | Mount Google Drive for faster upload |
+| Many PDFs | Use batch ingest after converting all |
+| Failed conversions | Check `kidkazz inbox list --status failed` |
+| Keep originals | Set `post_action` to `move` |
+| Disk space concerns | Set `post_action` to `delete` (default) |
 
 ## Quick Start
 
