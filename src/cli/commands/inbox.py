@@ -26,17 +26,29 @@ app = typer.Typer(
 console = Console()
 
 
+VALID_POST_ACTIONS = {"delete", "move", "keep"}
+VALID_STATUSES = {"pending", "processing", "completed", "failed"}
+
+
 def get_inbox_manager() -> PDFInboxManager:
     """Create inbox manager from CLI config."""
     config = CLIConfig.load()
 
-    # Map string to enum
+    # Validate and map post_action to enum
+    action_value = config.post_action.lower()
+    if action_value not in VALID_POST_ACTIONS:
+        console.print(
+            f"[red]Invalid post_action '{config.post_action}'. "
+            f"Valid options: {', '.join(VALID_POST_ACTIONS)}[/red]"
+        )
+        raise typer.Exit(1)
+
     action_map = {
         "delete": PostConversionAction.DELETE,
         "move": PostConversionAction.MOVE,
         "keep": PostConversionAction.KEEP,
     }
-    post_action = action_map.get(config.post_action, PostConversionAction.DELETE)
+    post_action = action_map[action_value]
 
     return PDFInboxManager(
         inbox_path=Path(config.inbox_path).expanduser(),
@@ -97,6 +109,16 @@ def list_pdfs(
 ) -> None:
     """List PDF files in the inbox."""
     try:
+        # Validate status filter
+        if status_filter:
+            normalized_status = status_filter.lower()
+            if normalized_status not in VALID_STATUSES:
+                console.print(
+                    f"[red]Invalid status '{status_filter}'. "
+                    f"Valid options: {', '.join(sorted(VALID_STATUSES))}[/red]"
+                )
+                raise typer.Exit(1)
+
         manager = get_inbox_manager()
         pdfs = manager.scan()
 
@@ -163,6 +185,14 @@ def clear(
 ) -> None:
     """Clear PDF files from the inbox."""
     try:
+        # Check for conflicting flags
+        if failed_only and completed_only:
+            console.print(
+                "[red]Cannot use both --failed and --completed. "
+                "Choose one filter or omit both to clear all.[/red]"
+            )
+            raise typer.Exit(1)
+
         manager = get_inbox_manager()
         pdfs = manager.scan()
 
