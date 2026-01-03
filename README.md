@@ -659,7 +659,127 @@ The storage layer uses a three-node graph structure:
 
 Both implementations share the same `ChunkStoreProtocol` interface for easy swapping.
 
+### Helix-DB Setup Guide
+
+#### Step 1: Install Helix-DB
+
+Helix-DB is a native vector + graph database written in Rust. Install the CLI tool:
+
+```bash
+# Install helix-py Python SDK
+pip install helix-py
+
+# Install helix CLI (check https://helix-db.com for latest instructions)
+# The helix CLI is used to deploy and manage the database server
+curl -fsSL https://helix-db.com/install.sh | bash
+
+# Verify installation
+helix --version
+```
+
+#### Step 2: Start Helix-DB Server
+
+```bash
+# Start local Helix-DB instance on port 6969 (default)
+helix deploy --local
+
+# Or specify a custom port
+helix deploy --local --port 6970
+
+# The server runs in the foreground. Use screen/tmux for background:
+screen -S helix
+helix deploy --local
+# Detach with Ctrl+A, D
+```
+
+#### Step 3: Configure Connection
+
+**Option A: Environment variables**
+```bash
+export KIDKAZZ_STORE_TYPE=helix
+export KIDKAZZ_HELIX_PORT=6969
+export KIDKAZZ_HELIX_LOCAL=true
+```
+
+**Option B: TOML configuration** (`.kidkazz.toml`)
+```toml
+[storage]
+store_type = "helix"
+helix_port = 6969
+helix_local = true
+```
+
+#### Step 4: Initialize Database
+
+```bash
+# Initialize with helix storage
+kidkazz db init --store helix
+
+# Verify connection
+kidkazz db status
+```
+
+#### Step 5: Test Connection
+
+```python
+from src.storage import HelixChunkStore, HelixConfig
+
+# Connect to local Helix-DB
+config = HelixConfig(local=True, port=6969)
+store = HelixChunkStore(config)
+
+# Verify connection
+print(store.list_documents())
+```
+
+#### Helix-DB vs MockChunkStore
+
+| Feature | MockChunkStore | HelixChunkStore |
+|---------|----------------|-----------------|
+| Server required | No | Yes (`helix deploy --local`) |
+| Persistence | In-memory only | Disk (LMDB) |
+| Vector search | Brute-force | Optimized |
+| Graph traversal | Python dict | Native edges |
+| Use case | Testing, development | Production |
+
+**Recommendation**: Use `MockChunkStore` for development and testing, switch to `HelixChunkStore` for production with real data.
+
 ## MCP Server Details
+
+### What is MCP?
+
+MCP (Model Context Protocol) is a standard protocol that allows AI assistants like Claude to access external tools and data sources. The kidkazz MCP server exposes your RAG knowledge base to Claude Code, enabling you to **chat with your documents**.
+
+### Starting the MCP Server
+
+#### Manual Start (for testing)
+
+```bash
+# Start with mock storage (no Helix-DB required)
+KIDKAZZ_STORE_TYPE=mock \
+KIDKAZZ_EMBEDDER_TYPE=fastembed \
+python -m src.mcp_server
+
+# Start with Helix-DB (requires helix deploy --local)
+KIDKAZZ_STORE_TYPE=helix \
+KIDKAZZ_HELIX_PORT=6969 \
+python -m src.mcp_server
+
+# Using the entry point (if installed)
+kidkazz-mcp
+```
+
+**Note**: The MCP server uses stdio transport, so it reads from stdin and writes to stdout. For testing, you can send JSON-RPC messages manually, but normally Claude Code manages the server lifecycle.
+
+#### How Claude Code Starts the Server
+
+When configured in `.mcp.json`, Claude Code:
+1. Spawns the MCP server as a subprocess
+2. Communicates via stdin/stdout (stdio transport)
+3. Automatically restarts if the server crashes
+4. Passes environment variables for configuration
+
+You don't need to manually start the server - Claude Code does it automatically when you open a project with `.mcp.json`.
 
 ### Available Tools
 
@@ -700,7 +820,20 @@ Environment variables for MCP server:
 
 ### Claude Code Integration
 
-Add to your `.mcp.json`:
+#### Step 1: Create MCP Configuration
+
+Copy the example configuration or create `.mcp.json` in your project root:
+
+```bash
+# Copy the template
+cp .mcp.json.example .mcp.json
+
+# Or create manually
+```
+
+#### Step 2: Configure `.mcp.json`
+
+**For Development** (MockChunkStore, no server required):
 
 ```json
 {
@@ -712,11 +845,101 @@ Add to your `.mcp.json`:
       "cwd": "/path/to/kidkazz_rag",
       "env": {
         "KIDKAZZ_STORE_TYPE": "mock",
+        "KIDKAZZ_EMBEDDER_TYPE": "fastembed",
+        "KIDKAZZ_MODEL_NAME": "BAAI/bge-small-en-v1.5"
+      }
+    }
+  }
+}
+```
+
+**For Production** (Helix-DB, requires `helix deploy --local`):
+
+```json
+{
+  "mcpServers": {
+    "kidkazz-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "/path/to/kidkazz_rag",
+      "env": {
+        "KIDKAZZ_STORE_TYPE": "helix",
+        "KIDKAZZ_HELIX_PORT": "6969",
+        "KIDKAZZ_HELIX_LOCAL": "true",
         "KIDKAZZ_EMBEDDER_TYPE": "fastembed"
       }
     }
   }
 }
+```
+
+**Important**: Replace `/path/to/kidkazz_rag` with your actual project path.
+
+#### Step 3: Start Claude Code
+
+1. Open VS Code or your terminal in the project directory
+2. Start Claude Code (the CLI tool you're using now)
+3. Claude Code automatically discovers `.mcp.json` and starts the MCP server
+4. The server runs in the background as a subprocess
+
+#### Step 4: Verify Connection
+
+In Claude Code, you can verify the MCP server is running by asking:
+
+- "What documents are available?" → Calls `list_documents()` tool
+- "Search for machine learning" → Calls `search_semantic()` tool
+- "Get stats for doc_id" → Calls `get_document_stats()` tool
+
+#### Step 5: Chat with Your Documents
+
+Once connected, you can:
+
+```text
+You: "Search for information about neural networks"
+Claude: [Calls search_semantic tool, returns relevant chunks]
+
+You: "Show me the parent section of that chunk"
+Claude: [Calls get_parent tool, navigates to broader context]
+
+You: "What other topics are in this document?"
+Claude: [Calls get_document_chunks tool, explores structure]
+```
+
+#### Troubleshooting Connection
+
+| Issue | Solution |
+|-------|----------|
+| Server not starting | Check Python path in `.mcp.json` |
+| "Module not found" | Ensure `cwd` points to project root |
+| No search results | Ingest documents first with `kidkazz ingest` |
+| Slow first query | Normal - embedder loads lazily on first use |
+| Connection timeout | Check if Helix-DB is running (if using helix) |
+
+#### Architecture Diagram
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                        Claude Code                           │
+│   (You're talking to me here!)                              │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ stdio (stdin/stdout)
+                           │ JSON-RPC messages
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     MCP Server                               │
+│   python -m src.mcp_server                                  │
+│   ├── 10 Tools (search_semantic, get_chunk, etc.)          │
+│   └── 4 Resources (schema, documents, etc.)                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+          ┌────────────────┼────────────────┐
+          ▼                                 ▼
+┌──────────────────┐              ┌──────────────────┐
+│  MockChunkStore  │      OR      │ HelixChunkStore  │
+│  (In-memory)     │              │ (Helix-DB)       │
+│  For testing     │              │ Port 6969        │
+└──────────────────┘              └──────────────────┘
 ```
 
 ## CLI Tool Details
