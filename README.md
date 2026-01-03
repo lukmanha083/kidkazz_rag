@@ -1,5 +1,11 @@
 # Kidkazz RAG
 
+[![CodeRabbit Review](https://img.shields.io/badge/CodeRabbit-Reviewed-green?logo=github)](https://coderabbit.ai)
+[![Tests](https://img.shields.io/badge/tests-636%20passed-brightgreen)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](tests/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+
 A RAG (Retrieval-Augmented Generation) system for converting PDF textbooks to searchable knowledge bases.
 
 ## Overview
@@ -10,6 +16,7 @@ This project provides tools to:
 3. Generate embeddings using CPU-optimized FastEmbed
 4. Store in Helix-DB (vector + graph database)
 5. Query documents via MCP integration with Claude Code
+6. Manage PDF inbox with auto-delete after conversion
 
 ## Current Status
 
@@ -20,12 +27,18 @@ This project provides tools to:
 | 3 | Helix-DB Integration | ✅ Complete |
 | 4 | MCP Server | ✅ Complete |
 | 5 | End-to-End CLI Tool | ✅ Complete |
+| 6 | PDF Inbox Management | ✅ Complete |
 
 ## Architecture
 
 ```text
 PDF Document
      |
+     v
+[PDF Inbox Manager] ─────────── Auto-manage PDF lifecycle
+     |                           ├── Scan inbox directory
+     |                           ├── Track processing status
+     |                           └── Auto-delete after conversion
      v
 [PDF to Markdown Converter] ──── Google Colab (GPU)
      |                           ├── Marker (fast, clean PDFs)
@@ -54,7 +67,8 @@ Markdown Document
      |                           ├── 10 search/retrieval tools  |        ├── kidkazz ingest
      |                           └── 4 resource endpoints       |        ├── kidkazz search
      v                                                         v        ├── kidkazz docs
-Chat with your documents                               Terminal access  └── kidkazz config
+Chat with your documents                               Terminal access  ├── kidkazz inbox
+                                                                        └── kidkazz config
 ```
 
 ## Prerequisites
@@ -253,6 +267,10 @@ kidkazz_rag/
 │   │   ├── resources.py                   # MCP resource implementations
 │   │   ├── server.py                      # FastMCP server setup
 │   │   └── __main__.py                    # Entry point
+│   ├── pdf_inbox/                         # Phase 6: PDF inbox management
+│   │   ├── __init__.py                    # Public API
+│   │   ├── models.py                      # Data models (PDFFile, ProcessingStatus)
+│   │   └── manager.py                     # PDFInboxManager class
 │   └── cli/                               # Phase 5: CLI tool
 │       ├── __init__.py                    # Public API
 │       ├── main.py                        # Typer app entry point
@@ -266,6 +284,7 @@ kidkazz_rag/
 │           ├── search.py                  # search semantic/keyword
 │           ├── docs.py                    # docs list/stats/export/delete
 │           ├── db.py                      # db init/status/clear
+│           ├── inbox.py                   # inbox status/list/clear
 │           └── config_cmd.py              # config show/set/reset/init
 ├── tests/
 │   ├── conftest.py                        # Shared fixtures
@@ -292,13 +311,17 @@ kidkazz_rag/
 │   ├── test_cli_output.py
 │   ├── test_cli_progress.py
 │   ├── test_cli_commands.py
-│   └── test_cli_integration.py
+│   ├── test_cli_integration.py
+│   ├── test_pdf_inbox_models.py           # Phase 6 tests
+│   ├── test_pdf_inbox_manager.py
+│   └── test_pdf_inbox_cli.py
 └── docs/
     ├── design/
     │   ├── PLAN_PHASE2.md                 # Phase 2 design document
     │   ├── PLAN_PHASE3.md                 # Phase 3 design document
     │   ├── PLAN_PHASE4.md                 # Phase 4 design document
-    │   └── PLAN_PHASE5.md                 # Phase 5 design document
+    │   ├── PLAN_PHASE5.md                 # Phase 5 design document
+    │   └── PDF_INBOX_FEATURE.md           # Phase 6 design document
     └── testing/
         └── UNIT_TEST.md                   # Testing guide
 ```
@@ -443,6 +466,7 @@ The CLI tool (`kidkazz`) provides command-line access to all RAG functionality w
 | `kidkazz search` | semantic, keyword | Search the knowledge base |
 | `kidkazz docs` | list, stats, export, delete | Manage documents |
 | `kidkazz db` | init, status, clear | Database operations |
+| `kidkazz inbox` | status, list, clear | Manage PDF inbox |
 | `kidkazz config` | show, set, reset, init | Configuration management |
 
 ### Ingest Commands
@@ -509,6 +533,38 @@ kidkazz db status --json
 kidkazz db clear --force
 ```
 
+### PDF Inbox Management
+
+The inbox feature helps manage PDF files before conversion:
+
+```bash
+# View inbox status
+kidkazz inbox status
+
+# List PDF files in inbox
+kidkazz inbox list
+kidkazz inbox list --status pending
+kidkazz inbox list --json
+
+# Clear inbox files
+kidkazz inbox clear --force
+kidkazz inbox clear --failed      # Only failed conversions
+kidkazz inbox clear --completed   # Only completed conversions
+```
+
+**Inbox Configuration:**
+
+```bash
+# Set inbox path
+kidkazz config set inbox_path ~/my_pdfs
+
+# Set post-conversion action (delete, move, keep)
+kidkazz config set post_action delete
+
+# Enable recursive scanning
+kidkazz config set inbox_recursive true
+```
+
 ### Configuration
 
 The CLI uses a layered configuration system:
@@ -552,6 +608,13 @@ model_name = "BAAI/bge-small-en-v1.5"
 level_1_size = 2048
 level_2_size = 512
 overlap = 256
+
+[inbox]
+path = "~/.kidkazz/inbox"
+output_path = "~/.kidkazz/output"
+post_action = "delete"   # delete, move, or keep
+recursive = false
+processed_dir = "~/.kidkazz/processed"
 ```
 
 ## Tool Selection Guide
@@ -580,7 +643,7 @@ python -m pytest tests/test_mcp_*.py -v                             # Phase 4
 python -m pytest tests/test_cli_*.py -v                             # Phase 5
 ```
 
-**Current Coverage:** 557 tests (547 passed, 10 skipped)
+**Current Coverage:** 636 tests passing
 
 ## Troubleshooting
 
@@ -636,6 +699,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [x] Phase 3: Helix-DB integration (vector + graph storage)
 - [x] Phase 4: MCP server for Claude Code
 - [x] Phase 5: End-to-end CLI tool
+- [x] Phase 6: PDF inbox management with auto-delete
 
 ## Documentation
 
@@ -644,6 +708,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [Phase 3 Design](docs/design/PLAN_PHASE3.md) - Helix-DB storage integration
 - [Phase 4 Design](docs/design/PLAN_PHASE4.md) - MCP server implementation
 - [Phase 5 Design](docs/design/PLAN_PHASE5.md) - CLI tool implementation
+- [PDF Inbox Design](docs/design/PDF_INBOX_FEATURE.md) - PDF inbox management
 
 ## Contributing
 
