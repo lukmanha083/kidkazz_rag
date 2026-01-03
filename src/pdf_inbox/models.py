@@ -143,7 +143,11 @@ class InboxConfig:
             InboxConfig instance.
         """
         post_action_str = data.get("post_action", "delete")
-        post_action = PostConversionAction(post_action_str)
+        try:
+            post_action = PostConversionAction(post_action_str)
+        except ValueError:
+            # Default to DELETE for invalid values
+            post_action = PostConversionAction.DELETE
 
         return cls(
             inbox_path=Path(data.get("inbox_path", "~/.kidkazz/inbox")),

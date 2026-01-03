@@ -50,12 +50,12 @@ class PDFInboxManager:
             recursive: Whether to scan subdirectories.
             processed_dir: Directory for moved PDFs (MOVE action only).
         """
-        self.inbox_path = Path(inbox_path).expanduser()
-        self.output_path = Path(output_path).expanduser()
+        self.inbox_path = Path(inbox_path).expanduser().resolve()
+        self.output_path = Path(output_path).expanduser().resolve()
         self.post_action = post_action
         self.recursive = recursive
         self.processed_dir = (
-            Path(processed_dir).expanduser()
+            Path(processed_dir).expanduser().resolve()
             if processed_dir
             else self.inbox_path / "processed"
         )
@@ -97,8 +97,8 @@ class PDFInboxManager:
             try:
                 for item in directory.iterdir():
                     if item.is_dir():
-                        # Skip processed directory
-                        if item == self.processed_dir:
+                        # Skip processed directory (use resolve for symlink safety)
+                        if item.resolve() == self.processed_dir:
                             continue
                         if recurse:
                             scan_directory(item, recurse)

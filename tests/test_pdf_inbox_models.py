@@ -288,3 +288,17 @@ class TestInboxConfig:
         assert config.output_path == Path("/output")
         assert config.post_action == PostConversionAction.MOVE
         assert config.recursive is True
+
+    def test_inbox_config_from_dict_invalid_post_action(self):
+        """Test creating config with invalid post_action defaults to DELETE."""
+        from src.pdf_inbox.models import InboxConfig, PostConversionAction
+
+        data = {
+            "inbox_path": "/inbox",
+            "post_action": "invalid_action",
+        }
+
+        config = InboxConfig.from_dict(data)
+
+        # Should default to DELETE for invalid values
+        assert config.post_action == PostConversionAction.DELETE
