@@ -17,7 +17,7 @@ format = "human"
 color = true
 
 [inbox]
-path = "/tmp/kidkazz_inbox_0c02txb2"
+path = "~/.kidkazz/inbox"
 output_path = "~/.kidkazz/output"
 post_action = "move"
 recursive = false
