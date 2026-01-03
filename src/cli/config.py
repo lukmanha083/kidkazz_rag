@@ -51,6 +51,13 @@ class CLIConfig:
     output_format: str = "human"
     color: bool = True
 
+    # Inbox settings
+    inbox_path: str = "~/.kidkazz/inbox"
+    output_path: str = "~/.kidkazz/output"
+    post_action: str = "delete"
+    inbox_recursive: bool = False
+    processed_dir: str = "~/.kidkazz/processed"
+
     # Source tracking (which config file each setting came from)
     _sources: dict[str, str] = field(default_factory=dict)
 
@@ -134,6 +141,25 @@ class CLIConfig:
                 self.color = bool(output["color"])
                 self._sources["color"] = source
 
+        # Inbox settings
+        if "inbox" in data:
+            inbox = data["inbox"]
+            if "path" in inbox:
+                self.inbox_path = inbox["path"]
+                self._sources["inbox_path"] = source
+            if "output_path" in inbox:
+                self.output_path = inbox["output_path"]
+                self._sources["output_path"] = source
+            if "post_action" in inbox:
+                self.post_action = inbox["post_action"]
+                self._sources["post_action"] = source
+            if "recursive" in inbox:
+                self.inbox_recursive = bool(inbox["recursive"])
+                self._sources["inbox_recursive"] = source
+            if "processed_dir" in inbox:
+                self.processed_dir = inbox["processed_dir"]
+                self._sources["processed_dir"] = source
+
     def _load_from_env(self) -> None:
         """Load settings from environment variables."""
         env_mappings: dict[str, tuple[str, type]] = {
@@ -147,6 +173,11 @@ class CLIConfig:
             "KIDKAZZ_OVERLAP": ("overlap", int),
             "KIDKAZZ_OUTPUT_FORMAT": ("output_format", str),
             "KIDKAZZ_COLOR": ("color", lambda x: x.lower() in ("true", "1", "yes")),
+            "KIDKAZZ_INBOX_PATH": ("inbox_path", str),
+            "KIDKAZZ_OUTPUT_PATH": ("output_path", str),
+            "KIDKAZZ_POST_ACTION": ("post_action", str),
+            "KIDKAZZ_INBOX_RECURSIVE": ("inbox_recursive", lambda x: x.lower() in ("true", "1", "yes")),
+            "KIDKAZZ_PROCESSED_DIR": ("processed_dir", str),
         }
 
         for env_var, (attr, converter) in env_mappings.items():
@@ -182,6 +213,13 @@ class CLIConfig:
             "output": {
                 "format": self.output_format,
                 "color": self.color,
+            },
+            "inbox": {
+                "path": self.inbox_path,
+                "output_path": self.output_path,
+                "post_action": self.post_action,
+                "recursive": self.inbox_recursive,
+                "processed_dir": self.processed_dir,
             },
         }
 
@@ -227,6 +265,11 @@ class CLIConfig:
             "overlap": ("overlap", int),
             "output_format": ("output_format", str),
             "color": ("color", lambda x: x.lower() in ("true", "1", "yes") if isinstance(x, str) else bool(x)),
+            "inbox_path": ("inbox_path", str),
+            "output_path": ("output_path", str),
+            "post_action": ("post_action", str),
+            "inbox_recursive": ("inbox_recursive", lambda x: x.lower() in ("true", "1", "yes") if isinstance(x, str) else bool(x)),
+            "processed_dir": ("processed_dir", str),
         }
 
         if key not in key_mapping:

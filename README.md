@@ -1,5 +1,11 @@
 # Kidkazz RAG
 
+[![CodeRabbit Review](https://img.shields.io/badge/CodeRabbit-Reviewed-green?logo=github)](https://coderabbit.ai)
+[![Tests](https://img.shields.io/badge/tests-636%20passed-brightgreen)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](tests/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+
 A RAG (Retrieval-Augmented Generation) system for converting PDF textbooks to searchable knowledge bases.
 
 ## Overview
@@ -10,6 +16,7 @@ This project provides tools to:
 3. Generate embeddings using CPU-optimized FastEmbed
 4. Store in Helix-DB (vector + graph database)
 5. Query documents via MCP integration with Claude Code
+6. Manage PDF inbox with auto-delete after conversion
 
 ## Current Status
 
@@ -20,12 +27,18 @@ This project provides tools to:
 | 3 | Helix-DB Integration | ✅ Complete |
 | 4 | MCP Server | ✅ Complete |
 | 5 | End-to-End CLI Tool | ✅ Complete |
+| 6 | PDF Inbox Management | ✅ Complete |
 
 ## Architecture
 
 ```text
 PDF Document
      |
+     v
+[PDF Inbox Manager] ─────────── Auto-manage PDF lifecycle
+     |                           ├── Scan inbox directory
+     |                           ├── Track processing status
+     |                           └── Auto-delete after conversion
      v
 [PDF to Markdown Converter] ──── Google Colab (GPU)
      |                           ├── Marker (fast, clean PDFs)
@@ -54,7 +67,8 @@ Markdown Document
      |                           ├── 10 search/retrieval tools  |        ├── kidkazz ingest
      |                           └── 4 resource endpoints       |        ├── kidkazz search
      v                                                         v        ├── kidkazz docs
-Chat with your documents                               Terminal access  └── kidkazz config
+Chat with your documents                               Terminal access  ├── kidkazz inbox
+                                                                        └── kidkazz config
 ```
 
 ## Prerequisites
@@ -82,6 +96,187 @@ pip install -e ".[mcp]"           # MCP server for Claude Code
 pip install -e ".[cli]"           # CLI tool (typer, rich)
 pip install -e ".[all]"           # All dependencies
 ```
+
+## PDF Inbox Workflow
+
+The PDF Inbox feature provides an end-to-end workflow for managing PDFs from drop to knowledge base ingestion, with automatic cleanup after successful conversion.
+
+### Complete Workflow
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            LOCAL MACHINE                                     │
+│  ┌────────────────┐                                                         │
+│  │  Drop PDF into │──┐                                                      │
+│  │  ~/.kidkazz/   │  │                                                      │
+│  │  inbox/        │  │                                                      │
+│  └────────────────┘  │                                                      │
+│          │           │                                                      │
+│          ▼           │                                                      │
+│  ┌────────────────┐  │    ┌─────────────────────────────────────────────┐  │
+│  │ kidkazz inbox  │  │    │              GOOGLE COLAB (GPU)             │  │
+│  │ status/list    │  │    │  ┌─────────┐  ┌─────────┐  ┌─────────────┐  │  │
+│  │ (view pending) │  │    │  │ Upload  │─▶│ Convert │─▶│ Download    │  │  │
+│  └────────────────┘  │    │  │ PDF     │  │ (GPU)   │  │ Markdown    │  │  │
+│                      │    │  └─────────┘  └─────────┘  └─────────────┘  │  │
+│                      │    └────────────────────│────────────────────────┘  │
+│                      │                         │                            │
+│                      │                         ▼                            │
+│                      │    ┌─────────────────────────────────────────────┐  │
+│                      └───▶│  Save markdown to ~/.kidkazz/output/        │  │
+│                           └─────────────────────────────────────────────┘  │
+│                                                │                            │
+│                                                ▼                            │
+│  ┌────────────────┐       ┌─────────────────────────────────────────────┐  │
+│  │ AUTO-DELETE    │◀──────│  kidkazz ingest markdown                    │  │
+│  │ PDF from inbox │       │  (chunk, embed, store)                      │  │
+│  │ after success  │       └─────────────────────────────────────────────┘  │
+│  └────────────────┘                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Step-by-Step Instructions
+
+**Step 1: Configure Your Inbox**
+
+```bash
+# Initialize configuration (creates ~/.kidkazz/ directories)
+kidkazz config init
+
+# Set inbox path (default: ~/.kidkazz/inbox)
+kidkazz config set inbox_path ~/my_pdfs
+
+# Set output path for converted markdown (default: ~/.kidkazz/output)
+kidkazz config set output_path ~/my_markdown
+
+# Set post-conversion action: delete, move, or keep
+kidkazz config set post_action delete   # Auto-delete after success (recommended)
+kidkazz config set post_action move     # Move to processed/ folder
+kidkazz config set post_action keep     # Keep original PDF
+
+# View current configuration
+kidkazz config show
+```
+
+**Step 2: Drop PDFs into Inbox**
+
+```bash
+# Copy PDFs to your inbox directory
+cp textbook.pdf ~/.kidkazz/inbox/
+cp lecture_notes.pdf ~/.kidkazz/inbox/
+
+# Or move them directly
+mv ~/Downloads/*.pdf ~/.kidkazz/inbox/
+```
+
+**Step 3: Check Inbox Status**
+
+```bash
+# View inbox summary
+kidkazz inbox status
+
+# List all PDFs with details
+kidkazz inbox list
+
+# Filter by status
+kidkazz inbox list --status pending
+kidkazz inbox list --status completed
+kidkazz inbox list --status failed
+```
+
+**Step 4: Convert PDFs in Google Colab**
+
+1. Open `notebooks/pdf_to_markdown_converter.ipynb` in VS Code or Colab
+2. Enable GPU runtime: `Runtime → Change runtime type → GPU (T4)`
+3. Upload PDFs from your inbox to Colab:
+   ```python
+   from google.colab import files
+   uploaded = files.upload()  # Select PDFs from ~/.kidkazz/inbox/
+   ```
+4. Run conversion cells
+5. Download converted markdown:
+   ```python
+   from google.colab import files
+   files.download('output/textbook.md')
+   ```
+6. Save markdown to output directory:
+   ```bash
+   mv ~/Downloads/textbook.md ~/.kidkazz/output/
+   ```
+
+**Step 5: Ingest Markdown (Auto-Deletes PDF)**
+
+```bash
+# Ingest the converted markdown
+kidkazz ingest markdown ~/.kidkazz/output/textbook.md \
+    --doc-id textbook \
+    --title "My Textbook"
+
+# The PDF is automatically deleted from inbox after successful ingestion!
+# (if post_action is set to "delete")
+```
+
+**Step 6: Verify and Clean Up**
+
+```bash
+# Check ingestion succeeded
+kidkazz docs stats textbook
+
+# View inbox status (PDF should be gone)
+kidkazz inbox status
+
+# Clear any failed conversions
+kidkazz inbox clear --failed
+
+# Clear completed entries from tracking
+kidkazz inbox clear --completed
+```
+
+### Post-Conversion Actions
+
+| Action | Behavior | Use Case |
+|--------|----------|----------|
+| `delete` | Remove PDF after successful ingestion | Save disk space (default) |
+| `move` | Move PDF to `processed/` directory | Keep backup of originals |
+| `keep` | Leave PDF in inbox | Manual management |
+
+### Batch Processing Workflow
+
+For processing multiple PDFs:
+
+```bash
+# 1. Drop all PDFs into inbox
+cp ~/textbooks/*.pdf ~/.kidkazz/inbox/
+
+# 2. Check what's pending
+kidkazz inbox list --status pending
+
+# 3. Upload batch to Colab (use Google Drive mount for large batches)
+# In Colab:
+from google.colab import drive
+drive.mount('/content/drive')
+# Copy PDFs from local inbox to Drive, then access in Colab
+
+# 4. Convert all PDFs in Colab
+
+# 5. Download all markdown files to output directory
+
+# 6. Batch ingest
+kidkazz ingest batch ~/.kidkazz/output/ --pattern "*.md"
+
+# 7. All successfully ingested PDFs are auto-deleted from inbox
+kidkazz inbox status  # Should show fewer pending files
+```
+
+### Tips
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Large PDFs (>50 pages) | Mount Google Drive for faster upload |
+| Many PDFs | Use batch ingest after converting all |
+| Failed conversions | Check `kidkazz inbox list --status failed` |
+| Keep originals | Set `post_action` to `move` |
+| Disk space concerns | Set `post_action` to `delete` (default) |
 
 ## Quick Start
 
@@ -253,6 +448,10 @@ kidkazz_rag/
 │   │   ├── resources.py                   # MCP resource implementations
 │   │   ├── server.py                      # FastMCP server setup
 │   │   └── __main__.py                    # Entry point
+│   ├── pdf_inbox/                         # Phase 6: PDF inbox management
+│   │   ├── __init__.py                    # Public API
+│   │   ├── models.py                      # Data models (PDFFile, ProcessingStatus)
+│   │   └── manager.py                     # PDFInboxManager class
 │   └── cli/                               # Phase 5: CLI tool
 │       ├── __init__.py                    # Public API
 │       ├── main.py                        # Typer app entry point
@@ -266,6 +465,7 @@ kidkazz_rag/
 │           ├── search.py                  # search semantic/keyword
 │           ├── docs.py                    # docs list/stats/export/delete
 │           ├── db.py                      # db init/status/clear
+│           ├── inbox.py                   # inbox status/list/clear
 │           └── config_cmd.py              # config show/set/reset/init
 ├── tests/
 │   ├── conftest.py                        # Shared fixtures
@@ -292,13 +492,17 @@ kidkazz_rag/
 │   ├── test_cli_output.py
 │   ├── test_cli_progress.py
 │   ├── test_cli_commands.py
-│   └── test_cli_integration.py
+│   ├── test_cli_integration.py
+│   ├── test_pdf_inbox_models.py           # Phase 6 tests
+│   ├── test_pdf_inbox_manager.py
+│   └── test_pdf_inbox_cli.py
 └── docs/
     ├── design/
     │   ├── PLAN_PHASE2.md                 # Phase 2 design document
     │   ├── PLAN_PHASE3.md                 # Phase 3 design document
     │   ├── PLAN_PHASE4.md                 # Phase 4 design document
-    │   └── PLAN_PHASE5.md                 # Phase 5 design document
+    │   ├── PLAN_PHASE5.md                 # Phase 5 design document
+    │   └── PDF_INBOX_FEATURE.md           # Phase 6 design document
     └── testing/
         └── UNIT_TEST.md                   # Testing guide
 ```
@@ -443,6 +647,7 @@ The CLI tool (`kidkazz`) provides command-line access to all RAG functionality w
 | `kidkazz search` | semantic, keyword | Search the knowledge base |
 | `kidkazz docs` | list, stats, export, delete | Manage documents |
 | `kidkazz db` | init, status, clear | Database operations |
+| `kidkazz inbox` | status, list, clear | Manage PDF inbox |
 | `kidkazz config` | show, set, reset, init | Configuration management |
 
 ### Ingest Commands
@@ -509,6 +714,38 @@ kidkazz db status --json
 kidkazz db clear --force
 ```
 
+### PDF Inbox Management
+
+The inbox feature helps manage PDF files before conversion:
+
+```bash
+# View inbox status
+kidkazz inbox status
+
+# List PDF files in inbox
+kidkazz inbox list
+kidkazz inbox list --status pending
+kidkazz inbox list --json
+
+# Clear inbox files
+kidkazz inbox clear --force
+kidkazz inbox clear --failed      # Only failed conversions
+kidkazz inbox clear --completed   # Only completed conversions
+```
+
+**Inbox Configuration:**
+
+```bash
+# Set inbox path
+kidkazz config set inbox_path ~/my_pdfs
+
+# Set post-conversion action (delete, move, keep)
+kidkazz config set post_action delete
+
+# Enable recursive scanning
+kidkazz config set inbox_recursive true
+```
+
 ### Configuration
 
 The CLI uses a layered configuration system:
@@ -552,6 +789,13 @@ model_name = "BAAI/bge-small-en-v1.5"
 level_1_size = 2048
 level_2_size = 512
 overlap = 256
+
+[inbox]
+path = "~/.kidkazz/inbox"
+output_path = "~/.kidkazz/output"
+post_action = "delete"   # delete, move, or keep
+recursive = false
+processed_dir = "~/.kidkazz/processed"
 ```
 
 ## Tool Selection Guide
@@ -580,7 +824,7 @@ python -m pytest tests/test_mcp_*.py -v                             # Phase 4
 python -m pytest tests/test_cli_*.py -v                             # Phase 5
 ```
 
-**Current Coverage:** 557 tests (547 passed, 10 skipped)
+**Current Coverage:** 636 tests passing
 
 ## Troubleshooting
 
@@ -588,10 +832,13 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 
 | Issue | Solution |
 |-------|----------|
-| No GPU detected | Runtime → Change runtime type → GPU |
-| PDF not found | Upload via VS Code → "Upload to Colab server" |
-| Out of memory | Use Marker, restart runtime, or split PDF |
+| No GPU detected | Runtime → Change runtime type → Hardware accelerator → GPU (T4) |
+| PDF not uploading | Use Google Drive mount for large files (see workflow above) |
+| Upload timeout | Mount Google Drive instead of direct upload |
+| Out of memory | Use Marker (most efficient), restart runtime, or split PDF |
 | Poor quality | Try different tool (Nougat for math, Docling for tables) |
+| Session disconnected | Enable "Keep alive" extension or remount Drive |
+| Files disappeared | Colab sessions reset after timeout; save to Drive |
 
 ### Chunking (Local)
 
@@ -636,6 +883,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [x] Phase 3: Helix-DB integration (vector + graph storage)
 - [x] Phase 4: MCP server for Claude Code
 - [x] Phase 5: End-to-end CLI tool
+- [x] Phase 6: PDF inbox management with auto-delete
 
 ## Documentation
 
@@ -644,6 +892,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [Phase 3 Design](docs/design/PLAN_PHASE3.md) - Helix-DB storage integration
 - [Phase 4 Design](docs/design/PLAN_PHASE4.md) - MCP server implementation
 - [Phase 5 Design](docs/design/PLAN_PHASE5.md) - CLI tool implementation
+- [PDF Inbox Design](docs/design/PDF_INBOX_FEATURE.md) - PDF inbox management
 
 ## Contributing
 
