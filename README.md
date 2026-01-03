@@ -97,6 +97,144 @@ pip install -e ".[cli]"           # CLI tool (typer, rich)
 pip install -e ".[all]"           # All dependencies
 ```
 
+## Google Colab Workflow
+
+PDF conversion requires GPU acceleration for optimal performance. We use Google Colab's free GPU runtime to process PDFs in the cloud, then download the converted markdown for local ingestion.
+
+### Why Google Colab?
+
+- **Free GPU access** - NVIDIA T4/A100 GPUs for fast conversion
+- **No local GPU required** - Works on any machine
+- **Pre-configured environment** - All ML dependencies installed
+- **Cloud storage** - Upload large PDFs without local storage limits
+
+### Complete Workflow
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        GOOGLE COLAB (CLOUD)                              │
+│  ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐   │
+│  │ Upload PDF   │───▶│ GPU Kernel       │───▶│ Download Markdown   │   │
+│  │ to Colab     │    │ (T4/A100)        │    │ to local machine    │   │
+│  │              │    │ Marker/Docling   │    │                     │   │
+│  └──────────────┘    └──────────────────┘    └─────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         LOCAL MACHINE (CPU)                              │
+│  ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐   │
+│  │ kidkazz      │───▶│ Chunk & Embed    │───▶│ Store in Helix-DB   │   │
+│  │ ingest       │    │ (FastEmbed)      │    │ or MockStore        │   │
+│  └──────────────┘    └──────────────────┘    └─────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Step-by-Step Instructions
+
+**1. Open the Colab Notebook**
+
+Option A: Via VS Code (recommended)
+```bash
+# Open VS Code in the project directory
+code notebooks/pdf_to_markdown_converter.ipynb
+
+# VS Code will prompt to connect to Colab runtime
+# Click "Connect" and authenticate with your Google account
+```
+
+Option B: Via Google Colab directly
+```
+1. Go to https://colab.research.google.com
+2. File → Upload notebook → Select pdf_to_markdown_converter.ipynb
+3. Or: File → Open notebook → GitHub → paste repo URL
+```
+
+**2. Enable GPU Runtime**
+
+```
+Runtime → Change runtime type → Hardware accelerator → GPU (T4)
+```
+
+This gives you access to NVIDIA T4 GPU (or A100 on Colab Pro).
+
+**3. Upload Your PDF to Colab Cloud**
+
+Option A: Via Files panel
+```
+1. Click the folder icon (📁) in the left sidebar
+2. Click "Upload to session storage" (⬆️)
+3. Select your PDF file
+4. File appears in /content/
+```
+
+Option B: Via code cell
+```python
+from google.colab import files
+uploaded = files.upload()  # Opens file picker
+```
+
+Option C: Mount Google Drive (for large/multiple PDFs)
+```python
+from google.colab import drive
+drive.mount('/content/drive')
+# Access PDFs from your Drive: /content/drive/MyDrive/pdfs/
+```
+
+**4. Run the Conversion**
+
+Execute the notebook cells in order:
+1. Install dependencies (Marker, Docling, or Nougat)
+2. Configure conversion settings
+3. Run conversion on your uploaded PDF
+4. Preview the markdown output
+
+**5. Download the Converted Markdown**
+
+Option A: Via Files panel
+```
+1. Right-click the .md file in /content/
+2. Click "Download"
+```
+
+Option B: Via code cell
+```python
+from google.colab import files
+files.download('output/your_document.md')
+```
+
+Option C: Save to Google Drive
+```python
+import shutil
+shutil.copy('output/your_document.md', '/content/drive/MyDrive/')
+```
+
+**6. Ingest Locally with CLI**
+
+```bash
+# Move markdown to your local output directory
+mv ~/Downloads/your_document.md output/
+
+# Ingest into knowledge base
+kidkazz ingest markdown output/your_document.md \
+    --doc-id your_document \
+    --title "Your Document Title"
+
+# Verify ingestion
+kidkazz docs stats your_document
+```
+
+### Tips for Best Results
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Large PDFs (>50 pages) | Mount Google Drive to avoid upload timeouts |
+| Multiple PDFs | Use batch upload via Drive mount |
+| Math-heavy content | Use Nougat converter |
+| Table-heavy content | Use Docling converter |
+| General text | Use Marker (fastest) |
+| Session timeout | Save intermediate results to Drive |
+
 ## Quick Start
 
 ### Step 1: PDF to Markdown Conversion (Colab)
@@ -651,10 +789,13 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 
 | Issue | Solution |
 |-------|----------|
-| No GPU detected | Runtime → Change runtime type → GPU |
-| PDF not found | Upload via VS Code → "Upload to Colab server" |
-| Out of memory | Use Marker, restart runtime, or split PDF |
+| No GPU detected | Runtime → Change runtime type → Hardware accelerator → GPU (T4) |
+| PDF not uploading | Use Google Drive mount for large files (see workflow above) |
+| Upload timeout | Mount Google Drive instead of direct upload |
+| Out of memory | Use Marker (most efficient), restart runtime, or split PDF |
 | Poor quality | Try different tool (Nougat for math, Docling for tables) |
+| Session disconnected | Enable "Keep alive" extension or remount Drive |
+| Files disappeared | Colab sessions reset after timeout; save to Drive |
 
 ### Chunking (Local)
 
