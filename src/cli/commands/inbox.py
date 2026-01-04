@@ -433,7 +433,7 @@ def parse(
         except ValueError as e:
             console.print(f"[red]Error: {e}[/red]")
             console.print("Set your API key: export REDUCTO_API_KEY=your_key_here")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         client = ReductoClient(reducto_config)
 
@@ -450,7 +450,7 @@ def parse(
             results = client.parse_directory(inbox_path, on_progress=on_progress)
         except ReductoAPIError as e:
             console.print(f"[red]API Error: {e}[/red]")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         # Save markdown files
         saved_count = 0
@@ -491,4 +491,4 @@ def parse(
         raise
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None

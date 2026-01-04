@@ -1314,7 +1314,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 | Issue | Solution |
 |-------|----------|
 | REDUCTO_API_KEY not set | `export REDUCTO_API_KEY="your_key"` or add to `.env` |
-| API key invalid | Verify key at https://reducto.ai/dashboard |
+| API key invalid | Verify key at [reducto.ai/dashboard](https://reducto.ai/dashboard) |
 | Rate limit exceeded | Wait and retry, or upgrade plan |
 | API error | Check Reducto status page, verify PDF is valid |
 | No PDFs found | Check inbox path: `kidkazz config show` |

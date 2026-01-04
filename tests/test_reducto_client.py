@@ -242,8 +242,7 @@ class TestReductoClientBatch:
         assert all(isinstance(r[0], Path) for r in results)
         assert all(isinstance(r[1], str) for r in results)
 
-    @patch("reducto.Reducto")
-    def test_parse_directory_empty(self, mock_reducto, tmp_path):
+    def test_parse_directory_empty(self, tmp_path):
         """Test parsing empty directory."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
