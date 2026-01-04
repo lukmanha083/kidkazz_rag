@@ -423,7 +423,7 @@ class OpenAIEmbedder:
                     model=self.model_name,
                     input=non_empty_texts
                 )
-                for idx, emb_data in zip(non_empty_indices, response.data):
+                for idx, emb_data in zip(non_empty_indices, response.data, strict=True):
                     embeddings_map[idx] = emb_data.embedding
 
             # Yield in order

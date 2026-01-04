@@ -161,7 +161,7 @@ def ingest_markdown(
                 embedder_instance = get_embedder(config, embedder_override=embedder)
             except (ImportError, ValueError) as e:
                 print_error(str(e))
-                raise typer.Exit(1)
+                raise typer.Exit(1) from None
             embedded_chunks = embedder_instance.embed_chunks(chunks, batch_size=32)
             tracker.complete("Generating embeddings...")
 
@@ -274,7 +274,7 @@ def ingest_batch(
         embedder_instance = get_embedder(config, embedder_override=embedder)
     except (ImportError, ValueError) as e:
         print_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     # Get existing documents if skip_existing
     existing_docs = set()

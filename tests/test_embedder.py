@@ -316,7 +316,7 @@ class TestOpenAIEmbedder:
                 input = [input]
 
             mock_data = []
-            for i, text in enumerate(input):
+            for _i, text in enumerate(input):
                 mock_emb = MagicMock()
                 # Generate deterministic mock embedding
                 dim = OPENAI_MODEL_DIMENSIONS.get(model, 1536)
@@ -331,8 +331,8 @@ class TestOpenAIEmbedder:
         return mock_client
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"})
-    @patch("src.chunker.embedder.OpenAIEmbedder.client", new_callable=lambda: property(lambda self: MagicMock()))
-    def test_initialization(self, mock_client):
+    @patch("src.chunker.embedder.OpenAIEmbedder.client", new_callable=lambda: property(lambda _self: MagicMock()))
+    def test_initialization(self, _mock_client):
         """Should initialize with API key from environment."""
         embedder = OpenAIEmbedder()
         assert embedder.model_name == "text-embedding-3-small"

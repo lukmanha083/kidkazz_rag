@@ -24,8 +24,8 @@ def parse_chunk_sizes(sizes_str: str) -> Tuple[int, int, int]:
 
     try:
         return (int(parts[0]), int(parts[1]), int(parts[2]))
-    except ValueError:
-        raise ValueError("chunk_sizes must be integers")
+    except ValueError as err:
+        raise ValueError("chunk_sizes must be integers") from err
 
 
 def get_store(config: CLIConfig) -> Any:
@@ -51,7 +51,7 @@ def get_store(config: CLIConfig) -> Any:
         return MockChunkStore()
 
 
-def get_embedder(config: CLIConfig, embedder_override: str = None) -> Any:
+def get_embedder(config: CLIConfig, embedder_override: Optional[str] = None) -> Any:
     """Get embedder instance based on configuration.
 
     Args:
@@ -68,10 +68,10 @@ def get_embedder(config: CLIConfig, embedder_override: str = None) -> Any:
             from src.chunker import OpenAIEmbedder
 
             return OpenAIEmbedder(model_name=config.model_name)
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "OpenAI is not installed. Run: pip install openai"
-            )
+            ) from err
 
     elif embedder_type == "fastembed":
         try:
