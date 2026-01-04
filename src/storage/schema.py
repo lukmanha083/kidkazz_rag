@@ -38,6 +38,7 @@ class SchemaConfig:
 DOCUMENT_NODE_SCHEMA: dict[str, str] = {
     "doc_id": "String",
     "title": "String",
+    "tags": "String",  # JSON array of document tags
     "created_at": "I64",
     "chunk_count": "U32",
 }

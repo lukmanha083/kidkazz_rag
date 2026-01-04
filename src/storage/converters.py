@@ -179,6 +179,7 @@ def document_to_helix_node(
     title: str,
     chunk_count: int,
     created_at: Optional[int] = None,
+    tags: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """
     Create Helix-DB document node properties.
@@ -188,15 +189,20 @@ def document_to_helix_node(
         title: Document title
         chunk_count: Number of chunks in document
         created_at: Unix timestamp (auto-generated if not provided)
+        tags: Optional list of document tags
 
     Returns:
         Dictionary of document node properties
     """
     import time
 
+    # Normalize tags to lowercase and filter empty strings
+    normalized_tags = [t.lower().strip() for t in (tags or []) if t and t.strip()]
+
     return {
         "doc_id": doc_id,
         "title": title,
+        "tags": json.dumps(normalized_tags),
         "chunk_count": chunk_count,
         "created_at": created_at or int(time.time()),
     }
@@ -212,9 +218,26 @@ def helix_node_to_document(node: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Dictionary with document metadata
     """
+    # Parse tags from JSON string with error handling
+    tags_raw = node.get("tags", "[]")
+    tags: list[str] = []
+
+    if isinstance(tags_raw, str):
+        try:
+            parsed = json.loads(tags_raw)
+            if isinstance(parsed, list):
+                tags = parsed
+        except json.JSONDecodeError:
+            # Invalid JSON, use empty list
+            tags = []
+    elif isinstance(tags_raw, list):
+        tags = tags_raw
+    # else: tags remains empty list for other types
+
     return {
         "doc_id": node["doc_id"],
         "title": node.get("title", ""),
+        "tags": tags,
         "chunk_count": node.get("chunk_count", 0),
         "created_at": node.get("created_at", 0),
     }

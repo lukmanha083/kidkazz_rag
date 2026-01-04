@@ -14,6 +14,7 @@ Note:
     helix.Query base class.
 """
 
+import json
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -59,7 +60,13 @@ def _get_query_base_class() -> type:
 class AddDocument(_get_query_base_class()):
     """Add a document node to the database."""
 
-    def __init__(self, doc_id: str, title: str, chunk_count: int) -> None:
+    def __init__(
+        self,
+        doc_id: str,
+        title: str,
+        chunk_count: int,
+        tags: Optional[list[str]] = None,
+    ) -> None:
         """
         Initialize AddDocument query.
 
@@ -67,12 +74,15 @@ class AddDocument(_get_query_base_class()):
             doc_id: Unique document identifier
             title: Document title
             chunk_count: Number of chunks in document
+            tags: Optional list of document tags
         """
         super().__init__()
         self.doc_id = doc_id
         self.title = title
         self.chunk_count = chunk_count
         self.created_at = int(time.time())
+        # Normalize tags to lowercase and filter empty strings
+        self.tags = [t.lower().strip() for t in (tags or []) if t and t.strip()]
 
     def query(self) -> list[dict[str, Any]]:
         """Return query payload for adding document."""
@@ -82,6 +92,7 @@ class AddDocument(_get_query_base_class()):
             "properties": {
                 "doc_id": self.doc_id,
                 "title": self.title,
+                "tags": json.dumps(self.tags),
                 "chunk_count": self.chunk_count,
                 "created_at": self.created_at,
             },
