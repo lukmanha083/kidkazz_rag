@@ -4,7 +4,7 @@ This module provides a client for the Reducto.ai API to convert
 PDF documents to markdown format.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 import os

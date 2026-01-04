@@ -406,8 +406,11 @@ def parse(
         inbox_path.mkdir(parents=True, exist_ok=True)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Find PDF files
-        pdf_files = list(inbox_path.glob("*.pdf"))
+        # Find PDF files (recursive if configured)
+        if config.inbox_recursive:
+            pdf_files = list(inbox_path.rglob("*.pdf"))
+        else:
+            pdf_files = list(inbox_path.glob("*.pdf"))
 
         if not pdf_files:
             console.print("[yellow]No PDF files found in inbox[/yellow]")

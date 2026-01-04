@@ -156,7 +156,8 @@ class TestParseCommand:
         self, mock_config, mock_client_class, temp_inbox_with_pdfs, temp_output
     ):
         """Test parse command with --agentic flag."""
-        mock_config.return_value = MagicMock(api_key="test_key", agentic=False)
+        mock_reducto_config = MagicMock(api_key="test_key", agentic=False)
+        mock_config.return_value = mock_reducto_config
         mock_client = MagicMock()
         mock_client.parse_directory.return_value = []
         mock_client_class.return_value = mock_client
@@ -173,8 +174,9 @@ class TestParseCommand:
         ):
             result = runner.invoke(app, ["inbox", "parse", "--agentic"])
 
-        # Config should be updated with agentic=True
         assert result.exit_code == 0
+        # Verify agentic flag was set on config
+        assert mock_reducto_config.agentic is True
 
     @patch("src.pdf_converter.reducto_client.ReductoClient")
     @patch("src.pdf_converter.reducto_client.ReductoConfig.from_env")
