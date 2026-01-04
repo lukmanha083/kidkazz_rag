@@ -43,3 +43,9 @@ Thumbs.db
 # Project specific
 data/
 *.pdf
+
+# Secrets
+.env
+.env.local
+*.key
+*_credentials.json
