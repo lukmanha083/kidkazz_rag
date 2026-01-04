@@ -43,9 +43,11 @@ Build a storage layer for hierarchical chunks with vector embeddings using Helix
 
 | Node Type | Purpose | Key Fields |
 |-----------|---------|------------|
-| Document | Container | doc_id, title, chunk_count |
+| Document | Container | doc_id, title, tags, chunk_count |
 | Chunk | Content + metadata | chunk_id, content, level, semantic_type |
 | ChunkVector | Embedding | embedding (384 dims) |
+
+**Document tags** enable topic-based filtering (e.g., "inventory", "accounting"). Tags are stored as a JSON array and support AND-logic filtering in search and list operations.
 
 **Edge relationships:**
 
@@ -97,6 +99,7 @@ class SchemaConfig:
 DOCUMENT_NODE_SCHEMA = {
     "doc_id": "String",
     "title": "String",
+    "tags": "String",       # JSON array of document tags
     "created_at": "I64",
     "chunk_count": "U32",
 }
@@ -186,13 +189,15 @@ class MockChunkStore:
 
     def store_document(self, doc_id: str, title: str,
                        embedded_chunks: list[EmbeddedChunk],
-                       metadata_list: list[ChunkMetadata]) -> None:
-        """Store document with all chunks."""
+                       metadata_list: list[ChunkMetadata],
+                       tags: list[str] = None) -> None:
+        """Store document with all chunks and optional tags."""
 
     def search_similar(self, query_embedding: list[float], top_k: int = 5,
                        doc_id: str = None, level: int = None,
-                       semantic_type: str = None) -> list[tuple[EmbeddedChunk, float]]:
-        """Vector similarity search using cosine similarity."""
+                       semantic_type: str = None,
+                       tags: list[str] = None) -> list[tuple[EmbeddedChunk, float]]:
+        """Vector similarity search with optional tag filtering."""
 
     def get_parent(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """Get parent chunk."""
@@ -229,12 +234,13 @@ class HelixChunkStore:
 
     def store_document(self, doc_id: str, title: str,
                        embedded_chunks: list[EmbeddedChunk],
-                       metadata_list: list[ChunkMetadata]) -> None:
-        """Store document with chunks, embeddings, and graph relationships."""
+                       metadata_list: list[ChunkMetadata],
+                       tags: list[str] = None) -> None:
+        """Store document with chunks, embeddings, graph relationships, and optional tags."""
 
     def search_similar(self, query_embedding: list[float], top_k: int = 5,
-                       **filters) -> list[tuple[EmbeddedChunk, float]]:
-        """Vector similarity search with optional filters."""
+                       tags: list[str] = None, **filters) -> list[tuple[EmbeddedChunk, float]]:
+        """Vector similarity search with optional tag filtering."""
 
     def search_text(self, query_text: str, embedder, top_k: int = 5) -> list:
         """Search by text (embeds query first)."""
@@ -368,13 +374,14 @@ metadata = enrich_all_chunks(chunks, document_id="textbook")
 embedder = MockEmbedder()  # or ChunkEmbedder for production
 embedded_chunks = embedder.embed_chunks(chunks)
 
-# 3. Store in database (Phase 3)
+# 3. Store in database (Phase 3) with optional tags
 store = MockChunkStore()  # or HelixChunkStore()
 store.store_document(
     doc_id="textbook",
     title="My Textbook",
     embedded_chunks=embedded_chunks,
     metadata_list=metadata,
+    tags=["inventory", "accounting"],  # Optional: topic-based filtering
 )
 
 # 4. Search by text
@@ -389,11 +396,18 @@ top_chunk = results[0][0]
 parent = store.get_parent(top_chunk.chunk.id)
 context = store.get_context_window(top_chunk.chunk.id, window_size=2)
 
-# 6. Filter search
+# 6. Filter search by semantic type
 definitions = store.search_similar(
     query_embedding,
     top_k=10,
     semantic_type="definition"
+)
+
+# 7. Filter search by document tags
+inventory_results = store.search_similar(
+    query_embedding,
+    top_k=10,
+    tags=["inventory"]  # Only chunks from inventory-tagged documents
 )
 ```
 

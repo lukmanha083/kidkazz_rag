@@ -1,7 +1,7 @@
 # Kidkazz RAG
 
 [![CodeRabbit Review](https://img.shields.io/badge/CodeRabbit-Reviewed-green?logo=github)](https://coderabbit.ai)
-[![Tests](https://img.shields.io/badge/tests-676%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-689%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
@@ -17,6 +17,7 @@ This project provides tools to:
 4. Store in Helix-DB (vector + graph database)
 5. Query documents via MCP integration with Claude Code
 6. Manage PDF inbox with auto-delete after conversion
+7. Tag documents by topic for filtered search (e.g., "inventory", "accounting")
 
 ## Current Status
 
@@ -28,6 +29,7 @@ This project provides tools to:
 | 4 | MCP Server | ✅ Complete |
 | 5 | End-to-End CLI Tool | ✅ Complete |
 | 6 | PDF Inbox Management | ✅ Complete |
+| 7 | Document Tagging | ✅ Complete |
 
 ## Architecture
 
@@ -67,7 +69,8 @@ Markdown Document
      v
 [Helix-DB Storage] ─────────── Vector + Graph Storage
      |                           ├── MockChunkStore (testing)
-     |                           └── HelixChunkStore (production)
+     |                           ├── HelixChunkStore (production)
+     |                           └── Document tagging for filtered search
      |
      ├─────────────────────────────────────────────────────────┐
      v                                                         v
@@ -775,7 +778,7 @@ The storage layer uses a three-node graph structure:
 
 | Node Type | Purpose | Key Fields |
 |-----------|---------|------------|
-| Document | Container | doc_id, title, chunk_count |
+| Document | Container | doc_id, title, tags, chunk_count |
 | Chunk | Content + metadata | chunk_id, content, level, semantic_type |
 | ChunkVector | Embedding | embedding (384 dims) |
 
@@ -796,6 +799,45 @@ The storage layer uses a three-node graph structure:
 | HelixChunkStore | Production | Yes (Helix-DB server) |
 
 Both implementations share the same `ChunkStoreProtocol` interface for easy swapping.
+
+## Document Tagging
+
+Documents can be tagged with topics/concepts for organized filtering. Tags are stored at the document level and apply to all chunks within that document.
+
+### Tag Behavior
+
+| Feature | Behavior |
+|---------|----------|
+| **Case-insensitive** | Tags are normalized to lowercase |
+| **AND logic** | Multiple tags filter to documents having ALL specified tags |
+| **Stored as JSON** | `["inventory", "accounting"]` in database |
+| **Inherited by chunks** | Search filters include chunks from tagged documents |
+
+### CLI Usage
+
+```bash
+# Ingest with tags
+kidkazz ingest markdown inventory_book.md --doc-id inv-book --tags inventory,accounting
+
+# Search within tagged documents
+kidkazz search semantic "safety stock calculation" --tags inventory
+
+# List documents by tag
+kidkazz docs list --tags inventory
+
+# Multiple tags (AND logic - must have all)
+kidkazz docs list --tags inventory,best-practices
+```
+
+### MCP Usage
+
+```python
+# Search within tagged documents
+search_semantic(query="safety stock", tags=["inventory"])
+
+# List documents by tag
+list_documents(tags=["inventory"])
+```
 
 ### Helix-DB Setup Guide
 
@@ -923,14 +965,14 @@ You don't need to manually start the server - Claude Code does it automatically 
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `search_semantic` | Vector similarity search | query, top_k, doc_id, level, semantic_type, threshold |
+| `search_semantic` | Vector similarity search | query, top_k, doc_id, level, semantic_type, threshold, tags |
 | `search_keyword` | Full-text keyword search | keyword, doc_id, case_sensitive |
 | `get_chunk` | Get chunk by ID | chunk_id |
 | `get_context_window` | Get chunk with neighbors | chunk_id, window_size |
 | `get_parent` | Navigate to parent chunk | chunk_id |
 | `get_children` | Get child chunks | chunk_id |
 | `get_siblings` | Get sibling chunks | chunk_id |
-| `list_documents` | List all documents | - |
+| `list_documents` | List all documents | tags |
 | `get_document_chunks` | Get all chunks from doc | doc_id, level |
 | `get_document_stats` | Get document statistics | doc_id |
 
@@ -1101,14 +1143,17 @@ The CLI tool (`kidkazz`) provides command-line access to all RAG functionality w
 # Ingest a single markdown file
 kidkazz ingest markdown document.md --doc-id my_doc --title "My Document"
 
+# Ingest with tags for topic-based filtering
+kidkazz ingest markdown textbook.md --doc-id inv-book --tags inventory,accounting
+
 # Preview without ingesting
 kidkazz ingest markdown document.md --dry-run
 
 # Custom chunk sizes (level1,level2,overlap)
 kidkazz ingest markdown document.md --chunk-sizes 1024,256,128
 
-# Batch ingest a directory
-kidkazz ingest batch ./docs --pattern "*.md" --recursive
+# Batch ingest a directory with tags
+kidkazz ingest batch ./docs --pattern "*.md" --recursive --tags documentation
 
 # PDF ingestion (redirects to Colab notebook)
 kidkazz ingest pdf document.pdf
@@ -1123,6 +1168,10 @@ kidkazz search semantic "What is machine learning?" --top-k 5
 # Filter by document, level, or type
 kidkazz search semantic "neural networks" --doc-id textbook --level 2
 
+# Filter by document tags (AND logic - must have all specified tags)
+kidkazz search semantic "safety stock calculation" --tags inventory
+kidkazz search semantic "depreciation" --tags inventory,accounting
+
 # Keyword search
 kidkazz search keyword "supervised learning" --case-sensitive
 
@@ -1135,6 +1184,10 @@ kidkazz search semantic "example" --json
 ```bash
 # List all documents
 kidkazz docs list --json
+
+# List documents by tag
+kidkazz docs list --tags inventory
+kidkazz docs list --tags inventory,accounting  # AND logic
 
 # Get document statistics
 kidkazz docs stats textbook
@@ -1295,7 +1348,7 @@ python -m pytest tests/test_mcp_*.py -v                             # Phase 4
 python -m pytest tests/test_cli_*.py -v                             # Phase 5
 ```
 
-**Current Coverage:** 676 tests passing
+**Current Coverage:** 689 tests passing
 
 ## Troubleshooting
 
@@ -1367,6 +1420,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [x] Phase 4: MCP server for Claude Code
 - [x] Phase 5: End-to-end CLI tool
 - [x] Phase 6: PDF inbox management with auto-delete
+- [x] Phase 7: Document tagging for topic-based filtering
 
 ## Documentation
 
@@ -1377,6 +1431,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [Phase 5 Design](docs/design/PLAN_PHASE5.md) - CLI tool implementation
 - [PDF Inbox Design](docs/design/PDF_INBOX_FEATURE.md) - PDF inbox management
 - [Reducto.ai Integration](docs/design/PLAN_REDUCTO_INTEGRATION.md) - Reducto API parsing
+- [Document Tagging](docs/design/DOCUMENT_TAGGING.md) - Topic-based document filtering
 
 ## Contributing
 
