@@ -463,6 +463,32 @@ def parse(
         console.print(f"\n[green]Successfully parsed {saved_count} file(s)[/green]")
         console.print(f"Output directory: {output_path}")
 
+        # Apply post_action to processed PDFs
+        action_value = config.post_action.lower()
+        if action_value == "delete":
+            deleted_count = 0
+            for pdf_path, _ in results:
+                try:
+                    pdf_path.unlink()
+                    deleted_count += 1
+                except Exception as e:
+                    console.print(f"[yellow]Failed to delete {pdf_path.name}: {e}[/yellow]")
+            if deleted_count > 0:
+                console.print(f"[dim]Deleted {deleted_count} processed PDF(s)[/dim]")
+        elif action_value == "move":
+            processed_dir = Path(config.processed_dir).expanduser()
+            processed_dir.mkdir(parents=True, exist_ok=True)
+            moved_count = 0
+            for pdf_path, _ in results:
+                try:
+                    dest = processed_dir / pdf_path.name
+                    pdf_path.rename(dest)
+                    moved_count += 1
+                except Exception as e:
+                    console.print(f"[yellow]Failed to move {pdf_path.name}: {e}[/yellow]")
+            if moved_count > 0:
+                console.print(f"[dim]Moved {moved_count} PDF(s) to {processed_dir}[/dim]")
+
         # Sync to cloud backup
         if sync_backup and config.cloud_remote:
             try:

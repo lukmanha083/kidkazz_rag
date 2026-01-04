@@ -315,6 +315,106 @@ class TestParseCommand:
         assert "error" in result.stdout.lower() or "failed" in result.stdout.lower()
 
 
+class TestParsePostAction:
+    """Tests for post_action handling after parsing."""
+
+    @patch("src.pdf_converter.reducto_client.ReductoClient")
+    @patch("src.pdf_converter.reducto_client.ReductoConfig.from_env")
+    def test_parse_with_delete_action(
+        self, mock_config, mock_client_class, temp_inbox_with_pdfs, temp_output
+    ):
+        """Test parse command deletes PDFs when post_action is 'delete'."""
+        mock_config.return_value = MagicMock(api_key="test_key")
+        mock_client = MagicMock()
+        mock_client.parse_files.return_value = [
+            (temp_inbox_with_pdfs / "document1.pdf", "# Content 1"),
+            (temp_inbox_with_pdfs / "document2.pdf", "# Content 2"),
+        ]
+        mock_client_class.return_value = mock_client
+
+        from src.cli.main import app
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox_with_pdfs),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+                "KIDKAZZ_POST_ACTION": "delete",
+                "REDUCTO_API_KEY": "test_key",
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "parse", "--no-sync-backup"])
+
+        assert result.exit_code == 0
+        # PDFs should be deleted
+        assert not (temp_inbox_with_pdfs / "document1.pdf").exists()
+        assert not (temp_inbox_with_pdfs / "document2.pdf").exists()
+
+    @patch("src.pdf_converter.reducto_client.ReductoClient")
+    @patch("src.pdf_converter.reducto_client.ReductoConfig.from_env")
+    def test_parse_with_move_action(
+        self, mock_config, mock_client_class, temp_inbox_with_pdfs, temp_output, tmp_path
+    ):
+        """Test parse command moves PDFs when post_action is 'move'."""
+        mock_config.return_value = MagicMock(api_key="test_key")
+        mock_client = MagicMock()
+        mock_client.parse_files.return_value = [
+            (temp_inbox_with_pdfs / "document1.pdf", "# Content 1"),
+        ]
+        mock_client_class.return_value = mock_client
+
+        processed_dir = tmp_path / "processed"
+
+        from src.cli.main import app
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox_with_pdfs),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+                "KIDKAZZ_POST_ACTION": "move",
+                "KIDKAZZ_PROCESSED_DIR": str(processed_dir),
+                "REDUCTO_API_KEY": "test_key",
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "parse", "--no-sync-backup"])
+
+        assert result.exit_code == 0
+        # PDF should be moved to processed directory
+        assert not (temp_inbox_with_pdfs / "document1.pdf").exists()
+        assert (processed_dir / "document1.pdf").exists()
+
+    @patch("src.pdf_converter.reducto_client.ReductoClient")
+    @patch("src.pdf_converter.reducto_client.ReductoConfig.from_env")
+    def test_parse_with_keep_action(
+        self, mock_config, mock_client_class, temp_inbox_with_pdfs, temp_output
+    ):
+        """Test parse command keeps PDFs when post_action is 'keep'."""
+        mock_config.return_value = MagicMock(api_key="test_key")
+        mock_client = MagicMock()
+        mock_client.parse_files.return_value = [
+            (temp_inbox_with_pdfs / "document1.pdf", "# Content 1"),
+        ]
+        mock_client_class.return_value = mock_client
+
+        from src.cli.main import app
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox_with_pdfs),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+                "KIDKAZZ_POST_ACTION": "keep",
+                "REDUCTO_API_KEY": "test_key",
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "parse", "--no-sync-backup"])
+
+        assert result.exit_code == 0
+        # PDFs should still exist
+        assert (temp_inbox_with_pdfs / "document1.pdf").exists()
+
+
 class TestParseCommandHelp:
     """Tests for parse command help and documentation."""
 
