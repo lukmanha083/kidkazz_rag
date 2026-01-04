@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Callable, Optional
 import os
 
+from dotenv import load_dotenv
+
+# Load .env file for API keys
+load_dotenv()
+
 
 class ReductoAPIError(Exception):
     """Exception raised when Reducto API call fails."""

@@ -1,5 +1,5 @@
 [storage]
-store_type = "mock"
+store_type = "helix"
 helix_port = 6969
 helix_local = true
 
