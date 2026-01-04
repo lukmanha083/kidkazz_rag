@@ -72,8 +72,6 @@ def get_embedder(config: CLIConfig, embedder_override: str = None) -> Any:
             raise ImportError(
                 "OpenAI is not installed. Run: pip install openai"
             )
-        except ValueError as e:
-            raise ValueError(str(e))
 
     elif embedder_type == "fastembed":
         try:
