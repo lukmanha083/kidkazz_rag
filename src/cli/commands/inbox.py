@@ -362,12 +362,133 @@ def _format_size(size: int) -> str:
     return f"{size:.1f} TB"
 
 
-def _get_status_style(status: str) -> str:
-    """Get Rich style for status."""
-    styles = {
-        "pending": "yellow",
-        "processing": "blue",
-        "completed": "green",
-        "failed": "red",
-    }
-    return styles.get(status, "white")
+@app.command()
+def parse(
+    agentic: bool = typer.Option(
+        False,
+        "--agentic",
+        help="Enable AI-enhanced accuracy mode (uses more credits)",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would be parsed without processing",
+    ),
+    sync_backup: bool = typer.Option(
+        True,
+        "--sync-backup/--no-sync-backup",
+        help="Sync output to cloud backup after parsing",
+    ),
+) -> None:
+    """Parse PDFs in inbox using Reducto.ai API.
+
+    Requires REDUCTO_API_KEY environment variable.
+    Get your API key from https://reducto.ai
+
+    Examples:
+        kidkazz inbox parse                    # Parse all PDFs
+        kidkazz inbox parse --agentic          # High-accuracy mode
+        kidkazz inbox parse --dry-run          # Preview only
+        kidkazz inbox parse --no-sync-backup   # Skip cloud backup
+    """
+    try:
+        from src.pdf_converter.reducto_client import (
+            ReductoClient,
+            ReductoConfig,
+            ReductoAPIError,
+        )
+
+        config = CLIConfig.load()
+        inbox_path = Path(config.inbox_path).expanduser()
+        output_path = Path(config.output_path).expanduser()
+
+        # Ensure directories exist
+        inbox_path.mkdir(parents=True, exist_ok=True)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Find PDF files (recursive if configured)
+        if config.inbox_recursive:
+            pdf_files = list(inbox_path.rglob("*.pdf"))
+        else:
+            pdf_files = list(inbox_path.glob("*.pdf"))
+
+        if not pdf_files:
+            console.print("[yellow]No PDF files found in inbox[/yellow]")
+            console.print(f"Inbox path: {inbox_path}")
+            return
+
+        # Dry run mode
+        if dry_run:
+            console.print("[bold]Dry run - would parse these files:[/bold]")
+            for pdf in pdf_files:
+                size_str = _format_size(pdf.stat().st_size)
+                console.print(f"  - {pdf.name} ({size_str})")
+            console.print(f"\nTotal: {len(pdf_files)} file(s)")
+            return
+
+        # Initialize Reducto client
+        try:
+            reducto_config = ReductoConfig.from_env()
+            reducto_config.agentic = agentic
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            console.print("Set your API key: export REDUCTO_API_KEY=your_key_here")
+            raise typer.Exit(1) from None
+
+        client = ReductoClient(reducto_config)
+
+        # Parse progress callback
+        def on_progress(pdf_path: Path, index: int, total: int) -> None:
+            console.print(f"[blue]Parsing ({index}/{total}):[/blue] {pdf_path.name}")
+
+        # Parse PDFs
+        console.print(f"[bold]Parsing {len(pdf_files)} PDF(s) with Reducto.ai...[/bold]")
+        if agentic:
+            console.print("[dim]Agentic mode enabled (higher accuracy, 2x credits)[/dim]")
+
+        try:
+            results = client.parse_files(pdf_files, on_progress=on_progress)
+        except ReductoAPIError as e:
+            console.print(f"[red]API Error: {e}[/red]")
+            raise typer.Exit(1) from None
+
+        # Save markdown files
+        saved_count = 0
+        for pdf_path, markdown in results:
+            output_file = output_path / f"{pdf_path.stem}.md"
+            output_file.write_text(markdown, encoding="utf-8")
+            saved_count += 1
+            console.print(f"[green]Saved:[/green] {output_file.name}")
+
+        console.print(f"\n[green]Successfully parsed {saved_count} file(s)[/green]")
+        console.print(f"Output directory: {output_path}")
+
+        # Sync to cloud backup
+        if sync_backup and config.cloud_remote:
+            try:
+                output_sync = CloudSync(
+                    remote_name=config.cloud_remote,
+                    remote_path=f"{config.cloud_path}_output",
+                )
+
+                if output_sync.check_rclone_installed() and output_sync.validate_remote(
+                    config.cloud_remote
+                ):
+                    console.print("\n[bold]Syncing output to cloud backup...[/bold]")
+                    result = output_sync.sync_to_remote(local_path=output_path)
+                    if result.success:
+                        console.print(
+                            f"[green]Backed up {result.files_synced} file(s)[/green]"
+                        )
+                    else:
+                        console.print(
+                            f"[yellow]Backup warning: {result.error_message}[/yellow]"
+                        )
+            except Exception as e:
+                console.print(f"[yellow]Backup skipped: {e}[/yellow]")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1) from None

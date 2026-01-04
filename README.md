@@ -40,10 +40,18 @@ PDF Document
      |                           ├── Track processing status
      |                           └── Auto-delete after conversion
      v
-[PDF to Markdown Converter] ──── Google Colab (GPU)
-     |                           ├── Marker (fast, clean PDFs)
-     |                           ├── Docling (tables, mixed)
-     |                           └── Nougat (math/equations)
+[PDF to Markdown Converter] ──── Two Options:
+     |                           │
+     |                           ├── Option A: Reducto.ai API (Recommended)
+     |                           │   └── kidkazz inbox parse
+     |                           │       ├── No GPU required
+     |                           │       ├── 99%+ accuracy
+     |                           │       └── Cloud backup via rclone
+     |                           │
+     |                           └── Option B: Google Colab (GPU)
+     |                               ├── Marker (fast, clean PDFs)
+     |                               ├── Docling (tables, mixed)
+     |                               └── Nougat (math/equations)
      v
 Markdown Document
      |
@@ -74,9 +82,12 @@ Chat with your documents                               Terminal access  ├─�
 ## Prerequisites
 
 - Python 3.10+
-- VS Code with [Google Colab Extension](https://marketplace.visualstudio.com/items?itemName=GoogleCloudPlatform.colab-vscode-plugin) (for PDF conversion)
-- Google account (for Colab GPU access)
-- [rclone](https://rclone.org/install/) (optional, for cloud sync)
+- **For Reducto.ai parsing (Recommended):**
+  - [Reducto API key](https://reducto.ai) - Get your key from the Reducto dashboard
+  - [rclone](https://rclone.org/install/) (optional, for cloud backup)
+- **For Google Colab parsing (Alternative):**
+  - VS Code with [Google Colab Extension](https://marketplace.visualstudio.com/items?itemName=GoogleCloudPlatform.colab-vscode-plugin)
+  - Google account (for Colab GPU access)
 
 ## Installation
 
@@ -95,12 +106,112 @@ pip install -e ".[chunker]"       # Chunking + embeddings (fastembed)
 pip install -e ".[helixdb]"       # Helix-DB storage (helix-py)
 pip install -e ".[mcp]"           # MCP server for Claude Code
 pip install -e ".[cli]"           # CLI tool (typer, rich)
+pip install -e ".[reducto]"       # Reducto.ai PDF parsing
 pip install -e ".[all]"           # All dependencies
 ```
 
 ## PDF Inbox Workflow
 
 The PDF Inbox feature provides an end-to-end workflow for managing PDFs from drop to knowledge base ingestion, with automatic cleanup after successful conversion.
+
+### Recommended: Reducto.ai API Parsing
+
+Reducto.ai provides cloud-based PDF parsing with 99%+ accuracy, no GPU required. This is the recommended approach for most users.
+
+**Quick Start:**
+
+```bash
+# 1. Set your API key
+export REDUCTO_API_KEY="your_api_key_here"
+
+# 2. Drop PDFs into inbox
+cp document.pdf ~/.kidkazz/inbox/
+
+# 3. Parse with Reducto.ai
+kidkazz inbox parse
+
+# 4. Ingest into knowledge base
+kidkazz ingest markdown ~/.kidkazz/output/document.md \
+    --doc-id document --title "My Document"
+```
+
+**Reducto.ai Workflow Diagram:**
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            LOCAL MACHINE                                     │
+│  ┌────────────────┐     ┌────────────────┐     ┌────────────────────────┐   │
+│  │  Drop PDF into │────▶│ kidkazz inbox  │────▶│ kidkazz inbox parse    │   │
+│  │  ~/.kidkazz/   │     │ sync (backup)  │     │ (calls Reducto.ai API) │   │
+│  │  inbox/        │     │                │     │                        │   │
+│  └────────────────┘     └───────┬────────┘     └───────────┬────────────┘   │
+│                                 │                          │                 │
+└─────────────────────────────────┼──────────────────────────┼─────────────────┘
+                                  │ rclone                   │
+                                  ▼                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         GOOGLE DRIVE (Backup)              REDUCTO.AI CLOUD │
+│                    kidkazz_inbox/document.pdf              PDF → Markdown   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                                             │
+                                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            LOCAL MACHINE                                     │
+│  ┌────────────────────────┐     ┌────────────────────────────────────────┐  │
+│  │ ~/.kidkazz/output/     │────▶│ kidkazz ingest markdown                │  │
+│  │ document.md            │     │ (chunk, embed, store → knowledge base) │  │
+│  └────────────────────────┘     └────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Reducto.ai Parse Commands:**
+
+```bash
+# Parse all PDFs in inbox
+kidkazz inbox parse
+
+# Enable AI-enhanced accuracy (uses 2x credits)
+kidkazz inbox parse --agentic
+
+# Preview what would be parsed (no API calls)
+kidkazz inbox parse --dry-run
+
+# Skip cloud backup after parsing
+kidkazz inbox parse --no-sync-backup
+
+# View parse command help
+kidkazz inbox parse --help
+```
+
+**Reducto.ai Configuration:**
+
+```bash
+# Required: Set API key (get from https://reducto.ai)
+export REDUCTO_API_KEY="your_api_key"
+
+# Optional: Configure cloud backup
+kidkazz config set cloud_remote gdrive
+kidkazz config set cloud_path kidkazz_inbox
+```
+
+**Reducto.ai vs Google Colab:**
+
+| Feature | Reducto.ai | Google Colab |
+|---------|------------|--------------|
+| GPU Required | No (cloud API) | Yes (T4/A100) |
+| Setup | API key only | Notebook + Drive mount |
+| Speed | Fast (cloud infra) | Depends on GPU availability |
+| Cost | Pay per page | Free (with session limits) |
+| Accuracy | 99%+ (agentic mode) | Varies by tool |
+| Batch Processing | Built-in | Manual |
+| Offline | No | No |
+| Best For | Production, automation | Free tier, experimentation |
+
+---
+
+### Alternative: Google Colab Workflow
+
+For users who prefer free GPU-based conversion or need specific tools (Marker, Docling, Nougat).
 
 ### Complete Workflow
 
@@ -507,7 +618,8 @@ kidkazz_rag/
 │   │   ├── __init__.py
 │   │   ├── analyzer.py                    # Markdown quality analysis
 │   │   ├── converter.py                   # PDF conversion wrapper
-│   │   └── selector.py                    # Tool recommendation
+│   │   ├── selector.py                    # Tool recommendation
+│   │   └── reducto_client.py              # Reducto.ai API client
 │   ├── chunker/                           # Phase 2: Chunking pipeline
 │   │   ├── __init__.py                    # Public API
 │   │   ├── parser.py                      # Markdown structure extraction
@@ -579,14 +691,17 @@ kidkazz_rag/
 │   ├── test_pdf_inbox_manager.py
 │   ├── test_pdf_inbox_cli.py
 │   ├── test_cloud_sync.py                 # Cloud sync tests
-│   └── test_cloud_sync_cli.py             # Cloud sync CLI tests
+│   ├── test_cloud_sync_cli.py             # Cloud sync CLI tests
+│   ├── test_reducto_client.py             # Reducto.ai client tests
+│   └── test_inbox_parse_cli.py            # Inbox parse CLI tests
 └── docs/
     ├── design/
     │   ├── PLAN_PHASE2.md                 # Phase 2 design document
     │   ├── PLAN_PHASE3.md                 # Phase 3 design document
     │   ├── PLAN_PHASE4.md                 # Phase 4 design document
     │   ├── PLAN_PHASE5.md                 # Phase 5 design document
-    │   └── PDF_INBOX_FEATURE.md           # Phase 6 design document
+    │   ├── PDF_INBOX_FEATURE.md           # Phase 6 design document
+    │   └── PLAN_REDUCTO_INTEGRATION.md    # Reducto.ai integration plan
     └── testing/
         └── UNIT_TEST.md                   # Testing guide
 ```
@@ -954,7 +1069,7 @@ The CLI tool (`kidkazz`) provides command-line access to all RAG functionality w
 | `kidkazz search` | semantic, keyword | Search the knowledge base |
 | `kidkazz docs` | list, stats, export, delete | Manage documents |
 | `kidkazz db` | init, status, clear | Database operations |
-| `kidkazz inbox` | status, list, clear, sync | Manage PDF inbox |
+| `kidkazz inbox` | status, list, clear, sync, parse | Manage PDF inbox |
 | `kidkazz config` | show, set, reset, init | Configuration management |
 
 ### Ingest Commands
@@ -1045,6 +1160,12 @@ kidkazz inbox sync --download     # Download from cloud
 kidkazz inbox sync --dry-run      # Preview sync
 kidkazz inbox sync --check        # Verify rclone installed
 kidkazz inbox sync --remotes      # List configured remotes
+
+# Parse PDFs with Reducto.ai
+kidkazz inbox parse               # Parse all PDFs in inbox
+kidkazz inbox parse --agentic     # High-accuracy mode (2x credits)
+kidkazz inbox parse --dry-run     # Preview without API calls
+kidkazz inbox parse --no-sync-backup  # Skip cloud backup
 ```
 
 **Inbox Configuration:**
@@ -1188,6 +1309,18 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 | Slow startup | First query loads embedder; subsequent queries are faster |
 | Claude Code not connecting | Verify `.mcp.json` path and Python environment |
 
+### Reducto.ai Parsing
+
+| Issue | Solution |
+|-------|----------|
+| REDUCTO_API_KEY not set | `export REDUCTO_API_KEY="your_key"` or add to `.env` |
+| API key invalid | Verify key at [reducto.ai/dashboard](https://reducto.ai/dashboard) |
+| Rate limit exceeded | Wait and retry, or upgrade plan |
+| API error | Check Reducto status page, verify PDF is valid |
+| No PDFs found | Check inbox path: `kidkazz config show` |
+| Output not saved | Check output path exists: `~/.kidkazz/output/` |
+| Cloud backup failed | Verify rclone config: `kidkazz inbox sync --check` |
+
 ### CLI Tool
 
 | Issue | Solution |
@@ -1215,6 +1348,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [Phase 4 Design](docs/design/PLAN_PHASE4.md) - MCP server implementation
 - [Phase 5 Design](docs/design/PLAN_PHASE5.md) - CLI tool implementation
 - [PDF Inbox Design](docs/design/PDF_INBOX_FEATURE.md) - PDF inbox management
+- [Reducto.ai Integration](docs/design/PLAN_REDUCTO_INTEGRATION.md) - Reducto API parsing
 
 ## Contributing
 
