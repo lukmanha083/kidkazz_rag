@@ -2,8 +2,18 @@
 from .selector import select_pdf, get_tool_recommendation, calculate_tool_scores
 from .analyzer import analyze_quality, preview_markdown, get_content_stats
 from .converter import convert_pdf, TOOL_META
+from .reducto_client import (
+    ReductoAPIError,
+    ReductoClient,
+    ReductoConfig,
+    ParseResult,
+)
 
 __all__ = [
+    "ParseResult",
+    "ReductoAPIError",
+    "ReductoClient",
+    "ReductoConfig",
     "TOOL_META",
     "analyze_quality",
     "calculate_tool_scores",

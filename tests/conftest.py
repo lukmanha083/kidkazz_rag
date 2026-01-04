@@ -1,5 +1,13 @@
 """Pytest fixtures for PDF converter tests."""
 
+import sys
+from unittest.mock import MagicMock
+
+# Mock the reducto module if not installed (for testing without the package)
+if "reducto" not in sys.modules:
+    mock_reducto = MagicMock()
+    sys.modules["reducto"] = mock_reducto
+
 import pytest
 from pathlib import Path
 import tempfile
