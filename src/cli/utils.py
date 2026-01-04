@@ -176,3 +176,23 @@ def ensure_config_dir() -> Path:
     config_dir = Path.home() / ".config" / "kidkazz"
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
+
+
+def parse_tags(tags: Optional[str]) -> Optional[list[str]]:
+    """Parse comma-separated tags string into list.
+
+    Handles edge cases like empty strings, consecutive commas, and whitespace.
+
+    Args:
+        tags: Comma-separated tags string (e.g., "inventory,accounting")
+
+    Returns:
+        List of non-empty stripped tags, or None if no valid tags
+    """
+    if not tags:
+        return None
+
+    # Split, strip, and filter empty strings
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+
+    return tag_list if tag_list else None

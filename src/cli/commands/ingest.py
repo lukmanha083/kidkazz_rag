@@ -20,6 +20,7 @@ from ..utils import (
     get_embedder,
     get_store,
     parse_chunk_sizes,
+    parse_tags,
     resolve_doc_id,
     resolve_title,
 )
@@ -48,6 +49,12 @@ def ingest_markdown(
         "--title",
         "-t",
         help="Document title (default: from H1 or filename)",
+    ),
+    tags: Optional[str] = typer.Option(
+        None,
+        "--tags",
+        "-g",
+        help="Comma-separated tags (e.g., 'inventory,accounting')",
     ),
     chunk_sizes: str = typer.Option(
         "2048,512,256",
@@ -120,9 +127,13 @@ def ingest_markdown(
         print_chunks_preview(chunks)
         return
 
+    # Parse tags
+    tag_list = parse_tags(tags) or []
+
     result = {
         "doc_id": final_doc_id,
         "title": final_title,
+        "tags": tag_list,
         "source": str(file),
         "chunks": 0,
         "status": "success",
@@ -157,6 +168,7 @@ def ingest_markdown(
                 final_title,
                 embedded_chunks,
                 metadata,
+                tags=tag_list,
             )
             tracker.complete("Storing in database...")
 
@@ -203,6 +215,12 @@ def ingest_batch(
         "-r",
         help="Search subdirectories",
     ),
+    tags: Optional[str] = typer.Option(
+        None,
+        "--tags",
+        "-g",
+        help="Comma-separated tags for all files (e.g., 'inventory,accounting')",
+    ),
     chunk_sizes: str = typer.Option(
         "2048,512,256",
         "--chunk-sizes",
@@ -246,6 +264,9 @@ def ingest_batch(
         print_error(str(e))
         raise typer.Exit(1)
 
+    # Parse tags
+    tag_list = parse_tags(tags) or []
+
     results = []
     store_instance = get_store(config)
     embedder = get_embedder(config)
@@ -287,7 +308,7 @@ def ingest_batch(
                 )
                 metadata = enrich_all_chunks(chunks, document_id=doc_id)
                 embedded = embedder.embed_chunks(chunks, batch_size=32)
-                store_instance.store_document(doc_id, title, embedded, metadata)
+                store_instance.store_document(doc_id, title, embedded, metadata, tags=tag_list)
 
                 file_result["chunks"] = len(chunks)
 

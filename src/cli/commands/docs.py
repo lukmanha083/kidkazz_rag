@@ -17,13 +17,19 @@ from ..output import (
     print_success,
     print_warning,
 )
-from ..utils import get_store
+from ..utils import get_store, parse_tags
 
 app = typer.Typer(help="Document management commands")
 
 
 @app.command("list")
 def list_documents(
+    tags: Optional[str] = typer.Option(
+        None,
+        "-g",
+        "--tags",
+        help="Filter by document tags (comma-separated)",
+    ),
     sort: str = typer.Option(
         "date",
         "--sort",
@@ -46,8 +52,11 @@ def list_documents(
     config = CLIConfig.load()
     store = get_store(config)
 
+    # Parse tags
+    tag_list = parse_tags(tags)
+
     try:
-        docs = store.list_documents()
+        docs = store.list_documents(tags=tag_list)
     except Exception as e:
         print_error(f"Failed to list documents: {e}")
         raise typer.Exit(1)
