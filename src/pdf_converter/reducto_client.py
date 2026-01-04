@@ -140,8 +140,8 @@ class ReductoClient:
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
         try:
-            # Upload local file first, then parse
-            doc_upload = self.client.upload(file=pdf_path)
+            # Upload local file first, then parse using the upload reference
+            upload_response = self.client.upload(file=pdf_path)
 
             # Build options for parsing
             options = {
@@ -154,7 +154,7 @@ class ReductoClient:
                 options["agentic"] = ["tables", "figures", "equations"]
 
             response = self.client.parse.run(
-                document_url=doc_upload,
+                input=upload_response,
                 options=options,
             )
             return self._response_to_markdown(response)
