@@ -10,6 +10,7 @@ from src.cli.utils import (
     get_project_config_path,
     get_user_config_path,
     parse_chunk_sizes,
+    parse_tags,
     resolve_doc_id,
     resolve_title,
     validate_file_exists,
@@ -169,3 +170,52 @@ class TestConfigPaths:
         assert path.name == "config.toml"
         assert "kidkazz" in str(path)
         assert ".config" in str(path) or "config" in str(path).lower()
+
+
+class TestParseTags:
+    """Tests for tag parsing."""
+
+    def test_parses_comma_separated_tags(self):
+        """Test parsing comma-separated tags."""
+        result = parse_tags("inventory,accounting")
+        assert result == ["inventory", "accounting"]
+
+    def test_strips_whitespace(self):
+        """Test whitespace is stripped from tags."""
+        result = parse_tags("  inventory  ,  accounting  ")
+        assert result == ["inventory", "accounting"]
+
+    def test_returns_none_for_empty_string(self):
+        """Test returns None for empty string."""
+        result = parse_tags("")
+        assert result is None
+
+    def test_returns_none_for_none_input(self):
+        """Test returns None for None input."""
+        result = parse_tags(None)
+        assert result is None
+
+    def test_filters_empty_tags_from_consecutive_commas(self):
+        """Test empty tags from consecutive commas are filtered."""
+        result = parse_tags("inventory,,accounting")
+        assert result == ["inventory", "accounting"]
+
+    def test_filters_whitespace_only_tags(self):
+        """Test whitespace-only tags are filtered."""
+        result = parse_tags("inventory,   ,accounting")
+        assert result == ["inventory", "accounting"]
+
+    def test_returns_none_for_all_empty_tags(self):
+        """Test returns None when all tags are empty."""
+        result = parse_tags(",,,  ,")
+        assert result is None
+
+    def test_single_tag(self):
+        """Test parsing single tag."""
+        result = parse_tags("inventory")
+        assert result == ["inventory"]
+
+    def test_handles_leading_trailing_commas(self):
+        """Test handles leading/trailing commas."""
+        result = parse_tags(",inventory,accounting,")
+        assert result == ["inventory", "accounting"]

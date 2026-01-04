@@ -467,3 +467,165 @@ class TestDocumentOperations:
         stats = mock_store.get_document_stats("nonexistent")
 
         assert stats is None
+
+
+class TestDocumentTags:
+    """Tests for document tagging functionality."""
+
+    def test_stores_document_with_tags(self, mock_store, sample_embedded_chunks, sample_metadata):
+        """Should store tags with document."""
+        mock_store.store_document(
+            "doc1", "Title", sample_embedded_chunks, sample_metadata,
+            tags=["inventory", "accounting"]
+        )
+
+        assert mock_store._documents["doc1"]["tags"] == ["inventory", "accounting"]
+
+    def test_normalizes_tags_to_lowercase(self, mock_store, sample_embedded_chunks, sample_metadata):
+        """Should normalize tags to lowercase."""
+        mock_store.store_document(
+            "doc1", "Title", sample_embedded_chunks, sample_metadata,
+            tags=["INVENTORY", "Accounting", "  Supply-Chain  "]
+        )
+
+        assert mock_store._documents["doc1"]["tags"] == ["inventory", "accounting", "supply-chain"]
+
+    def test_stores_empty_tags_by_default(self, mock_store, sample_embedded_chunks, sample_metadata):
+        """Should store empty tags list when not provided."""
+        mock_store.store_document("doc1", "Title", sample_embedded_chunks, sample_metadata)
+
+        assert mock_store._documents["doc1"]["tags"] == []
+
+    def test_list_documents_returns_tags(self, mock_store, sample_embedded_chunks, sample_metadata):
+        """Should include tags in document list."""
+        mock_store.store_document(
+            "doc1", "Title", sample_embedded_chunks, sample_metadata,
+            tags=["inventory"]
+        )
+
+        docs = mock_store.list_documents()
+
+        assert len(docs) == 1
+        assert docs[0]["tags"] == ["inventory"]
+
+    def test_list_documents_filters_by_single_tag(self, mock_store, sample_embedded_chunks, sample_metadata):
+        """Should filter documents by single tag."""
+        mock_store.store_document(
+            "doc1", "Title 1", sample_embedded_chunks, sample_metadata,
+            tags=["inventory", "accounting"]
+        )
+        mock_store.store_document(
+            "doc2", "Title 2", sample_embedded_chunks, sample_metadata,
+            tags=["supply-chain"]
+        )
+
+        results = mock_store.list_documents(tags=["inventory"])
+
+        assert len(results) == 1
+        assert results[0]["doc_id"] == "doc1"
+
+    def test_list_documents_filters_by_multiple_tags_and_logic(
+        self, mock_store, sample_embedded_chunks, sample_metadata
+    ):
+        """Should require ALL tags when filtering (AND logic)."""
+        mock_store.store_document(
+            "doc1", "Title 1", sample_embedded_chunks, sample_metadata,
+            tags=["inventory", "accounting"]
+        )
+        mock_store.store_document(
+            "doc2", "Title 2", sample_embedded_chunks, sample_metadata,
+            tags=["inventory"]  # Only has inventory, not accounting
+        )
+
+        # Filtering by both tags should only return doc1
+        results = mock_store.list_documents(tags=["inventory", "accounting"])
+
+        assert len(results) == 1
+        assert results[0]["doc_id"] == "doc1"
+
+    def test_list_documents_tag_filter_case_insensitive(
+        self, mock_store, sample_embedded_chunks, sample_metadata
+    ):
+        """Should match tags case-insensitively."""
+        mock_store.store_document(
+            "doc1", "Title", sample_embedded_chunks, sample_metadata,
+            tags=["inventory"]
+        )
+
+        results = mock_store.list_documents(tags=["INVENTORY"])
+
+        assert len(results) == 1
+        assert results[0]["doc_id"] == "doc1"
+
+    def test_search_similar_filters_by_tags(
+        self, mock_store, sample_embedded_chunks, sample_metadata, mock_embedder
+    ):
+        """Should filter search results by document tags."""
+        mock_store.store_document(
+            "doc1", "Title 1", sample_embedded_chunks, sample_metadata,
+            tags=["inventory"]
+        )
+
+        # Create another set of chunks for doc2
+        doc2_chunks = [
+            Chunk(
+                id="doc2_l1_1",
+                content="Different document content",
+                level=1,
+                token_count=15,
+            )
+        ]
+        doc2_embedded = mock_embedder.embed_chunks(doc2_chunks)
+        doc2_metadata = [
+            ChunkMetadata(
+                chunk_id="doc2_l1_1",
+                document_id="doc2",
+                semantic_type="narrative",
+                sequence_position=0,
+                sibling_ids=[],
+            )
+        ]
+        mock_store.store_document(
+            "doc2", "Title 2", doc2_embedded, doc2_metadata,
+            tags=["supply-chain"]
+        )
+
+        # Search with inventory tag - should only find doc1 chunks
+        query = mock_embedder.embed_text("test query")
+        results = mock_store.search_similar(query, top_k=10, tags=["inventory"])
+
+        # All results should be from doc1
+        for ec, _ in results:
+            chunk_data = mock_store._chunks[ec.chunk.id]
+            assert chunk_data["document_id"] == "doc1"
+
+    def test_search_similar_multiple_tags_filter(
+        self, mock_store, sample_embedded_chunks, sample_metadata, mock_embedder
+    ):
+        """Should filter search by multiple tags (AND logic)."""
+        mock_store.store_document(
+            "doc1", "Title 1", sample_embedded_chunks, sample_metadata,
+            tags=["inventory", "accounting"]
+        )
+
+        query = mock_embedder.embed_text("test query")
+
+        # Search with both tags - should find doc1
+        results_both = mock_store.search_similar(query, top_k=10, tags=["inventory", "accounting"])
+        assert len(results_both) > 0
+
+        # Search with non-matching tag combination
+        results_none = mock_store.search_similar(query, top_k=10, tags=["inventory", "marketing"])
+        assert len(results_none) == 0
+
+    def test_filters_empty_strings_from_tags(
+        self, mock_store, sample_embedded_chunks, sample_metadata
+    ):
+        """Should filter out empty strings and whitespace-only tags."""
+        mock_store.store_document(
+            "doc1", "Title", sample_embedded_chunks, sample_metadata,
+            tags=["inventory", "", "  ", "accounting"]
+        )
+
+        # Empty strings and whitespace should be filtered out
+        assert mock_store._documents["doc1"]["tags"] == ["inventory", "accounting"]
