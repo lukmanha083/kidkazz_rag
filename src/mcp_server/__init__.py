@@ -10,12 +10,13 @@ Usage:
     # Or use the installed command
     kidkazz-mcp
 
-Configuration via environment variables:
-    KIDKAZZ_STORE_TYPE: "mock" or "helix" (default: "mock")
-    KIDKAZZ_HELIX_PORT: Port number (default: 6969)
-    KIDKAZZ_EMBEDDER_TYPE: "mock" or "fastembed" (default: "fastembed")
-    KIDKAZZ_MODEL_NAME: Embedding model name (default: "BAAI/bge-small-en-v1.5")
-    KIDKAZZ_LOG_LEVEL: Logging level (default: "INFO")
+Configuration:
+    All settings are read from .kidkazz.toml file.
+    Only API keys should be stored in .env file.
+
+    See .kidkazz.toml for available settings:
+        [storage] - store_type, helix_port, helix_local
+        [embeddings] - embedder_type, model_name
 """
 
 from .config import LazyEmbedder, MCPServerConfig, ServerState

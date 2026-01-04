@@ -5,6 +5,11 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 import os
 
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+
 
 @dataclass
 class MCPServerConfig:
@@ -74,30 +79,42 @@ class MCPServerConfig:
 
     @classmethod
     def from_env(cls) -> "MCPServerConfig":
-        """Load configuration from environment variables.
+        """Load configuration from .kidkazz.toml file.
 
-        Environment variables:
-            KIDKAZZ_STORE_TYPE: "mock" or "helix" (default: "mock")
-            KIDKAZZ_HELIX_PORT: Port number (default: 6969)
-            KIDKAZZ_HELIX_LOCAL: "true" or "false" (default: "true")
-            KIDKAZZ_EMBEDDER_TYPE: "mock" or "fastembed" (default: "fastembed")
-            KIDKAZZ_MODEL_NAME: Embedding model name
-            KIDKAZZ_CACHE_DIR: Cache directory path
-            KIDKAZZ_LOG_LEVEL: Logging level (default: "INFO")
+        Searches for config in:
+            1. Current directory (.kidkazz.toml)
+            2. User config (~/.config/kidkazz/config.toml)
+
+        Only API keys should be in .env file.
+        All other config comes from .kidkazz.toml.
 
         Returns:
-            MCPServerConfig instance with values from environment
+            MCPServerConfig instance with values from config file
         """
-        cache_dir_str = os.getenv("KIDKAZZ_CACHE_DIR")
-        cache_dir = Path(cache_dir_str) if cache_dir_str else None
+        # Search for config file
+        config_paths = [
+            Path.cwd() / ".kidkazz.toml",
+            Path.home() / ".config" / "kidkazz" / "config.toml",
+        ]
+
+        config_data: dict[str, Any] = {}
+        for config_path in config_paths:
+            if config_path.exists():
+                with open(config_path, "rb") as f:
+                    config_data = tomllib.load(f)
+                break
+
+        # Extract settings from TOML structure
+        storage = config_data.get("storage", {})
+        embeddings = config_data.get("embeddings", {})
 
         return cls(
-            store_type=os.getenv("KIDKAZZ_STORE_TYPE", "mock"),  # type: ignore
-            helix_port=int(os.getenv("KIDKAZZ_HELIX_PORT", "6969")),
-            helix_local=os.getenv("KIDKAZZ_HELIX_LOCAL", "true").lower() == "true",
-            embedder_type=os.getenv("KIDKAZZ_EMBEDDER_TYPE", "fastembed"),  # type: ignore
-            model_name=os.getenv("KIDKAZZ_MODEL_NAME", "BAAI/bge-small-en-v1.5"),
-            cache_dir=cache_dir,
+            store_type=storage.get("store_type", "mock"),  # type: ignore
+            helix_port=storage.get("helix_port", 6969),
+            helix_local=storage.get("helix_local", True),
+            embedder_type=embeddings.get("embedder_type", "fastembed"),  # type: ignore
+            model_name=embeddings.get("model_name", "BAAI/bge-small-en-v1.5"),
+            cache_dir=None,
             log_level=os.getenv("KIDKAZZ_LOG_LEVEL", "INFO"),
         )
 

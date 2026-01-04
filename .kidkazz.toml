@@ -19,6 +19,10 @@ color = true
 [inbox]
 path = "~/.kidkazz/inbox"
 output_path = "~/.kidkazz/output"
-post_action = "move"
+post_action = "delete"
 recursive = false
 processed_dir = "~/.kidkazz/processed"
+
+[cloud_sync]
+remote = "gdrive"
+path = "kidkazz_inbox"
