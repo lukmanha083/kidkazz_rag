@@ -362,6 +362,17 @@ def _format_size(size: int) -> str:
     return f"{size:.1f} TB"
 
 
+def _get_status_style(status: str) -> str:
+    """Get Rich style for status display."""
+    styles = {
+        "pending": "yellow",
+        "processing": "blue",
+        "completed": "green",
+        "failed": "red",
+    }
+    return styles.get(status.lower(), "white")
+
+
 @app.command()
 def parse(
     agentic: bool = typer.Option(
