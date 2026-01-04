@@ -64,8 +64,11 @@ Markdown Document
      |                           ├── Graph relationships (parent/child/sibling)
      |                           └── Semantic type detection
      v
-[FastEmbed] ──────────────────── CPU-optimized embeddings
-     |                           └── BAAI/bge-small-en-v1.5 (384 dims)
+[Embeddings] ─────────────────── Two Options:
+     |                           ├── FastEmbed (local CPU, free)
+     |                           │   └── BAAI/bge-small-en-v1.5 (384 dims)
+     |                           └── OpenAI API (cloud, pay-per-use)
+     |                               └── text-embedding-3-small (1536 dims)
      v
 [Helix-DB Storage] ─────────── Vector + Graph Storage
      |                           ├── MockChunkStore (testing)
@@ -111,7 +114,65 @@ pip install -e ".[mcp]"           # MCP server for Claude Code
 pip install -e ".[cli]"           # CLI tool (typer, rich)
 pip install -e ".[reducto]"       # Reducto.ai PDF parsing
 pip install -e ".[all]"           # All dependencies
+pip install -e ".[openai]"        # OpenAI embeddings support
 ```
+
+## Embeddings
+
+Kidkazz RAG supports two embedding backends:
+
+### FastEmbed (Default - Local)
+
+CPU-optimized embeddings using ONNX Runtime. Free, private, no API required.
+
+```bash
+# Use FastEmbed (default)
+kidkazz ingest markdown doc.md --embedder fastembed
+
+# Or configure in .kidkazz.toml
+kidkazz config set embedder_type fastembed
+```
+
+| Model | Dimensions | Speed | Use Case |
+|-------|------------|-------|----------|
+| BAAI/bge-small-en-v1.5 | 384 | Fast | Default, general use |
+| BAAI/bge-base-en-v1.5 | 768 | Medium | Higher quality |
+| BAAI/bge-large-en-v1.5 | 1024 | Slow | Best quality |
+
+### OpenAI Embeddings (Cloud API)
+
+Higher quality embeddings via OpenAI API. Requires API key, pay-per-use.
+
+```bash
+# Set API key in .env
+echo 'OPENAI_API_KEY=sk-xxxxx' >> .env
+
+# Use OpenAI embeddings
+kidkazz ingest markdown doc.md --embedder openai
+
+# Or configure in .kidkazz.toml
+kidkazz config set embedder_type openai
+kidkazz config set model_name text-embedding-3-small
+```
+
+| Model | Dimensions | Cost | Use Case |
+|-------|------------|------|----------|
+| text-embedding-3-small | 1536 | $0.02/1M tokens | Cost-effective |
+| text-embedding-3-large | 3072 | $0.13/1M tokens | Highest quality |
+| text-embedding-ada-002 | 1536 | $0.10/1M tokens | Legacy |
+
+### Embedding Compatibility Warning
+
+Different embedders produce different dimensions. **You must use the same embedder for ingestion AND search queries.**
+
+```bash
+# WARNING: Changing embedder after ingestion
+kidkazz config set embedder_type openai
+# Warning: Changing embedder may make existing embeddings incompatible.
+# You may need to re-ingest documents for consistent search results.
+```
+
+**Best practice:** Choose your embedder before ingesting documents and stick with it.
 
 ## PDF Inbox Workflow
 
@@ -994,7 +1055,7 @@ Environment variables for MCP server:
 | `KIDKAZZ_STORE_TYPE` | `mock` | Storage backend: `mock` or `helix` |
 | `KIDKAZZ_HELIX_PORT` | `6969` | Helix-DB port (if using helix) |
 | `KIDKAZZ_HELIX_LOCAL` | `true` | Connect to local Helix-DB |
-| `KIDKAZZ_EMBEDDER_TYPE` | `fastembed` | Embedder: `mock` or `fastembed` |
+| `KIDKAZZ_EMBEDDER_TYPE` | `fastembed` | Embedder: `fastembed`, `openai`, or `mock` |
 | `KIDKAZZ_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Embedding model name |
 | `KIDKAZZ_LOG_LEVEL` | `INFO` | Logging level |
 
@@ -1152,8 +1213,11 @@ kidkazz ingest markdown document.md --dry-run
 # Custom chunk sizes (level1,level2,overlap)
 kidkazz ingest markdown document.md --chunk-sizes 1024,256,128
 
-# Batch ingest a directory with tags
-kidkazz ingest batch ./docs --pattern "*.md" --recursive --tags documentation
+# Use specific embedder (fastembed, openai, mock)
+kidkazz ingest markdown document.md --embedder openai
+
+# Batch ingest a directory
+kidkazz ingest batch ./docs --pattern "*.md" --recursive
 
 # PDF ingestion (redirects to Colab notebook)
 kidkazz ingest pdf document.pdf
@@ -1301,9 +1365,9 @@ store_type = "mock"       # mock or helix
 helix_port = 6969
 helix_local = true
 
-[embedder]
-embedder_type = "fastembed"  # mock or fastembed
-model_name = "BAAI/bge-small-en-v1.5"
+[embeddings]
+embedder_type = "fastembed"  # fastembed (local), openai (API), or mock
+model_name = "BAAI/bge-small-en-v1.5"  # Or "text-embedding-3-small" for OpenAI
 
 [chunking]
 level_1_size = 2048

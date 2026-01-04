@@ -96,6 +96,11 @@ def set_config(
         console.print(f"Valid keys: {', '.join(valid_keys)}")
         raise typer.Exit(1)
 
+    # Warn about embedding dimension changes
+    if key in ["embedder_type", "model_name"]:
+        print_warning("Changing embedder may make existing embeddings incompatible.")
+        console.print("[dim]You may need to re-ingest documents for consistent search results.[/dim]")
+
     # Save to appropriate location
     if user:
         if config.save_user():

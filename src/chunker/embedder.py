@@ -1,5 +1,12 @@
-"""FastEmbed integration for CPU-optimized embedding generation."""
+"""Embedding generation with multiple backend support.
 
+Supports:
+- FastEmbed (CPU-optimized, local, free)
+- OpenAI (API-based, higher quality, pay-per-use)
+- Mock (testing)
+"""
+
+import os
 from dataclasses import dataclass, field
 from typing import Iterator, Optional
 
@@ -10,13 +17,20 @@ from .chunker import Chunk
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_BATCH_SIZE = 32
 
-# Model dimension mapping
+# Model dimension mapping (FastEmbed models)
 MODEL_DIMENSIONS = {
     "BAAI/bge-small-en-v1.5": 384,
     "BAAI/bge-base-en-v1.5": 768,
     "BAAI/bge-large-en-v1.5": 1024,
     "sentence-transformers/all-MiniLM-L6-v2": 384,
     "sentence-transformers/all-mpnet-base-v2": 768,
+}
+
+# OpenAI model dimensions
+OPENAI_MODEL_DIMENSIONS = {
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    "text-embedding-ada-002": 1536,
 }
 
 
@@ -305,6 +319,159 @@ class MockEmbedder:
             List of EmbeddedChunks with mock embeddings
         """
         return [self.embed_chunk(chunk) for chunk in chunks]
+
+
+class OpenAIEmbedder:
+    """
+    OpenAI API embedder for higher quality embeddings.
+
+    Uses OpenAI's text-embedding models via API. Requires OPENAI_API_KEY.
+    Higher quality than local models but requires API calls and costs money.
+    """
+
+    DEFAULT_MODEL = "text-embedding-3-small"
+
+    def __init__(
+        self,
+        model_name: str = DEFAULT_MODEL,
+        api_key: Optional[str] = None,
+    ):
+        """
+        Initialize OpenAI embedder.
+
+        Args:
+            model_name: OpenAI embedding model name
+            api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
+        """
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        self.model_name = model_name
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self._client = None
+
+        if not self.api_key:
+            raise ValueError(
+                "OPENAI_API_KEY not set. Add it to .env file or pass api_key parameter."
+            )
+
+    @property
+    def client(self):
+        """Lazy-load OpenAI client."""
+        if self._client is None:
+            from openai import OpenAI
+            self._client = OpenAI(api_key=self.api_key)
+        return self._client
+
+    def get_embedding_dim(self) -> int:
+        """Get embedding dimension for the configured model."""
+        return OPENAI_MODEL_DIMENSIONS.get(self.model_name, 1536)
+
+    def embed_text(self, text: str) -> list[float]:
+        """
+        Generate embedding for a single text.
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Embedding vector as list of floats
+        """
+        if not text.strip():
+            return [0.0] * self.get_embedding_dim()
+
+        response = self.client.embeddings.create(
+            model=self.model_name,
+            input=text
+        )
+        return response.data[0].embedding
+
+    def embed_texts(
+        self,
+        texts: list[str],
+        batch_size: int = DEFAULT_BATCH_SIZE,
+    ) -> Iterator[list[float]]:
+        """
+        Generate embeddings for multiple texts.
+
+        OpenAI API supports batch embedding natively (up to 2048 inputs).
+
+        Args:
+            texts: List of texts to embed
+            batch_size: Batch size for API calls (max 2048)
+
+        Yields:
+            Embedding vectors
+        """
+        if not texts:
+            return
+
+        zero_vector = [0.0] * self.get_embedding_dim()
+
+        # Process in batches
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+
+            # Separate empty and non-empty texts
+            non_empty_indices = [j for j, t in enumerate(batch) if t.strip()]
+            non_empty_texts = [batch[j] for j in non_empty_indices]
+
+            # Get embeddings for non-empty texts
+            embeddings_map = {}
+            if non_empty_texts:
+                response = self.client.embeddings.create(
+                    model=self.model_name,
+                    input=non_empty_texts
+                )
+                for idx, emb_data in zip(non_empty_indices, response.data, strict=True):
+                    embeddings_map[idx] = emb_data.embedding
+
+            # Yield in order
+            for j in range(len(batch)):
+                if j in embeddings_map:
+                    yield embeddings_map[j]
+                else:
+                    yield zero_vector
+
+    def embed_chunk(self, chunk: Chunk) -> EmbeddedChunk:
+        """Generate embedding for a single chunk."""
+        return EmbeddedChunk(
+            chunk=chunk,
+            embedding=self.embed_text(chunk.content),
+            model_name=self.model_name,
+        )
+
+    def embed_chunks(
+        self,
+        chunks: list[Chunk],
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        show_progress: bool = False,  # noqa: ARG002 - API compatibility
+    ) -> list[EmbeddedChunk]:
+        """
+        Generate embeddings for multiple chunks.
+
+        Args:
+            chunks: List of chunks to embed
+            batch_size: Batch size for API calls
+            show_progress: Progress indicator (reserved for future)
+
+        Returns:
+            List of EmbeddedChunks with embeddings
+        """
+        if not chunks:
+            return []
+
+        texts = [chunk.content for chunk in chunks]
+        embeddings = list(self.embed_texts(texts, batch_size=batch_size))
+
+        return [
+            EmbeddedChunk(
+                chunk=chunk,
+                embedding=embedding,
+                model_name=self.model_name,
+            )
+            for chunk, embedding in zip(chunks, embeddings, strict=True)
+        ]
 
 
 def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
