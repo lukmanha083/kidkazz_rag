@@ -1,5 +1,8 @@
 """Tests for embedding generation."""
 
+import os
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from src.chunker.chunker import Chunk
@@ -7,6 +10,8 @@ from src.chunker.embedder import (
     ChunkEmbedder,
     EmbeddedChunk,
     MockEmbedder,
+    OpenAIEmbedder,
+    OPENAI_MODEL_DIMENSIONS,
     cosine_similarity,
     find_similar_chunks,
 )
@@ -295,3 +300,192 @@ class TestChunkEmbedderInitialization:
 
         embedder = ChunkEmbedder(model_name="BAAI/bge-large-en-v1.5")
         assert embedder.get_embedding_dim() == 1024
+
+
+class TestOpenAIEmbedder:
+    """Tests for OpenAIEmbedder class."""
+
+    @pytest.fixture
+    def mock_openai_client(self):
+        """Create a mock OpenAI client."""
+        mock_client = MagicMock()
+
+        # Mock embeddings.create response
+        def create_embedding(model, input):
+            if isinstance(input, str):
+                input = [input]
+
+            mock_data = []
+            for i, text in enumerate(input):
+                mock_emb = MagicMock()
+                # Generate deterministic mock embedding
+                dim = OPENAI_MODEL_DIMENSIONS.get(model, 1536)
+                mock_emb.embedding = [0.1 * ((hash(text) + j) % 10) for j in range(dim)]
+                mock_data.append(mock_emb)
+
+            mock_response = MagicMock()
+            mock_response.data = mock_data
+            return mock_response
+
+        mock_client.embeddings.create = MagicMock(side_effect=create_embedding)
+        return mock_client
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"})
+    @patch("src.chunker.embedder.OpenAIEmbedder.client", new_callable=lambda: property(lambda self: MagicMock()))
+    def test_initialization(self, mock_client):
+        """Should initialize with API key from environment."""
+        embedder = OpenAIEmbedder()
+        assert embedder.model_name == "text-embedding-3-small"
+        assert embedder.api_key == "test-api-key"
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"})
+    def test_initialization_custom_model(self):
+        """Should accept custom model name."""
+        embedder = OpenAIEmbedder(model_name="text-embedding-3-large")
+        assert embedder.model_name == "text-embedding-3-large"
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": ""}, clear=True)
+    def test_initialization_no_api_key_raises(self):
+        """Should raise ValueError when no API key is set."""
+        with pytest.raises(ValueError, match="OPENAI_API_KEY not set"):
+            OpenAIEmbedder()
+
+    def test_initialization_with_explicit_api_key(self):
+        """Should accept explicit API key parameter."""
+        embedder = OpenAIEmbedder(api_key="explicit-key")
+        assert embedder.api_key == "explicit-key"
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_get_embedding_dim_small(self):
+        """Should return correct dimension for text-embedding-3-small."""
+        embedder = OpenAIEmbedder(model_name="text-embedding-3-small")
+        assert embedder.get_embedding_dim() == 1536
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_get_embedding_dim_large(self):
+        """Should return correct dimension for text-embedding-3-large."""
+        embedder = OpenAIEmbedder(model_name="text-embedding-3-large")
+        assert embedder.get_embedding_dim() == 3072
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_get_embedding_dim_ada(self):
+        """Should return correct dimension for text-embedding-ada-002."""
+        embedder = OpenAIEmbedder(model_name="text-embedding-ada-002")
+        assert embedder.get_embedding_dim() == 1536
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_get_embedding_dim_unknown_model(self):
+        """Should return default 1536 for unknown models."""
+        embedder = OpenAIEmbedder(model_name="unknown-model")
+        assert embedder.get_embedding_dim() == 1536
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_text_returns_correct_dimension(self, mock_openai_client):
+        """Should return embedding of correct dimension."""
+        embedder = OpenAIEmbedder()
+        embedder._client = mock_openai_client
+
+        result = embedder.embed_text("Hello world")
+        assert len(result) == 1536
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_text_empty_returns_zero_vector(self):
+        """Should return zero vector for empty text."""
+        embedder = OpenAIEmbedder()
+        result = embedder.embed_text("")
+        assert result == [0.0] * 1536
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_text_whitespace_returns_zero_vector(self):
+        """Should return zero vector for whitespace."""
+        embedder = OpenAIEmbedder()
+        result = embedder.embed_text("   ")
+        assert result == [0.0] * 1536
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_texts_generator(self, mock_openai_client):
+        """Should generate embeddings for multiple texts."""
+        embedder = OpenAIEmbedder()
+        embedder._client = mock_openai_client
+
+        texts = ["Text 1", "Text 2", "Text 3"]
+        results = list(embedder.embed_texts(texts))
+
+        assert len(results) == 3
+        for r in results:
+            assert len(r) == 1536
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_texts_empty_list(self, mock_openai_client):
+        """Should handle empty text list."""
+        embedder = OpenAIEmbedder()
+        embedder._client = mock_openai_client
+
+        results = list(embedder.embed_texts([]))
+        assert results == []
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_texts_handles_empty_strings(self, mock_openai_client):
+        """Should return zero vectors for empty strings in batch."""
+        embedder = OpenAIEmbedder()
+        embedder._client = mock_openai_client
+
+        texts = ["Text 1", "", "Text 3"]
+        results = list(embedder.embed_texts(texts))
+
+        assert len(results) == 3
+        assert results[1] == [0.0] * 1536  # Empty string gets zero vector
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_chunk(self, mock_openai_client):
+        """Should embed a chunk."""
+        embedder = OpenAIEmbedder()
+        embedder._client = mock_openai_client
+
+        chunk = Chunk(id="c1", content="Test content", level=2, token_count=5)
+        result = embedder.embed_chunk(chunk)
+
+        assert isinstance(result, EmbeddedChunk)
+        assert result.chunk is chunk
+        assert len(result.embedding) == 1536
+        assert result.model_name == "text-embedding-3-small"
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_chunks(self, mock_openai_client):
+        """Should embed multiple chunks."""
+        embedder = OpenAIEmbedder()
+        embedder._client = mock_openai_client
+
+        chunks = [
+            Chunk(id="c1", content="First", level=2, token_count=5),
+            Chunk(id="c2", content="Second", level=2, token_count=5),
+        ]
+        results = embedder.embed_chunks(chunks)
+
+        assert len(results) == 2
+        assert all(isinstance(r, EmbeddedChunk) for r in results)
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_embed_chunks_empty_list(self, mock_openai_client):
+        """Should handle empty chunk list."""
+        embedder = OpenAIEmbedder()
+        embedder._client = mock_openai_client
+
+        results = embedder.embed_chunks([])
+        assert results == []
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_lazy_client_initialization(self):
+        """Client should be lazily initialized."""
+        embedder = OpenAIEmbedder()
+        assert embedder._client is None
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_model_dimensions_mapping(self):
+        """Verify all OpenAI model dimensions are correctly mapped."""
+        expected = {
+            "text-embedding-3-small": 1536,
+            "text-embedding-3-large": 3072,
+            "text-embedding-ada-002": 1536,
+        }
+        assert OPENAI_MODEL_DIMENSIONS == expected
