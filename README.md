@@ -167,11 +167,20 @@ kidkazz ingest markdown ~/.kidkazz/output/document.md \
 **Reducto.ai Parse Commands:**
 
 ```bash
-# Parse all PDFs in inbox
+# Parse all PDFs (human-readable output)
 kidkazz inbox parse
 
 # Enable AI-enhanced accuracy (uses 2x credits)
 kidkazz inbox parse --agentic
+
+# Chunking modes for different use cases
+kidkazz inbox parse --chunk-mode variable  # RAG-optimized (~1000 char chunks)
+kidkazz inbox parse --chunk-mode block     # Citation-level (each element = chunk)
+kidkazz inbox parse --chunk-mode page      # One chunk per page
+kidkazz inbox parse --chunk-mode section   # Split by headings
+
+# Combine options
+kidkazz inbox parse --agentic --chunk-mode variable  # High-accuracy + RAG chunks
 
 # Preview what would be parsed (no API calls)
 kidkazz inbox parse --dry-run
@@ -183,15 +192,29 @@ kidkazz inbox parse --no-sync-backup
 kidkazz inbox parse --help
 ```
 
+**Chunk Mode Reference:**
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| `disabled` | Continuous human-readable markdown (default) | Reading, archival |
+| `variable` | Adaptive chunks ~1000 chars | RAG pipelines |
+| `block` | Each element (paragraph, table) as chunk | Legal/regulatory citations |
+| `page` | One chunk per page | Page-boundary apps |
+| `section` | Split by document headings | Structured documents |
+
 **Reducto.ai Configuration:**
 
 ```bash
-# Required: Set API key (get from https://reducto.ai)
+# Required: Add API key to .env file (secrets only)
+echo 'REDUCTO_API_KEY="your_api_key"' >> .env
+
+# Or export directly
 export REDUCTO_API_KEY="your_api_key"
 
-# Optional: Configure cloud backup
+# Other settings go in .kidkazz.toml
 kidkazz config set cloud_remote gdrive
 kidkazz config set cloud_path kidkazz_inbox
+kidkazz config set post_action delete  # delete, move, or keep
 ```
 
 **Reducto.ai vs Google Colab:**
@@ -1162,10 +1185,15 @@ kidkazz inbox sync --check        # Verify rclone installed
 kidkazz inbox sync --remotes      # List configured remotes
 
 # Parse PDFs with Reducto.ai
-kidkazz inbox parse               # Parse all PDFs in inbox
-kidkazz inbox parse --agentic     # High-accuracy mode (2x credits)
-kidkazz inbox parse --dry-run     # Preview without API calls
-kidkazz inbox parse --no-sync-backup  # Skip cloud backup
+kidkazz inbox parse                        # Parse all (human-readable)
+kidkazz inbox parse --agentic              # High-accuracy mode (2x credits)
+kidkazz inbox parse --chunk-mode variable  # RAG-optimized chunks
+kidkazz inbox parse --chunk-mode block     # Citation-level chunks
+kidkazz inbox parse --chunk-mode page      # One chunk per page
+kidkazz inbox parse --chunk-mode section   # Split by headings
+kidkazz inbox parse -c variable --agentic  # Combine options
+kidkazz inbox parse --dry-run              # Preview without API calls
+kidkazz inbox parse --no-sync-backup       # Skip cloud backup
 ```
 
 **Inbox Configuration:**
