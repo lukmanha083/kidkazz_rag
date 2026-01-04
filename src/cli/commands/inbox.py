@@ -381,10 +381,11 @@ def parse(
         "--agentic",
         help="Enable AI-enhanced accuracy mode (uses more credits)",
     ),
-    chunked: bool = typer.Option(
-        False,
-        "--chunked",
-        help="Output chunked format for embedding pipeline (default: human-readable)",
+    chunk_mode: str = typer.Option(
+        "disabled",
+        "--chunk-mode",
+        "-c",
+        help="Chunking mode: disabled (human-readable), variable (RAG default), block (citations), page, section",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -402,12 +403,18 @@ def parse(
     Requires REDUCTO_API_KEY environment variable.
     Get your API key from https://reducto.ai
 
+    Chunk modes:
+        disabled  - Human-readable continuous markdown (default)
+        variable  - Adaptive chunks ~1000 chars, best for RAG
+        block     - Each element as chunk, best for citations
+        page      - One chunk per page
+        section   - Split by document sections/headings
+
     Examples:
-        kidkazz inbox parse                      # Parse (human-readable output)
-        kidkazz inbox parse --agentic            # High-accuracy mode
-        kidkazz inbox parse --chunked            # Chunked output for embeddings
-        kidkazz inbox parse --agentic --chunked  # High-accuracy + chunked
-        kidkazz inbox parse --dry-run            # Preview only
+        kidkazz inbox parse                        # Human-readable output
+        kidkazz inbox parse --chunk-mode variable  # RAG-optimized chunks
+        kidkazz inbox parse --agentic -c block     # High-accuracy + citations
+        kidkazz inbox parse --dry-run              # Preview only
     """
     try:
         from src.pdf_converter.reducto_client import (
@@ -444,11 +451,19 @@ def parse(
             console.print(f"\nTotal: {len(pdf_files)} file(s)")
             return
 
+        # Validate chunk mode
+        valid_modes = ["disabled", "variable", "block", "page", "section"]
+        if chunk_mode not in valid_modes:
+            console.print(f"[red]Invalid chunk mode: {chunk_mode}[/red]")
+            console.print(f"Valid modes: {', '.join(valid_modes)}")
+            raise typer.Exit(1)
+
         # Initialize Reducto client
         try:
             reducto_config = ReductoConfig.from_env()
             reducto_config.agentic = agentic
-            reducto_config.raw_output = not chunked  # Raw output for human-readable
+            reducto_config.chunk_mode = chunk_mode
+            reducto_config.raw_output = chunk_mode == "disabled"
         except ValueError as e:
             console.print(f"[red]Error: {e}[/red]")
             console.print("Set your API key: export REDUCTO_API_KEY=your_key_here")
@@ -460,8 +475,8 @@ def parse(
         console.print(f"[bold]Parsing {len(pdf_files)} PDF(s) with Reducto.ai...[/bold]")
         if agentic:
             console.print("[dim]Agentic mode enabled (higher accuracy, 2x credits)[/dim]")
-        if chunked:
-            console.print("[dim]Chunked output for embedding pipeline[/dim]")
+        if chunk_mode != "disabled":
+            console.print(f"[dim]Chunk mode: {chunk_mode}[/dim]")
 
         results = []
         try:

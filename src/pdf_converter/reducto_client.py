@@ -148,8 +148,16 @@ class ReductoClient:
             # Extract file_id from upload response
             file_id = upload_response.file_id
 
-            # Parse with input (the file_id from upload)
-            response = self.client.parse.run(input=file_id)
+            # Build parse kwargs
+            parse_kwargs: dict = {"input": file_id}
+
+            # Add chunking options if not disabled
+            if self.config.chunk_mode != "disabled":
+                parse_kwargs["options"] = {
+                    "chunking": {"chunk_mode": self.config.chunk_mode}
+                }
+
+            response = self.client.parse.run(**parse_kwargs)
             return self._response_to_markdown(response)
         except Exception as e:
             raise ReductoAPIError(str(e)) from e
