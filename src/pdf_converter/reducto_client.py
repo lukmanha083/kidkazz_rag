@@ -141,7 +141,7 @@ class ReductoClient:
 
         try:
             # Upload local file first, then parse
-            doc_upload = self.client.upload(file=str(pdf_path))
+            doc_upload = self.client.upload(file=pdf_path)
 
             # Build options for parsing
             options = {
