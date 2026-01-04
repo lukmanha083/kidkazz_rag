@@ -381,6 +381,11 @@ def parse(
         "--agentic",
         help="Enable AI-enhanced accuracy mode (uses more credits)",
     ),
+    chunked: bool = typer.Option(
+        False,
+        "--chunked",
+        help="Output chunked format for embedding pipeline (default: human-readable)",
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -398,10 +403,11 @@ def parse(
     Get your API key from https://reducto.ai
 
     Examples:
-        kidkazz inbox parse                    # Parse all PDFs
-        kidkazz inbox parse --agentic          # High-accuracy mode
-        kidkazz inbox parse --dry-run          # Preview only
-        kidkazz inbox parse --no-sync-backup   # Skip cloud backup
+        kidkazz inbox parse                      # Parse (human-readable output)
+        kidkazz inbox parse --agentic            # High-accuracy mode
+        kidkazz inbox parse --chunked            # Chunked output for embeddings
+        kidkazz inbox parse --agentic --chunked  # High-accuracy + chunked
+        kidkazz inbox parse --dry-run            # Preview only
     """
     try:
         from src.pdf_converter.reducto_client import (
@@ -442,6 +448,7 @@ def parse(
         try:
             reducto_config = ReductoConfig.from_env()
             reducto_config.agentic = agentic
+            reducto_config.raw_output = not chunked  # Raw output for human-readable
         except ValueError as e:
             console.print(f"[red]Error: {e}[/red]")
             console.print("Set your API key: export REDUCTO_API_KEY=your_key_here")
@@ -453,6 +460,8 @@ def parse(
         console.print(f"[bold]Parsing {len(pdf_files)} PDF(s) with Reducto.ai...[/bold]")
         if agentic:
             console.print("[dim]Agentic mode enabled (higher accuracy, 2x credits)[/dim]")
+        if chunked:
+            console.print("[dim]Chunked output for embedding pipeline[/dim]")
 
         results = []
         try:

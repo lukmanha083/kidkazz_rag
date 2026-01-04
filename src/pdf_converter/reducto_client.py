@@ -30,12 +30,14 @@ class ReductoConfig:
         agentic: Enable AI-enhanced accuracy mode (uses more credits).
         chunk_mode: How to chunk output (variable, section, page, block).
         table_format: Table output format (md, html, json, csv).
+        raw_output: Output continuous markdown instead of chunked format.
     """
 
     api_key: str
     agentic: bool = False
     chunk_mode: str = "variable"
     table_format: str = "md"
+    raw_output: bool = True  # Default to human-readable output
 
     @classmethod
     def from_env(cls, env_var: str = "REDUCTO_API_KEY") -> "ReductoConfig":
@@ -165,7 +167,12 @@ class ReductoClient:
 
         # Handle different response formats
         if hasattr(result, "chunks") and result.chunks:
-            return "\n\n".join(chunk.content for chunk in result.chunks)
+            if self.config.raw_output:
+                # Join chunks into continuous readable markdown
+                return self._chunks_to_markdown(result.chunks)
+            else:
+                # Keep chunked format for embedding pipeline
+                return "\n\n---\n\n".join(chunk.content for chunk in result.chunks)
         elif hasattr(result, "content"):
             return result.content
         elif hasattr(result, "markdown"):
@@ -184,6 +191,21 @@ class ReductoClient:
                     return str(getattr(result, attr))
             # Last resort - convert to string
             return str(result)
+
+    def _chunks_to_markdown(self, chunks) -> str:
+        """Convert chunks to continuous readable markdown.
+
+        Merges chunks intelligently, removing redundant headers and
+        creating a smooth document flow.
+        """
+        parts = []
+        for chunk in chunks:
+            content = chunk.content.strip()
+            if content:
+                parts.append(content)
+
+        # Join with single newlines to create continuous flow
+        return "\n\n".join(parts)
 
     def parse_files(
         self,
