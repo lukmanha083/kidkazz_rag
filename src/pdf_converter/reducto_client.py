@@ -146,8 +146,8 @@ class ReductoClient:
             # Extract file_id from upload response
             file_id = upload_response.file_id
 
-            # Parse with document_url (the file_id from upload)
-            response = self.client.parse.run(document_url=file_id)
+            # Parse with input (the file_id from upload)
+            response = self.client.parse.run(input=file_id)
             return self._response_to_markdown(response)
         except Exception as e:
             raise ReductoAPIError(str(e)) from e
