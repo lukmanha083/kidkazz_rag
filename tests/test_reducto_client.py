@@ -281,6 +281,91 @@ class TestReductoClientBatch:
         assert progress_calls[0][1] == 1
         assert progress_calls[0][2] == 2
 
+    @patch("reducto.Reducto")
+    def test_parse_directory_recursive(self, mock_reducto, tmp_path):
+        """Test parsing PDFs recursively in subdirectories."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Content"
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+        mock_reducto.return_value.parse.run.return_value = mock_response
+
+        # Create test PDFs in subdirectories
+        (tmp_path / "doc1.pdf").write_bytes(b"%PDF-1.4 doc1")
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        (subdir / "doc2.pdf").write_bytes(b"%PDF-1.4 doc2")
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        # Non-recursive should only find 1 file
+        results_non_recursive = client.parse_directory(tmp_path, recursive=False)
+        assert len(results_non_recursive) == 1
+
+        # Recursive should find 2 files
+        results_recursive = client.parse_directory(tmp_path, recursive=True)
+        assert len(results_recursive) == 2
+
+    @patch("reducto.Reducto")
+    def test_parse_files(self, mock_reducto, tmp_path):
+        """Test parsing a list of PDF files."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Parsed content"
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+        mock_reducto.return_value.parse.run.return_value = mock_response
+
+        # Create test PDFs
+        pdf1 = tmp_path / "doc1.pdf"
+        pdf2 = tmp_path / "doc2.pdf"
+        pdf1.write_bytes(b"%PDF-1.4 doc1")
+        pdf2.write_bytes(b"%PDF-1.4 doc2")
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        # Parse specific files
+        results = client.parse_files([pdf1, pdf2])
+
+        assert len(results) == 2
+        assert results[0][0] == pdf1
+        assert results[1][0] == pdf2
+
+    @patch("reducto.Reducto")
+    def test_parse_files_with_callback(self, mock_reducto, tmp_path):
+        """Test parse_files with progress callback."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Content"
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+        mock_reducto.return_value.parse.run.return_value = mock_response
+
+        pdf1 = tmp_path / "doc1.pdf"
+        pdf2 = tmp_path / "doc2.pdf"
+        pdf1.write_bytes(b"%PDF-1.4 doc1")
+        pdf2.write_bytes(b"%PDF-1.4 doc2")
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        progress_calls = []
+
+        def on_progress(pdf_path, index, total):
+            progress_calls.append((pdf_path.name, index, total))
+
+        client.parse_files([pdf1, pdf2], on_progress=on_progress)
+
+        assert len(progress_calls) == 2
+        assert progress_calls[0] == ("doc1.pdf", 1, 2)
+        assert progress_calls[1] == ("doc2.pdf", 2, 2)
+
 
 class TestReductoParseResult:
     """Tests for ParseResult dataclass."""

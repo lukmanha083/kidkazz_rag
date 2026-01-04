@@ -157,10 +157,38 @@ class ReductoClient:
         chunks = response.result.chunks
         return "\n\n".join(chunk.content for chunk in chunks)
 
+    def parse_files(
+        self,
+        pdf_files: list[Path],
+        on_progress: Optional[Callable[[Path, int, int], None]] = None,
+    ) -> list[tuple[Path, str]]:
+        """Parse a list of PDF files.
+
+        Args:
+            pdf_files: List of PDF file paths to parse.
+            on_progress: Optional callback for progress updates.
+                Called with (pdf_path, current_index, total_count).
+
+        Returns:
+            List of tuples (pdf_path, markdown_content).
+        """
+        results = []
+        total = len(pdf_files)
+
+        for i, pdf_file in enumerate(pdf_files, 1):
+            if on_progress:
+                on_progress(pdf_file, i, total)
+
+            markdown = self.parse_pdf(pdf_file)
+            results.append((pdf_file, markdown))
+
+        return results
+
     def parse_directory(
         self,
         inbox_path: Path,
         on_progress: Optional[Callable[[Path, int, int], None]] = None,
+        recursive: bool = False,
     ) -> list[tuple[Path, str]]:
         """Parse all PDF files in a directory.
 
@@ -168,18 +196,14 @@ class ReductoClient:
             inbox_path: Directory containing PDF files.
             on_progress: Optional callback for progress updates.
                 Called with (pdf_path, current_index, total_count).
+            recursive: If True, search subdirectories recursively.
 
         Returns:
             List of tuples (pdf_path, markdown_content).
         """
-        pdf_files = list(inbox_path.glob("*.pdf"))
-        results = []
+        if recursive:
+            pdf_files = list(inbox_path.rglob("*.pdf"))
+        else:
+            pdf_files = list(inbox_path.glob("*.pdf"))
 
-        for i, pdf_file in enumerate(pdf_files, 1):
-            if on_progress:
-                on_progress(pdf_file, i, len(pdf_files))
-
-            markdown = self.parse_pdf(pdf_file)
-            results.append((pdf_file, markdown))
-
-        return results
+        return self.parse_files(pdf_files, on_progress)

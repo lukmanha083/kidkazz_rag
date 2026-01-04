@@ -53,7 +53,7 @@ class TestParseCommand:
         # Setup mocks
         mock_config.return_value = MagicMock(api_key="test_key")
         mock_client = MagicMock()
-        mock_client.parse_directory.return_value = [
+        mock_client.parse_files.return_value = [
             (temp_inbox_with_pdfs / "document1.pdf", "# Doc 1 Content"),
             (temp_inbox_with_pdfs / "document2.pdf", "# Doc 2 Content"),
         ]
@@ -106,7 +106,7 @@ class TestParseCommand:
         """Test parse command with empty inbox."""
         mock_config.return_value = MagicMock(api_key="test_key")
         mock_client = MagicMock()
-        mock_client.parse_directory.return_value = []
+        mock_client.parse_files.return_value = []
         mock_client_class.return_value = mock_client
 
         from src.cli.main import app
@@ -147,8 +147,8 @@ class TestParseCommand:
         assert result.exit_code == 0
         # Should show files but not actually parse
         assert "document1.pdf" in result.stdout or "would" in result.stdout.lower()
-        # parse_directory should NOT be called in dry-run
-        mock_client_class.return_value.parse_directory.assert_not_called()
+        # parse_files should NOT be called in dry-run
+        mock_client_class.return_value.parse_files.assert_not_called()
 
     @patch("src.pdf_converter.reducto_client.ReductoClient")
     @patch("src.pdf_converter.reducto_client.ReductoConfig.from_env")
@@ -159,7 +159,7 @@ class TestParseCommand:
         mock_reducto_config = MagicMock(api_key="test_key", agentic=False)
         mock_config.return_value = mock_reducto_config
         mock_client = MagicMock()
-        mock_client.parse_directory.return_value = []
+        mock_client.parse_files.return_value = []
         mock_client_class.return_value = mock_client
 
         from src.cli.main import app
@@ -192,7 +192,7 @@ class TestParseCommand:
         """Test parse command syncs to cloud backup."""
         mock_config.return_value = MagicMock(api_key="test_key")
         mock_client = MagicMock()
-        mock_client.parse_directory.return_value = [
+        mock_client.parse_files.return_value = [
             (temp_inbox_with_pdfs / "document1.pdf", "# Content"),
         ]
         mock_client_class.return_value = mock_client
@@ -232,7 +232,7 @@ class TestParseCommand:
         """Test parse command with --no-sync-backup skips cloud sync."""
         mock_config.return_value = MagicMock(api_key="test_key")
         mock_client = MagicMock()
-        mock_client.parse_directory.return_value = [
+        mock_client.parse_files.return_value = [
             (temp_inbox_with_pdfs / "document1.pdf", "# Content"),
         ]
         mock_client_class.return_value = mock_client
@@ -262,7 +262,7 @@ class TestParseCommand:
         """Test parse command saves markdown files to output directory."""
         mock_config.return_value = MagicMock(api_key="test_key")
         mock_client = MagicMock()
-        mock_client.parse_directory.return_value = [
+        mock_client.parse_files.return_value = [
             (temp_inbox_with_pdfs / "document1.pdf", "# Document 1\n\nContent 1"),
             (temp_inbox_with_pdfs / "document2.pdf", "# Document 2\n\nContent 2"),
         ]
@@ -296,7 +296,7 @@ class TestParseCommand:
 
         mock_config.return_value = MagicMock(api_key="test_key")
         mock_client = MagicMock()
-        mock_client.parse_directory.side_effect = ReductoAPIError("Rate limit exceeded")
+        mock_client.parse_files.side_effect = ReductoAPIError("Rate limit exceeded")
         mock_client_class.return_value = mock_client
 
         from src.cli.main import app

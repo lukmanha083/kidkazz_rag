@@ -447,7 +447,7 @@ def parse(
             console.print("[dim]Agentic mode enabled (higher accuracy, 2x credits)[/dim]")
 
         try:
-            results = client.parse_directory(inbox_path, on_progress=on_progress)
+            results = client.parse_files(pdf_files, on_progress=on_progress)
         except ReductoAPIError as e:
             console.print(f"[red]API Error: {e}[/red]")
             raise typer.Exit(1) from None
