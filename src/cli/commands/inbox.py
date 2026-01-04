@@ -12,6 +12,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
 from src.cli.config import CLIConfig
@@ -448,17 +449,28 @@ def parse(
 
         client = ReductoClient(reducto_config)
 
-        # Parse progress callback
-        def on_progress(pdf_path: Path, index: int, total: int) -> None:
-            console.print(f"[blue]Parsing ({index}/{total}):[/blue] {pdf_path.name}")
-
-        # Parse PDFs
+        # Parse PDFs with progress bar
         console.print(f"[bold]Parsing {len(pdf_files)} PDF(s) with Reducto.ai...[/bold]")
         if agentic:
             console.print("[dim]Agentic mode enabled (higher accuracy, 2x credits)[/dim]")
 
+        results = []
         try:
-            results = client.parse_files(pdf_files, on_progress=on_progress)
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Parsing PDFs...", total=len(pdf_files))
+
+                for pdf_file in pdf_files:
+                    progress.update(task, description=f"[cyan]{pdf_file.name}[/cyan]")
+                    markdown = client.parse_pdf(pdf_file)
+                    results.append((pdf_file, markdown))
+                    progress.advance(task)
+
         except ReductoAPIError as e:
             console.print(f"[red]API Error: {e}[/red]")
             raise typer.Exit(1) from None

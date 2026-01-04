@@ -143,20 +143,18 @@ class ReductoClient:
             # Upload local file first, then parse using the upload reference
             upload_response = self.client.upload(file=pdf_path)
 
-            # Build options for parsing
-            options = {
-                "chunking": {"chunk_mode": self.config.chunk_mode},
-                "table_output_format": self.config.table_format,
+            # Build parse parameters
+            parse_kwargs: dict = {
+                "input": upload_response,
+                "formatting": {"table_output_format": self.config.table_format},
+                "retrieval": {"chunking": {"chunk_mode": self.config.chunk_mode}},
             }
 
             # Add agentic mode if enabled
             if self.config.agentic:
-                options["agentic"] = ["tables", "figures", "equations"]
+                parse_kwargs["enhance"] = {"agentic": ["tables", "figures", "equations"]}
 
-            response = self.client.parse.run(
-                input=upload_response,
-                options=options,
-            )
+            response = self.client.parse.run(**parse_kwargs)
             return self._response_to_markdown(response)
         except Exception as e:
             raise ReductoAPIError(str(e)) from e
