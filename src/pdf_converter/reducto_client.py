@@ -161,8 +161,29 @@ class ReductoClient:
         Returns:
             Markdown content as string.
         """
-        chunks = response.result.chunks
-        return "\n\n".join(chunk.content for chunk in chunks)
+        result = response.result
+
+        # Handle different response formats
+        if hasattr(result, "chunks") and result.chunks:
+            return "\n\n".join(chunk.content for chunk in result.chunks)
+        elif hasattr(result, "content"):
+            return result.content
+        elif hasattr(result, "markdown"):
+            return result.markdown
+        elif hasattr(result, "text"):
+            return result.text
+        elif hasattr(result, "url"):
+            # Result is a URL - fetch the content
+            import httpx
+            resp = httpx.get(result.url)
+            return resp.text
+        else:
+            # Try to get any text-like attribute
+            for attr in ["output", "data", "body"]:
+                if hasattr(result, attr):
+                    return str(getattr(result, attr))
+            # Last resort - convert to string
+            return str(result)
 
     def parse_files(
         self,
