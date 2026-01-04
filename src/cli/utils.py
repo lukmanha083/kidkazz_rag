@@ -51,16 +51,31 @@ def get_store(config: CLIConfig) -> Any:
         return MockChunkStore()
 
 
-def get_embedder(config: CLIConfig) -> Any:
+def get_embedder(config: CLIConfig, embedder_override: str = None) -> Any:
     """Get embedder instance based on configuration.
 
     Args:
         config: CLI configuration
+        embedder_override: Override embedder type (fastembed, openai, mock)
 
     Returns:
-        Embedder instance (MockEmbedder or ChunkEmbedder)
+        Embedder instance (MockEmbedder, ChunkEmbedder, or OpenAIEmbedder)
     """
-    if config.embedder_type == "fastembed":
+    embedder_type = embedder_override or config.embedder_type
+
+    if embedder_type == "openai":
+        try:
+            from src.chunker import OpenAIEmbedder
+
+            return OpenAIEmbedder(model_name=config.model_name)
+        except ImportError:
+            raise ImportError(
+                "OpenAI is not installed. Run: pip install openai"
+            )
+        except ValueError as e:
+            raise ValueError(str(e))
+
+    elif embedder_type == "fastembed":
         try:
             from src.chunker import ChunkEmbedder
 

@@ -55,6 +55,12 @@ def ingest_markdown(
         "-c",
         help="Chunk sizes as L1,L2,overlap",
     ),
+    embedder: Optional[str] = typer.Option(
+        None,
+        "--embedder",
+        "-e",
+        help="Embedder type: fastembed (local), openai (API), mock",
+    ),
     model: Optional[str] = typer.Option(
         None,
         "--model",
@@ -78,7 +84,13 @@ def ingest_markdown(
         help="Output results as JSON",
     ),
 ) -> None:
-    """Chunk Markdown file, generate embeddings, and store in database."""
+    """Chunk Markdown file, generate embeddings, and store in database.
+
+    Embedder options:
+        fastembed  - Local CPU-based embeddings (free, default)
+        openai     - OpenAI API embeddings (requires OPENAI_API_KEY)
+        mock       - Mock embeddings for testing
+    """
     config = CLIConfig.load()
 
     # Override config with command options
@@ -145,8 +157,12 @@ def ingest_markdown(
 
             # Stage 2: Generate embeddings
             tracker.add_stage("Generating embeddings...", total=len(chunks))
-            embedder = get_embedder(config)
-            embedded_chunks = embedder.embed_chunks(chunks, batch_size=32)
+            try:
+                embedder_instance = get_embedder(config, embedder_override=embedder)
+            except (ImportError, ValueError) as e:
+                print_error(str(e))
+                raise typer.Exit(1)
+            embedded_chunks = embedder_instance.embed_chunks(chunks, batch_size=32)
             tracker.complete("Generating embeddings...")
 
             # Stage 3: Store in database
@@ -209,6 +225,12 @@ def ingest_batch(
         "-c",
         help="Chunk sizes as L1,L2,overlap",
     ),
+    embedder: Optional[str] = typer.Option(
+        None,
+        "--embedder",
+        "-e",
+        help="Embedder type: fastembed (local), openai (API), mock",
+    ),
     skip_existing: bool = typer.Option(
         False,
         "--skip-existing",
@@ -248,7 +270,11 @@ def ingest_batch(
 
     results = []
     store_instance = get_store(config)
-    embedder = get_embedder(config)
+    try:
+        embedder_instance = get_embedder(config, embedder_override=embedder)
+    except (ImportError, ValueError) as e:
+        print_error(str(e))
+        raise typer.Exit(1)
 
     # Get existing documents if skip_existing
     existing_docs = set()
@@ -286,7 +312,7 @@ def ingest_batch(
                     level_sizes=level_sizes,
                 )
                 metadata = enrich_all_chunks(chunks, document_id=doc_id)
-                embedded = embedder.embed_chunks(chunks, batch_size=32)
+                embedded = embedder_instance.embed_chunks(chunks, batch_size=32)
                 store_instance.store_document(doc_id, title, embedded, metadata)
 
                 file_result["chunks"] = len(chunks)

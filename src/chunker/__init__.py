@@ -14,6 +14,7 @@ from .embedder import (
     ChunkEmbedder,
     EmbeddedChunk,
     MockEmbedder,
+    OpenAIEmbedder,
     cosine_similarity,
     find_similar_chunks,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "ChunkEmbedder",
     "EmbeddedChunk",
     "MockEmbedder",
+    "OpenAIEmbedder",
     "cosine_similarity",
     "find_similar_chunks",
     # Metadata

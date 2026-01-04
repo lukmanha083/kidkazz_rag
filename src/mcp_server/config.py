@@ -19,8 +19,8 @@ class MCPServerConfig:
         store_type: Storage backend - "mock" for testing, "helix" for production
         helix_port: Port for Helix-DB connection (default: 6969)
         helix_local: Whether to connect to local Helix-DB instance
-        embedder_type: Embedder backend - "mock" for testing, "fastembed" for production
-        model_name: Name of embedding model (default: BAAI/bge-small-en-v1.5)
+        embedder_type: Embedder backend - "mock", "fastembed", or "openai"
+        model_name: Name of embedding model
         cache_dir: Optional cache directory for embeddings
         log_level: Logging level (default: INFO)
     """
@@ -28,7 +28,7 @@ class MCPServerConfig:
     store_type: Literal["mock", "helix"] = "mock"
     helix_port: int = 6969
     helix_local: bool = True
-    embedder_type: Literal["mock", "fastembed"] = "fastembed"
+    embedder_type: Literal["mock", "fastembed", "openai"] = "fastembed"
     model_name: str = "BAAI/bge-small-en-v1.5"
     cache_dir: Optional[Path] = None
     log_level: str = "INFO"
@@ -60,15 +60,20 @@ class MCPServerConfig:
         """Create embedder instance based on configuration.
 
         Returns:
-            MockEmbedder or ChunkEmbedder instance
+            MockEmbedder, ChunkEmbedder, or OpenAIEmbedder instance
 
         Raises:
             ImportError: If required dependencies are not installed
+            ValueError: If OpenAI API key is not set
         """
         if self.embedder_type == "mock":
             from src.chunker import MockEmbedder
 
             return MockEmbedder(model_name=self.model_name)
+        elif self.embedder_type == "openai":
+            from src.chunker import OpenAIEmbedder
+
+            return OpenAIEmbedder(model_name=self.model_name)
         else:
             from src.chunker import ChunkEmbedder
 
