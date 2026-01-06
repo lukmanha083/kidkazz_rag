@@ -8,12 +8,24 @@ from .reducto_client import (
     ReductoConfig,
     ParseResult,
 )
+from .quality_checker import (
+    QualityMetrics,
+    QualityIssue,
+    QualityReport,
+    QualityThresholds,
+    ReductoQualityChecker,
+)
 
 __all__ = [
     "ParseResult",
+    "QualityIssue",
+    "QualityMetrics",
+    "QualityReport",
+    "QualityThresholds",
     "ReductoAPIError",
     "ReductoClient",
     "ReductoConfig",
+    "ReductoQualityChecker",
     "TOOL_META",
     "analyze_quality",
     "calculate_tool_scores",
