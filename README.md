@@ -1,7 +1,7 @@
 # Kidkazz RAG
 
 [![CodeRabbit Review](https://img.shields.io/badge/CodeRabbit-Reviewed-green?logo=github)](https://coderabbit.ai)
-[![Tests](https://img.shields.io/badge/tests-689%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-788%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
@@ -12,12 +12,13 @@ A RAG (Retrieval-Augmented Generation) system for converting PDF textbooks to se
 
 This project provides tools to:
 1. Convert PDF documents to Markdown via **Reducto.ai API** (recommended) or **Google Colab** (GPU)
-2. Chunk documents hierarchically for vector + graph storage
-3. Generate embeddings using **FastEmbed** (local CPU, free) or **OpenAI API** (cloud, higher quality)
-4. Store in Helix-DB (vector + graph database)
-5. Query documents via MCP integration with Claude Code or CLI tool
-6. Manage PDF inbox with auto-delete after conversion
-7. Tag documents by topic for filtered search (e.g., "inventory", "accounting")
+2. Validate conversion quality with automatic quality checks (OCR confidence, structure, content)
+3. Chunk documents hierarchically for vector + graph storage
+4. Generate embeddings using **FastEmbed** (local CPU, free) or **OpenAI API** (cloud, higher quality)
+5. Store in Helix-DB (vector + graph database)
+6. Query documents via MCP integration with Claude Code or CLI tool
+7. Manage PDF inbox with auto-delete after conversion
+8. Tag documents by topic for filtered search (e.g., "inventory", "accounting")
 
 ## Current Status
 
@@ -30,6 +31,7 @@ This project provides tools to:
 | 5 | End-to-End CLI Tool | ✅ Complete |
 | 6 | PDF Inbox Management | ✅ Complete |
 | 7 | Document Tagging | ✅ Complete |
+| 8 | Quality Checker | ✅ Complete |
 
 ## Architecture
 
@@ -775,7 +777,8 @@ kidkazz_rag/
 │   │   ├── analyzer.py                    # Markdown quality analysis
 │   │   ├── converter.py                   # PDF conversion wrapper
 │   │   ├── selector.py                    # Tool recommendation
-│   │   └── reducto_client.py              # Reducto.ai API client
+│   │   ├── reducto_client.py              # Reducto.ai API client
+│   │   └── quality_checker.py             # Quality validation for parsed output
 │   ├── chunker/                           # Phase 2: Chunking pipeline
 │   │   ├── __init__.py                    # Public API
 │   │   ├── parser.py                      # Markdown structure extraction
@@ -849,7 +852,9 @@ kidkazz_rag/
 │   ├── test_cloud_sync.py                 # Cloud sync tests
 │   ├── test_cloud_sync_cli.py             # Cloud sync CLI tests
 │   ├── test_reducto_client.py             # Reducto.ai client tests
-│   └── test_inbox_parse_cli.py            # Inbox parse CLI tests
+│   ├── test_inbox_parse_cli.py            # Inbox parse CLI tests
+│   ├── test_quality_checker.py            # Quality checker tests
+│   └── test_quality_cli.py                # Quality CLI tests
 └── docs/
     ├── design/
     │   ├── PLAN_PHASE2.md                 # Phase 2 design document
@@ -857,7 +862,9 @@ kidkazz_rag/
     │   ├── PLAN_PHASE4.md                 # Phase 4 design document
     │   ├── PLAN_PHASE5.md                 # Phase 5 design document
     │   ├── PDF_INBOX_FEATURE.md           # Phase 6 design document
-    │   └── PLAN_REDUCTO_INTEGRATION.md    # Reducto.ai integration plan
+    │   ├── DOCUMENT_TAGGING.md            # Document tagging design
+    │   ├── PLAN_REDUCTO_INTEGRATION.md    # Reducto.ai integration plan
+    │   └── QUALITY_CHECKER.md             # Quality checker design
     └── testing/
         └── UNIT_TEST.md                   # Testing guide
 ```
@@ -967,6 +974,87 @@ search_semantic(query="safety stock", tags=["inventory"])
 
 # List documents by tag
 list_documents(tags=["inventory"])
+```
+
+## Quality Checker
+
+The quality checker validates parsed PDF output before ingestion, catching OCR errors, broken tables, and incomplete content.
+
+### Quality Metrics
+
+| Metric | Description | Warning | Error |
+|--------|-------------|---------|-------|
+| **Words per page** | Content density | <100 | <50 |
+| **OCR confidence** | Average confidence score | <0.8 | <0.6 |
+| **Special char ratio** | OCR artifacts | >10% | >20% |
+| **Empty line ratio** | Content completeness | >30% | >45% |
+| **Broken tables** | Table structure | 1+ | 3+ |
+| **Empty chunks** | Chunk quality | >5% | >15% |
+
+### Quality Thresholds
+
+Three preset configurations for different use cases:
+
+| Preset | Use Case | Example |
+|--------|----------|---------|
+| **strict** | High-quality requirements | Legal documents, textbooks |
+| **normal** | Standard documents (default) | General PDFs |
+| **lenient** | Permissive checks | Scanned documents, poor quality source |
+
+### CLI Commands
+
+```bash
+# Check single file
+kidkazz inbox quality ~/.kidkazz/output/document.md
+
+# Check all files in output directory
+kidkazz inbox quality --all
+
+# Check with verbose metrics
+kidkazz inbox quality document.md --verbose
+
+# JSON output for scripting
+kidkazz inbox quality document.md --json
+
+# Summary of all files
+kidkazz inbox quality --all --summary
+```
+
+### Integration with Parse Command
+
+Quality checks run automatically after parsing:
+
+```bash
+# Default: quality check enabled
+kidkazz inbox parse
+
+# Disable quality check (not recommended)
+kidkazz inbox parse --no-quality-check
+
+# Use strict threshold
+kidkazz inbox parse --quality-threshold strict
+
+# Use lenient threshold for poor quality PDFs
+kidkazz inbox parse --quality-threshold lenient
+```
+
+### Quality Report Output
+
+```
+Quality Report: textbook.md
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Content Stats:
+  Words: 4,523 | Pages (est): 15 | Headings: 12
+  Tables: 3 | Code blocks: 2 | Lists: 8
+
+Quality Metrics:
+  ✓ Content density: 301 words/page (good)
+  ✓ Structure: All tables intact
+  ✓ Special chars: 2.1% (normal)
+  ⚠ Heading hierarchy: Minor gaps detected
+
+Overall Score: 87/100 (PASS)
+Recommendation: Safe to ingest
 ```
 
 ### Helix-DB Setup Guide
@@ -1380,6 +1468,16 @@ kidkazz inbox parse --chunk-mode section   # Split by headings
 kidkazz inbox parse -c variable --agentic  # Combine options
 kidkazz inbox parse --dry-run              # Preview without API calls
 kidkazz inbox parse --no-sync-backup       # Skip cloud backup
+kidkazz inbox parse --no-quality-check     # Skip quality validation
+kidkazz inbox parse --quality-threshold strict  # Use strict thresholds
+
+# Quality check markdown files
+kidkazz inbox quality output/doc.md        # Check single file
+kidkazz inbox quality --all                # Check all files in output
+kidkazz inbox quality --dir /path/to/md    # Check specific directory
+kidkazz inbox quality doc.md --json        # JSON output for scripting
+kidkazz inbox quality doc.md --verbose     # Detailed metrics breakdown
+kidkazz inbox quality --all --summary      # Summary of all files
 ```
 
 **Inbox Configuration:**
@@ -1481,7 +1579,7 @@ python -m pytest tests/test_mcp_*.py -v                             # Phase 4
 python -m pytest tests/test_cli_*.py -v                             # Phase 5
 ```
 
-**Current Coverage:** 689 tests passing
+**Current Coverage:** 788 tests passing
 
 ## Troubleshooting
 
@@ -1554,6 +1652,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [x] Phase 5: End-to-end CLI tool
 - [x] Phase 6: PDF inbox management with auto-delete
 - [x] Phase 7: Document tagging for topic-based filtering
+- [x] Phase 8: Quality checker for parsed output validation
 
 ## Documentation
 
@@ -1565,6 +1664,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [PDF Inbox Design](docs/design/PDF_INBOX_FEATURE.md) - PDF inbox management
 - [Reducto.ai Integration](docs/design/PLAN_REDUCTO_INTEGRATION.md) - Reducto API parsing
 - [Document Tagging](docs/design/DOCUMENT_TAGGING.md) - Topic-based document filtering
+- [Quality Checker](docs/design/QUALITY_CHECKER.md) - Parsed output quality validation
 
 ## Contributing
 
