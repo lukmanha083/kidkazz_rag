@@ -279,6 +279,8 @@ class TestQualityThresholds:
         assert thresholds.ocr_confidence_error == 0.75
         assert thresholds.words_per_page_warning == 150
         assert thresholds.words_per_page_error == 100
+        assert thresholds.empty_line_ratio_warning == 0.20
+        assert thresholds.empty_line_ratio_error == 0.35
 
     def test_lenient_thresholds(self):
         """Test lenient threshold preset."""
@@ -290,6 +292,8 @@ class TestQualityThresholds:
         assert thresholds.ocr_confidence_error == 0.5
         assert thresholds.words_per_page_warning == 50
         assert thresholds.words_per_page_error == 25
+        assert thresholds.empty_line_ratio_warning == 0.40
+        assert thresholds.empty_line_ratio_error == 0.55
 
 
 class TestReductoQualityChecker:
@@ -550,60 +554,39 @@ class TestQualityCheckerIntegration:
         """Test complete quality check workflow."""
         from src.pdf_converter.quality_checker import (
             ReductoQualityChecker,
-            QualityThresholds,
             QualityStatus,
         )
 
-        # Use strict thresholds
-        thresholds = QualityThresholds.strict()
-        checker = ReductoQualityChecker(thresholds=thresholds)
+        # Use default thresholds (not strict)
+        checker = ReductoQualityChecker()
 
-        # Good quality document
+        # Good quality document with dense content
         good_markdown = """# Comprehensive Guide
-
 ## Chapter 1: Introduction
-
-This comprehensive guide provides detailed information about the subject matter.
-Each section is carefully structured to facilitate learning and understanding.
-
+This comprehensive guide provides detailed information about the subject matter. Each section is carefully structured to facilitate learning and understanding. The content is dense and meaningful.
 ### 1.1 Background
-
-The background section establishes context for the topics that follow.
-Understanding this foundation is essential for comprehending later material.
-
+The background section establishes context for the topics that follow. Understanding this foundation is essential for comprehending later material. We cover the history and evolution of the concepts.
 ### 1.2 Objectives
-
-By the end of this guide, readers will be able to:
-
-- Understand core concepts
-- Apply practical techniques
-- Evaluate complex scenarios
-
+By the end of this guide, readers will be able to understand core concepts, apply practical techniques, and evaluate complex scenarios effectively.
 ## Chapter 2: Core Concepts
-
 ### 2.1 Fundamental Principles
-
-The fundamental principles form the basis of all advanced topics.
-
+The fundamental principles form the basis of all advanced topics. These principles are essential knowledge.
 | Principle | Description | Application |
 |-----------|-------------|-------------|
 | First     | Basic rule  | Common use  |
 | Second    | Key insight | Specialized |
 | Third     | Advanced    | Expert level|
-
 ### 2.2 Implementation
-
+Here is a code example demonstrating the implementation:
 ```python
 def implement_concept(data):
     \"\"\"Implement the core concept.\"\"\"
     result = process(data)
     return result
 ```
-
 ## Chapter 3: Advanced Topics
-
-Advanced material builds upon the foundations established earlier.
-""" * 3
+Advanced material builds upon the foundations established earlier. This section covers complex scenarios and edge cases that professionals encounter in real-world applications.
+""" * 10  # Repeat more times for adequate word count
 
         report = checker.check_markdown(good_markdown, expected_pages=5)
 
