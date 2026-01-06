@@ -88,6 +88,10 @@ Chat with your documents                               Terminal access  ├─�
 ## Prerequisites
 
 - Python 3.10+
+- Git
+- **For Helix-DB (Production storage):**
+  - [Rust 1.88.0+](https://rustup.rs/) - Required for Helix CLI
+  - [Docker Desktop](https://www.docker.com/products/docker-desktop/) - Required for local Helix-DB
 - **For Reducto.ai parsing (Recommended):**
   - [Reducto API key](https://reducto.ai) - Get your key from the Reducto dashboard
   - [rclone](https://rclone.org/install/) (optional, for cloud backup)
@@ -95,27 +99,92 @@ Chat with your documents                               Terminal access  ├─�
   - VS Code with [Google Colab Extension](https://marketplace.visualstudio.com/items?itemName=GoogleCloudPlatform.colab-vscode-plugin)
   - Google account (for Colab GPU access)
 
-## Installation
+## Getting Started
+
+Follow these steps in order to set up KidKazz RAG:
+
+### Step 1: Clone Repository
 
 ```bash
-# Clone the repository
 git clone https://github.com/lukmanha083/kidkazz_rag.git
 cd kidkazz_rag
+```
 
-# Create virtual environment
+### Step 2: Install Python Dependencies
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
-pip install -e ".[dev]"           # Development (pytest, coverage)
-pip install -e ".[chunker]"       # Chunking + embeddings (fastembed)
-pip install -e ".[helixdb]"       # Helix-DB storage (helix-py)
-pip install -e ".[mcp]"           # MCP server for Claude Code
-pip install -e ".[cli]"           # CLI tool (typer, rich)
-pip install -e ".[reducto]"       # Reducto.ai PDF parsing
-pip install -e ".[all]"           # All dependencies
-pip install -e ".[openai]"        # OpenAI embeddings support
+pip install -e ".[all]"  # Or specific: .[cli], .[chunker], etc.
 ```
+
+### Step 3: Set Up Helix-DB (Production Storage)
+
+Skip this step if using MockChunkStore for testing.
+
+```bash
+# Install Helix CLI (requires Rust 1.88.0+ and Docker Desktop)
+curl -sSL https://install.helix-db.com | bash
+
+# Initialize and deploy local instance
+helix init
+helix push dev  # Starts on port 6969
+```
+
+### Step 4: Configure API Keys
+
+```bash
+cp .env.example .env
+# Edit .env and add:
+# - REDUCTO_API_KEY (for PDF parsing)
+# - OPENAI_API_KEY (optional, for OpenAI embeddings)
+```
+
+### Step 5: Set Up rclone (Optional - Cloud Backup)
+
+```bash
+# Install rclone
+curl https://rclone.org/install.sh | sudo bash
+
+# Configure Google Drive remote
+rclone config
+# Follow prompts to set up 'gdrive' remote
+```
+
+### Step 6: Initialize KidKazz
+
+```bash
+kidkazz config init
+kidkazz db init
+```
+
+### Step 7: Start Using KidKazz
+
+```bash
+# Drop PDFs into inbox
+cp document.pdf ~/.kidkazz/inbox/
+
+# Parse with Reducto.ai
+kidkazz inbox parse
+
+# Ingest into knowledge base
+kidkazz ingest markdown ~/.kidkazz/output/document.md
+```
+
+## Installation Options
+
+Install only what you need:
+
+| Extra | Command | Description |
+|-------|---------|-------------|
+| dev | `pip install -e ".[dev]"` | Testing (pytest, coverage) |
+| cli | `pip install -e ".[cli]"` | CLI tool (typer, rich) |
+| chunker | `pip install -e ".[chunker]"` | Embeddings (FastEmbed) |
+| helixdb | `pip install -e ".[helixdb]"` | Helix-DB client (helix-py) |
+| mcp | `pip install -e ".[mcp]"` | MCP server for Claude Code |
+| reducto | `pip install -e ".[reducto]"` | Reducto.ai PDF parsing |
+| openai | `pip install -e ".[openai]"` | OpenAI embeddings |
+| all | `pip install -e ".[all]"` | Everything |
 
 ## Embeddings
 
@@ -912,7 +981,7 @@ pip install helix-py
 
 # Install helix CLI (check https://helix-db.com for latest instructions)
 # The helix CLI is used to deploy and manage the database server
-curl -fsSL https://helix-db.com/install.sh | bash
+curl -sSL https://install.helix-db.com | bash
 
 # Verify installation
 helix --version
