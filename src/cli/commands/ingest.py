@@ -335,7 +335,7 @@ def ingest_batch(
                     level_sizes=level_sizes,
                 )
                 metadata = enrich_all_chunks(chunks, document_id=doc_id)
-                embedded = embedder.embed_chunks(chunks, batch_size=32)
+                embedded = embedder_instance.embed_chunks(chunks, batch_size=32)
                 store_instance.store_document(doc_id, title, embedded, metadata, tags=tag_list)
 
                 file_result["chunks"] = len(chunks)
