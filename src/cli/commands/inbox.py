@@ -517,7 +517,6 @@ def quality(
 
 def _print_quality_report(file_path: Path, report, verbose: bool = False) -> None:
     """Print a human-readable quality report."""
-    from rich.panel import Panel
     from src.pdf_converter.quality_checker import IssueSeverity
 
     # Handle both enum and string status
@@ -574,6 +573,7 @@ def _print_quality_summary(reports: list) -> None:
     table.add_column("Issues", justify="right")
 
     pass_count = 0
+    warn_count = 0
     fail_count = 0
     total_score = 0
 
@@ -592,13 +592,19 @@ def _print_quality_summary(reports: list) -> None:
         total_score += report.score
         if status_value == "PASS":
             pass_count += 1
+        elif status_value == "WARNING":
+            warn_count += 1
         else:
             fail_count += 1
 
     console.print(table)
     avg_score = total_score / len(reports) if reports else 0
     console.print(f"\n[bold]Summary:[/bold] {len(reports)} file(s) checked")
-    console.print(f"  [green]Passed: {pass_count}[/green] | [red]Failed: {fail_count}[/red]")
+    summary_parts = [f"[green]Passed: {pass_count}[/green]"]
+    if warn_count > 0:
+        summary_parts.append(f"[yellow]Warnings: {warn_count}[/yellow]")
+    summary_parts.append(f"[red]Failed: {fail_count}[/red]")
+    console.print(f"  {' | '.join(summary_parts)}")
     console.print(f"  Average score: {avg_score:.0f}/100")
 
 
@@ -790,7 +796,8 @@ def parse(
                     for issue in report.issues[:3]:  # Show first 3 issues
                         severity_value = issue.severity.value if hasattr(issue.severity, 'value') else issue.severity
                         icon = "✗" if severity_value == "error" else "⚠"
-                        console.print(f"  [{severity_value}]{icon} {issue.message}[/{severity_value}]")
+                        color = "red" if severity_value == "error" else "yellow"
+                        console.print(f"  [{color}]{icon} {issue.message}[/{color}]")
                     continue
 
             # Save file (passed quality check or check disabled)

@@ -344,7 +344,6 @@ class ReductoQualityChecker:
 
         # Count structural elements
         heading_count = len(self.HEADING_PATTERN.findall(markdown))
-        table_lines = self.TABLE_PATTERN.findall(markdown)
         table_separators = self.TABLE_SEPARATOR_PATTERN.findall(markdown)
         table_count = len(table_separators)  # Each table has one separator line
         code_block_count = len(self.CODE_BLOCK_PATTERN.findall(markdown))
@@ -515,6 +514,17 @@ class ReductoQualityChecker:
                     metric_name="empty_line_ratio",
                     actual_value=metrics.empty_line_ratio,
                     threshold_value=t.empty_line_ratio_error,
+                )
+            )
+        elif metrics.empty_line_ratio > t.empty_line_ratio_warning:
+            issues.append(
+                QualityIssue(
+                    code="HIGH_EMPTY_LINES",
+                    message=f"Empty line ratio ({metrics.empty_line_ratio:.1%}) is elevated",
+                    severity=IssueSeverity.WARNING,
+                    metric_name="empty_line_ratio",
+                    actual_value=metrics.empty_line_ratio,
+                    threshold_value=t.empty_line_ratio_warning,
                 )
             )
 
