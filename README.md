@@ -11,11 +11,11 @@ A RAG (Retrieval-Augmented Generation) system for converting PDF textbooks to se
 ## Overview
 
 This project provides tools to:
-1. Convert PDF documents to Markdown (with table and image support)
+1. Convert PDF documents to Markdown via **Reducto.ai API** (recommended) or **Google Colab** (GPU)
 2. Chunk documents hierarchically for vector + graph storage
-3. Generate embeddings using CPU-optimized FastEmbed
+3. Generate embeddings using **FastEmbed** (local CPU, free) or **OpenAI API** (cloud, higher quality)
 4. Store in Helix-DB (vector + graph database)
-5. Query documents via MCP integration with Claude Code
+5. Query documents via MCP integration with Claude Code or CLI tool
 6. Manage PDF inbox with auto-delete after conversion
 7. Tag documents by topic for filtered search (e.g., "inventory", "accounting")
 
@@ -92,12 +92,12 @@ Chat with your documents                               Terminal access  ├─�
 - **For Helix-DB (Production storage):**
   - [Rust 1.88.0+](https://rustup.rs/) - Required for Helix CLI
   - [Docker Desktop](https://www.docker.com/products/docker-desktop/) - Required for local Helix-DB
-- **For Reducto.ai parsing (Recommended):**
-  - [Reducto API key](https://reducto.ai) - Get your key from the Reducto dashboard
-  - [rclone](https://rclone.org/install/) (optional, for cloud backup)
-- **For Google Colab parsing (Alternative):**
-  - VS Code with [Google Colab Extension](https://marketplace.visualstudio.com/items?itemName=GoogleCloudPlatform.colab-vscode-plugin)
-  - Google account (for Colab GPU access)
+- **For PDF Parsing (choose one):**
+  - **Reducto.ai API (Recommended):** [Reducto API key](https://reducto.ai) + [rclone](https://rclone.org/install/) (optional, for cloud backup)
+  - **Google Colab (Alternative):** VS Code with [Google Colab Extension](https://marketplace.visualstudio.com/items?itemName=GoogleCloudPlatform.colab-vscode-plugin) + Google account
+- **For Embeddings (choose one):**
+  - **FastEmbed (Default):** No API key required, runs locally on CPU
+  - **OpenAI API (Optional):** [OpenAI API key](https://platform.openai.com/api-keys) for higher quality embeddings
 
 ## Getting Started
 
