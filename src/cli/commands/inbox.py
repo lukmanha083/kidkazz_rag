@@ -16,6 +16,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.table import Table
 
 from src.cli.config import CLIConfig
+from src.cli.utils import slugify_filename
 from src.pdf_inbox import PDFInboxManager, PostConversionAction
 from src.pdf_inbox.cloud_sync import CloudSync
 
@@ -783,7 +784,9 @@ def parse(
         quality_results = []
 
         for pdf_path, markdown in results:
-            output_file = output_path / f"{pdf_path.stem}.md"
+            # Slugify filename for CLI-friendly output (no spaces/special chars)
+            safe_name = slugify_filename(pdf_path.stem)
+            output_file = output_path / f"{safe_name}.md"
 
             # Run quality check if enabled
             if checker:

@@ -4,12 +4,20 @@ This module provides a client for the Reducto.ai API to convert
 PDF documents to markdown format.
 """
 
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
-import os
 
 from dotenv import load_dotenv
+
+
+def _slugify_filename(filename: str) -> str:
+    """Convert filename to CLI-friendly format (no spaces/special chars)."""
+    slug = re.sub(r'[^\w\-]', '_', filename)
+    slug = re.sub(r'_+', '_', slug)
+    return slug.strip('_') or 'document'
 
 # Load .env file for API keys
 load_dotenv()
@@ -78,8 +86,8 @@ class ParseResult:
 
     @property
     def output_filename(self) -> str:
-        """Generate output filename from source path."""
-        return self.source_path.stem + ".md"
+        """Generate CLI-friendly output filename from source path."""
+        return _slugify_filename(self.source_path.stem) + ".md"
 
     def save(self, output_dir: Path) -> Path:
         """Save markdown to output directory.

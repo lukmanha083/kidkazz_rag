@@ -1,9 +1,44 @@
 """Utility functions for CLI commands."""
 
+import re
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
 from .config import CLIConfig
+
+
+def slugify_filename(filename: str, lowercase: bool = False) -> str:
+    """Convert filename to CLI-friendly format.
+
+    Replaces spaces and special characters with underscores,
+    making filenames easy to use on command line without quoting.
+
+    Args:
+        filename: Original filename (without extension)
+        lowercase: Convert to lowercase (default: False)
+
+    Returns:
+        Slugified filename safe for CLI usage
+
+    Examples:
+        >>> slugify_filename("My Document (Author)")
+        'My_Document_Author'
+        >>> slugify_filename("File  With   Spaces")
+        'File_With_Spaces'
+    """
+    # Replace spaces and special chars with underscores
+    slug = re.sub(r'[^\w\-]', '_', filename)
+
+    # Collapse multiple underscores
+    slug = re.sub(r'_+', '_', slug)
+
+    # Remove leading/trailing underscores
+    slug = slug.strip('_')
+
+    if lowercase:
+        slug = slug.lower()
+
+    return slug or 'document'
 
 
 def parse_chunk_sizes(sizes_str: str) -> Tuple[int, int, int]:

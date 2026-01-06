@@ -409,7 +409,8 @@ class TestReductoParseResult:
             success=True,
         )
 
-        assert result.output_filename == "my document.md"
+        # Filenames are slugified for CLI-friendly output
+        assert result.output_filename == "my_document.md"
 
     def test_save_markdown(self, tmp_path):
         """Test saving markdown to file."""
