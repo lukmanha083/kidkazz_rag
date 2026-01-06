@@ -178,6 +178,21 @@ class HelixChunkStore:
                 "helix-py is not installed. Run: pip install helix-py"
             ) from e
 
+    def _execute_query(self, query: Any) -> Any:
+        """Execute a query and process the response through the query's response method.
+
+        Args:
+            query: Query object with query() and response() methods
+
+        Returns:
+            QueryResult from the query's response() method
+        """
+        raw_result = self._client.query(query)
+        # Call the query's response method to convert raw response to QueryResult
+        if hasattr(query, 'response'):
+            return query.response(raw_result)
+        return raw_result
+
     def store_document(
         self,
         doc_id: str,
@@ -251,7 +266,7 @@ class HelixChunkStore:
         self._ensure_connected()
 
         query = GetChunk(chunk_id)
-        result = self._client.query(query)
+        result = self._execute_query(query)
 
         if not result.success or not result.data:
             return None
@@ -348,7 +363,7 @@ class HelixChunkStore:
         self._ensure_connected()
 
         query = DeleteDocument(doc_id)
-        result = self._client.query(query)
+        result = self._execute_query(query)
         return result.success
 
     def search_similar(
@@ -402,7 +417,7 @@ class HelixChunkStore:
             semantic_type=semantic_type,
             threshold=threshold,
         )
-        result = self._client.query(query)
+        result = self._execute_query(query)
 
         if not result.success:
             return []
@@ -472,7 +487,7 @@ class HelixChunkStore:
         self._ensure_connected()
 
         query = SearchKeyword(keyword, doc_id, case_sensitive)
-        result = self._client.query(query)
+        result = self._execute_query(query)
 
         if not result.success:
             return []
@@ -501,7 +516,7 @@ class HelixChunkStore:
         self._ensure_connected()
 
         query = GetChunkWithContext(chunk_id)
-        result = self._client.query(query)
+        result = self._execute_query(query)
 
         if not result.success or not result.data:
             return None
@@ -561,7 +576,7 @@ class HelixChunkStore:
         self._ensure_connected()
 
         query = GetChunkWithContext(chunk_id)
-        result = self._client.query(query)
+        result = self._execute_query(query)
 
         if not result.success or not result.data:
             return []
@@ -652,7 +667,7 @@ class HelixChunkStore:
         self._ensure_connected()
 
         query = GetDocumentChunks(doc_id, level)
-        result = self._client.query(query)
+        result = self._execute_query(query)
 
         if not result.success:
             return []
@@ -681,7 +696,7 @@ class HelixChunkStore:
         self._ensure_connected()
 
         query = ListDocuments()
-        result = self._client.query(query)
+        result = self._execute_query(query)
 
         if not result.success:
             return []
