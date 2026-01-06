@@ -34,6 +34,7 @@ class QualityMetrics:
 
     # Content metrics
     word_count: int
+    line_count: int
     estimated_pages: int
     heading_count: int
     table_count: int
@@ -334,6 +335,7 @@ class ReductoQualityChecker:
     ) -> QualityMetrics:
         """Collect all quality metrics from content."""
         lines = markdown.split("\n")
+        line_count = len(lines)
         words = markdown.split()
         word_count = len(words)
 
@@ -381,6 +383,7 @@ class ReductoQualityChecker:
 
         return QualityMetrics(
             word_count=word_count,
+            line_count=line_count,
             estimated_pages=estimated_pages,
             heading_count=heading_count,
             table_count=table_count,

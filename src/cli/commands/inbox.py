@@ -375,6 +375,234 @@ def _get_status_style(status: str) -> str:
 
 
 @app.command()
+def quality(
+    file_path: Optional[str] = typer.Argument(
+        None,
+        help="Path to markdown file to check",
+    ),
+    all_files: bool = typer.Option(
+        False,
+        "--all",
+        "-a",
+        help="Check all markdown files in output directory",
+    ),
+    directory: Optional[str] = typer.Option(
+        None,
+        "--dir",
+        "-d",
+        help="Directory containing markdown files to check",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Show detailed metrics breakdown",
+    ),
+    summary: bool = typer.Option(
+        False,
+        "--summary",
+        "-s",
+        help="Show summary for multiple files",
+    ),
+    threshold: str = typer.Option(
+        "normal",
+        "--threshold",
+        "-t",
+        help="Quality threshold: strict, normal, lenient",
+    ),
+) -> None:
+    """Check quality of parsed markdown documents.
+
+    Checks markdown files for quality issues that could affect RAG ingestion.
+    Can check a single file, all files in output directory, or a specific directory.
+
+    Examples:
+        kidkazz inbox quality document.md           # Check single file
+        kidkazz inbox quality --all                 # Check all in output dir
+        kidkazz inbox quality --dir /path/to/md    # Check specific directory
+        kidkazz inbox quality document.md --json   # JSON output
+        kidkazz inbox quality --all --summary      # Summary of all files
+    """
+    from src.pdf_converter.quality_checker import (
+        ReductoQualityChecker,
+        QualityThresholds,
+    )
+
+    try:
+        # Determine threshold
+        threshold_map = {
+            "strict": QualityThresholds.strict(),
+            "normal": QualityThresholds(),
+            "lenient": QualityThresholds.lenient(),
+        }
+        if threshold not in threshold_map:
+            console.print(f"[red]Invalid threshold: {threshold}[/red]")
+            console.print("Valid options: strict, normal, lenient")
+            raise typer.Exit(1)
+
+        checker = ReductoQualityChecker(threshold_map[threshold])
+
+        # Collect files to check
+        files_to_check: list[Path] = []
+
+        if file_path:
+            path = Path(file_path).expanduser()
+            if not path.exists():
+                console.print(f"[red]File not found: {file_path}[/red]")
+                raise typer.Exit(1)
+            files_to_check.append(path)
+        elif all_files or directory:
+            if directory:
+                check_dir = Path(directory).expanduser()
+            else:
+                config = CLIConfig.load()
+                check_dir = Path(config.output_path).expanduser()
+
+            if not check_dir.exists():
+                console.print(f"[red]Directory not found: {check_dir}[/red]")
+                raise typer.Exit(1)
+
+            files_to_check = list(check_dir.glob("*.md"))
+            if not files_to_check:
+                console.print(f"[yellow]No markdown files found in {check_dir}[/yellow]")
+                return
+        else:
+            console.print("[red]Specify a file path or use --all[/red]")
+            raise typer.Exit(1)
+
+        # Check files
+        reports = []
+        for md_file in files_to_check:
+            report = checker.check_file(md_file)
+            reports.append((md_file, report))
+
+        # Output results
+        if json_output:
+            if len(reports) == 1:
+                _, report = reports[0]
+                console.print(json.dumps(report.to_dict(), indent=2))
+            else:
+                all_reports = []
+                for md_file, report in reports:
+                    data = report.to_dict()
+                    data["file"] = str(md_file)
+                    all_reports.append(data)
+                console.print(json.dumps(all_reports, indent=2))
+        elif summary and len(reports) > 1:
+            _print_quality_summary(reports)
+        else:
+            for md_file, report in reports:
+                _print_quality_report(md_file, report, verbose)
+                if len(reports) > 1:
+                    console.print()  # Add spacing between reports
+
+        # Exit with appropriate code
+        from src.pdf_converter.quality_checker import QualityStatus
+        failed_count = sum(1 for _, r in reports if r.status == QualityStatus.FAIL)
+        if failed_count > 0:
+            raise typer.Exit(1)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+def _print_quality_report(file_path: Path, report, verbose: bool = False) -> None:
+    """Print a human-readable quality report."""
+    from rich.panel import Panel
+    from src.pdf_converter.quality_checker import IssueSeverity
+
+    # Handle both enum and string status
+    status_value = report.status.value if hasattr(report.status, 'value') else report.status
+    status_styles = {
+        "PASS": "green",
+        "FAIL": "red",
+        "WARNING": "yellow",
+    }
+    status_style = status_styles.get(status_value, "white")
+
+    # Header
+    console.print(f"\n[bold]Quality Report: {file_path.name}[/bold]")
+    console.print("━" * 50)
+
+    # Content stats
+    m = report.metrics
+    console.print("[bold]Content Stats:[/bold]")
+    console.print(f"  Words: {m.word_count:,} | Lines: {m.line_count:,}")
+    console.print(f"  Headings: {m.heading_count} | Tables: {m.table_count}")
+    console.print(f"  Code blocks: {m.code_block_count} | Lists: {m.list_count}")
+
+    if verbose:
+        console.print("\n[bold]Quality Metrics:[/bold]")
+        console.print(f"  Words per page (est): {m.words_per_page:.0f}")
+        console.print(f"  Special char ratio: {m.special_char_ratio:.1%}")
+        console.print(f"  Empty line ratio: {m.empty_line_ratio:.1%}")
+        if m.broken_table_count > 0:
+            console.print(f"  [yellow]Broken tables: {m.broken_table_count}[/yellow]")
+
+    # Issues
+    if report.issues:
+        console.print("\n[bold]Issues:[/bold]")
+        for issue in report.issues:
+            # Handle both enum and string severity
+            severity_value = issue.severity.value if hasattr(issue.severity, 'value') else issue.severity
+            icon = "✗" if severity_value == "error" else "⚠"
+            color = "red" if severity_value == "error" else "yellow"
+            console.print(f"  [{color}]{icon} {issue.message}[/{color}]")
+    else:
+        console.print("\n  [green]✓ No issues detected[/green]")
+
+    # Overall score and status
+    console.print(f"\n[bold]Overall Score:[/bold] {report.score}/100 [{status_style}]({status_value})[/{status_style}]")
+    console.print(f"[dim]Recommendation: {report.recommendation}[/dim]")
+
+
+def _print_quality_summary(reports: list) -> None:
+    """Print a summary table for multiple files."""
+    table = Table(title="Quality Summary")
+    table.add_column("File", style="cyan")
+    table.add_column("Score", justify="right")
+    table.add_column("Status")
+    table.add_column("Issues", justify="right")
+
+    pass_count = 0
+    fail_count = 0
+    total_score = 0
+
+    for md_file, report in reports:
+        # Handle both enum and string status
+        status_value = report.status.value if hasattr(report.status, 'value') else report.status
+        status_style = {"PASS": "green", "FAIL": "red", "WARNING": "yellow"}.get(
+            status_value, "white"
+        )
+        table.add_row(
+            md_file.name,
+            str(report.score),
+            f"[{status_style}]{status_value}[/{status_style}]",
+            str(len(report.issues)),
+        )
+        total_score += report.score
+        if status_value == "PASS":
+            pass_count += 1
+        else:
+            fail_count += 1
+
+    console.print(table)
+    avg_score = total_score / len(reports) if reports else 0
+    console.print(f"\n[bold]Summary:[/bold] {len(reports)} file(s) checked")
+    console.print(f"  [green]Passed: {pass_count}[/green] | [red]Failed: {fail_count}[/red]")
+    console.print(f"  Average score: {avg_score:.0f}/100")
+
+
+@app.command()
 def parse(
     agentic: bool = typer.Option(
         False,
@@ -397,6 +625,27 @@ def parse(
         "--sync-backup/--no-sync-backup",
         help="Sync output to cloud backup after parsing",
     ),
+    quality_check: bool = typer.Option(
+        True,
+        "--quality-check/--no-quality-check",
+        help="Run quality check on parsed output (default: enabled)",
+    ),
+    quality_threshold: str = typer.Option(
+        "normal",
+        "--quality-threshold",
+        "-q",
+        help="Quality threshold: strict, normal, lenient",
+    ),
+    inbox_path_override: Optional[str] = typer.Option(
+        None,
+        "--inbox-path",
+        help="Override inbox path from config",
+    ),
+    output_path_override: Optional[str] = typer.Option(
+        None,
+        "--output-path",
+        help="Override output path from config",
+    ),
 ) -> None:
     """Parse PDFs in inbox using Reducto.ai API.
 
@@ -410,11 +659,16 @@ def parse(
         page      - One chunk per page
         section   - Split by document sections/headings
 
+    Quality check is enabled by default and will block saving low-quality output.
+    Use --no-quality-check to force save regardless of quality.
+
     Examples:
         kidkazz inbox parse                        # Human-readable output
         kidkazz inbox parse --chunk-mode variable  # RAG-optimized chunks
         kidkazz inbox parse --agentic -c block     # High-accuracy + citations
         kidkazz inbox parse --dry-run              # Preview only
+        kidkazz inbox parse --no-quality-check     # Skip quality check
+        kidkazz inbox parse --quality-threshold strict  # Stricter quality
     """
     try:
         from src.pdf_converter.reducto_client import (
@@ -422,10 +676,28 @@ def parse(
             ReductoConfig,
             ReductoAPIError,
         )
+        from src.pdf_converter.quality_checker import (
+            ReductoQualityChecker,
+            QualityThresholds,
+            QualityStatus,
+        )
 
         config = CLIConfig.load()
-        inbox_path = Path(config.inbox_path).expanduser()
-        output_path = Path(config.output_path).expanduser()
+        inbox_path = Path(inbox_path_override).expanduser() if inbox_path_override else Path(config.inbox_path).expanduser()
+        output_path = Path(output_path_override).expanduser() if output_path_override else Path(config.output_path).expanduser()
+
+        # Validate quality threshold
+        threshold_map = {
+            "strict": QualityThresholds.strict(),
+            "normal": QualityThresholds(),
+            "lenient": QualityThresholds.lenient(),
+        }
+        if quality_threshold not in threshold_map:
+            console.print(f"[red]Invalid quality threshold: {quality_threshold}[/red]")
+            console.print("Valid options: strict, normal, lenient")
+            raise typer.Exit(1)
+
+        checker = ReductoQualityChecker(threshold_map[quality_threshold]) if quality_check else None
 
         # Ensure directories exist
         inbox_path.mkdir(parents=True, exist_ok=True)
@@ -499,15 +771,44 @@ def parse(
             console.print(f"[red]API Error: {e}[/red]")
             raise typer.Exit(1) from None
 
-        # Save markdown files
+        # Quality check and save markdown files
         saved_count = 0
+        blocked_count = 0
+        quality_results = []
+
         for pdf_path, markdown in results:
             output_file = output_path / f"{pdf_path.stem}.md"
+
+            # Run quality check if enabled
+            if checker:
+                report = checker.check_markdown(markdown)
+                quality_results.append((pdf_path, report))
+
+                if report.status == QualityStatus.FAIL:
+                    blocked_count += 1
+                    console.print(f"[red]Blocked:[/red] {pdf_path.name} (quality score: {report.score}/100)")
+                    for issue in report.issues[:3]:  # Show first 3 issues
+                        severity_value = issue.severity.value if hasattr(issue.severity, 'value') else issue.severity
+                        icon = "✗" if severity_value == "error" else "⚠"
+                        console.print(f"  [{severity_value}]{icon} {issue.message}[/{severity_value}]")
+                    continue
+
+            # Save file (passed quality check or check disabled)
             output_file.write_text(markdown, encoding="utf-8")
             saved_count += 1
-            console.print(f"[green]Saved:[/green] {output_file.name}")
 
+            if checker and quality_results:
+                _, report = quality_results[-1]
+                status_color = "green" if report.status == QualityStatus.PASS else "yellow"
+                console.print(f"[green]Saved:[/green] {output_file.name} [{status_color}](quality: {report.score}/100)[/{status_color}]")
+            else:
+                console.print(f"[green]Saved:[/green] {output_file.name}")
+
+        # Summary
         console.print(f"\n[green]Successfully parsed {saved_count} file(s)[/green]")
+        if blocked_count > 0:
+            console.print(f"[red]Blocked {blocked_count} file(s) due to quality issues[/red]")
+            console.print("[dim]Use --no-quality-check to force save[/dim]")
         console.print(f"Output directory: {output_path}")
 
         # Apply post_action to processed PDFs

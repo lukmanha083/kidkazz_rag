@@ -16,6 +16,7 @@ class TestQualityMetrics:
 
         metrics = QualityMetrics(
             word_count=4500,
+            line_count=300,
             estimated_pages=15,
             heading_count=12,
             table_count=3,
@@ -43,6 +44,7 @@ class TestQualityMetrics:
 
         metrics = QualityMetrics(
             word_count=1000,
+            line_count=50,
             estimated_pages=3,
             heading_count=5,
             table_count=0,
@@ -64,6 +66,7 @@ class TestQualityMetrics:
 
         metrics = QualityMetrics(
             word_count=1000,
+            line_count=50,
             estimated_pages=3,
             heading_count=5,
             table_count=1,
@@ -128,6 +131,7 @@ class TestQualityReport:
 
         metrics = QualityMetrics(
             word_count=4500,
+            line_count=300,
             estimated_pages=15,
             heading_count=12,
             table_count=3,
@@ -163,6 +167,7 @@ class TestQualityReport:
 
         metrics = QualityMetrics(
             word_count=500,
+            line_count=40,
             estimated_pages=15,
             heading_count=2,
             table_count=0,
@@ -218,6 +223,7 @@ class TestQualityReport:
 
         metrics = QualityMetrics(
             word_count=3000,
+            line_count=200,
             estimated_pages=10,
             heading_count=8,
             table_count=2,

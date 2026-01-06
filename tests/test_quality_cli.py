@@ -178,9 +178,10 @@ class TestQualityCommand:
             app, ["inbox", "quality", "--all", "--dir", str(temp_markdown_dir)]
         )
 
-        assert result.exit_code == 0
+        # Exit code 1 because one file (poor_doc) fails quality
+        assert result.exit_code == 1
         # Should show results for multiple files
-        assert "good_doc" in result.output or "2" in result.output
+        assert "good_doc" in result.output or "poor_doc" in result.output
 
     def test_quality_directory_summary(self, cli_runner, temp_markdown_dir):
         """Test quality check with summary output."""
@@ -191,8 +192,9 @@ class TestQualityCommand:
             ["inbox", "quality", "--all", "--dir", str(temp_markdown_dir), "--summary"],
         )
 
-        assert result.exit_code == 0
-        assert "summary" in result.output.lower() or "total" in result.output.lower()
+        # Exit code 1 because one file (poor_doc) fails quality
+        assert result.exit_code == 1
+        assert "summary" in result.output.lower() or "file" in result.output.lower()
 
     def test_quality_pass_exit_code(self, cli_runner, temp_markdown_file):
         """Test that passing quality returns exit code 0."""
@@ -227,16 +229,11 @@ class TestQualityInParseCommand:
         """Test that parse command includes quality check by default."""
         from src.cli.main import app
 
-        with patch("src.cli.commands.inbox.ReductoClient") as mock_client:
-            # Mock successful parse
+        with patch("src.pdf_converter.reducto_client.ReductoClient") as mock_client:
+            # Mock successful parse - returns markdown string directly
             mock_instance = MagicMock()
-            mock_instance.parse_files.return_value = [
-                MagicMock(
-                    success=True,
-                    source_path=Path("/test/doc.pdf"),
-                    markdown="# Test\n\nContent here.\n" * 100,
-                )
-            ]
+            good_content = "# Test Document\n\nThis is a test document with enough content to pass quality checks.\n" * 50
+            mock_instance.parse_pdf.return_value = good_content
             mock_client.return_value = mock_instance
 
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -259,23 +256,17 @@ class TestQualityInParseCommand:
                     ],
                 )
 
-                # Should include quality check output
-                # (may pass or show quality info)
+                # Should include quality score in output
                 assert "quality" in result.output.lower() or result.exit_code == 0
 
     def test_parse_no_quality_check(self, cli_runner):
         """Test parse command with quality check disabled."""
         from src.cli.main import app
 
-        with patch("src.cli.commands.inbox.ReductoClient") as mock_client:
+        with patch("src.pdf_converter.reducto_client.ReductoClient") as mock_client:
+            # Mock returns short/poor content that would fail quality check
             mock_instance = MagicMock()
-            mock_instance.parse_files.return_value = [
-                MagicMock(
-                    success=True,
-                    source_path=Path("/test/doc.pdf"),
-                    markdown="Short content",
-                )
-            ]
+            mock_instance.parse_pdf.return_value = "Short content"
             mock_client.return_value = mock_instance
 
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -299,7 +290,7 @@ class TestQualityInParseCommand:
                     ],
                 )
 
-                # Should save even with poor quality
+                # Should save even with poor quality since quality check is disabled
                 assert result.exit_code == 0
 
     def test_parse_quality_threshold_strict(self, cli_runner):
