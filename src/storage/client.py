@@ -187,11 +187,40 @@ class HelixChunkStore:
         Returns:
             QueryResult from the query's response() method
         """
+        from .queries import QueryResult
+
         raw_result = self._client.query(query)
+
+        # If helix-py already returned a QueryResult-like object, use it directly
+        if hasattr(raw_result, 'success') and hasattr(raw_result, 'data'):
+            # Extract actual data if it's nested in 'docs' key
+            if isinstance(raw_result.data, dict) and 'docs' in raw_result.data:
+                return QueryResult(
+                    success=raw_result.success,
+                    data=raw_result.data['docs'],
+                    error=getattr(raw_result, 'error', None)
+                )
+            return raw_result
+
+        # If helix-py returned a list of QueryResult objects, extract the first one
+        if isinstance(raw_result, list) and len(raw_result) > 0:
+            first = raw_result[0]
+            if hasattr(first, 'success') and hasattr(first, 'data'):
+                # Extract actual data if nested in 'docs' key
+                if isinstance(first.data, dict) and 'docs' in first.data:
+                    return QueryResult(
+                        success=first.success,
+                        data=first.data['docs'],
+                        error=getattr(first, 'error', None)
+                    )
+                return first
+
         # Call the query's response method to convert raw response to QueryResult
         if hasattr(query, 'response'):
             return query.response(raw_result)
-        return raw_result
+
+        # Fallback: wrap in QueryResult
+        return QueryResult(success=True, data=raw_result)
 
     def store_document(
         self,
