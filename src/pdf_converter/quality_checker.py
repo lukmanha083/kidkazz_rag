@@ -95,9 +95,9 @@ class QualityReport:
         """Check if any warning-level issues exist."""
         return any(issue.severity == IssueSeverity.WARNING for issue in self.issues)
 
-    def to_json(self) -> str:
-        """Convert report to JSON string."""
-        data = {
+    def to_dict(self) -> dict[str, Any]:
+        """Convert report to dictionary."""
+        return {
             "status": self.status.value,
             "score": self.score,
             "metrics": asdict(self.metrics),
@@ -114,11 +114,10 @@ class QualityReport:
             ],
             "recommendation": self.recommendation,
         }
-        return json.dumps(data, indent=2)
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert report to dictionary."""
-        return json.loads(self.to_json())
+    def to_json(self) -> str:
+        """Convert report to JSON string."""
+        return json.dumps(self.to_dict(), indent=2)
 
 
 @dataclass

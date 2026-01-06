@@ -81,8 +81,6 @@ The conclusion summarizes the key points.
 @pytest.fixture
 def temp_markdown_dir():
     """Create a temporary directory with markdown files."""
-    import tempfile
-
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
 
