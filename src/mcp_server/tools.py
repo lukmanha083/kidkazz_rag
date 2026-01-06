@@ -32,6 +32,7 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         level: Optional[int] = None,
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
+        tags: Optional[list[str]] = None,
     ) -> list[dict[str, Any]]:
         """Search for document chunks semantically similar to the query.
 
@@ -42,12 +43,13 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             level: Filter by hierarchy level - 1 (section) or 2 (leaf) (optional)
             semantic_type: Filter by type - definition, example, procedure, theorem, narrative (optional)
             threshold: Minimum similarity score 0.0-1.0 (default: 0.0)
+            tags: Filter by document tags - documents must have ALL specified tags (optional)
 
         Returns:
             List of matching chunks with content, metadata, and similarity scores
         """
         query_preview = query[:50] + "..." if len(query) > 50 else query
-        logger.info(f"search_semantic: query='{query_preview}', top_k={top_k}")
+        logger.info(f"search_semantic: query='{query_preview}', top_k={top_k}, tags={tags}")
 
         # Generate query embedding server-side
         query_embedding = state.embedder.embed_text(query)
@@ -60,6 +62,7 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             level=level,
             semantic_type=semantic_type,
             threshold=threshold,
+            tags=tags,
         )
 
         logger.info(f"search_semantic: found {len(results)} results")
@@ -184,15 +187,20 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         return format_chunk_list(results)
 
     @mcp.tool()
-    def list_documents() -> list[dict[str, Any]]:
+    def list_documents(
+        tags: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
         """List all documents in the knowledge base.
 
-        Returns:
-            List of documents with doc_id, title, chunk_count, and created_at
-        """
-        logger.info("list_documents")
+        Args:
+            tags: Filter by document tags - documents must have ALL specified tags (optional)
 
-        docs = state.store.list_documents()
+        Returns:
+            List of documents with doc_id, title, tags, chunk_count, and created_at
+        """
+        logger.info(f"list_documents: tags={tags}")
+
+        docs = state.store.list_documents(tags=tags)
 
         logger.info(f"list_documents: found {len(docs)} documents")
         return [format_document(doc) for doc in docs]

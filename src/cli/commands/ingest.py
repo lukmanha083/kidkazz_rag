@@ -20,6 +20,7 @@ from ..utils import (
     get_embedder,
     get_store,
     parse_chunk_sizes,
+    parse_tags,
     resolve_doc_id,
     resolve_title,
 )
@@ -48,6 +49,12 @@ def ingest_markdown(
         "--title",
         "-t",
         help="Document title (default: from H1 or filename)",
+    ),
+    tags: Optional[str] = typer.Option(
+        None,
+        "--tags",
+        "-g",
+        help="Comma-separated tags (e.g., 'inventory,accounting')",
     ),
     chunk_sizes: str = typer.Option(
         "2048,512,256",
@@ -117,6 +124,9 @@ def ingest_markdown(
     final_doc_id = resolve_doc_id(file, doc_id)
     final_title = resolve_title(file, content, title)
 
+    # Parse tags early so they can be shown in dry-run
+    tag_list = parse_tags(tags) or []
+
     if dry_run:
         # Just show what would be created
         chunks = create_hierarchical_chunks(
@@ -127,6 +137,8 @@ def ingest_markdown(
         console.print(f"[bold]Dry run:[/bold] Would create {len(chunks)} chunks")
         console.print(f"  Document ID: {final_doc_id}")
         console.print(f"  Title: {final_title}")
+        if tag_list:
+            console.print(f"  Tags: {', '.join(tag_list)}")
         console.print(f"  Chunk sizes: {level_sizes}")
         console.print()
         print_chunks_preview(chunks)
@@ -135,6 +147,7 @@ def ingest_markdown(
     result = {
         "doc_id": final_doc_id,
         "title": final_title,
+        "tags": tag_list,
         "source": str(file),
         "chunks": 0,
         "status": "success",
@@ -173,6 +186,7 @@ def ingest_markdown(
                 final_title,
                 embedded_chunks,
                 metadata,
+                tags=tag_list,
             )
             tracker.complete("Storing in database...")
 
@@ -218,6 +232,12 @@ def ingest_batch(
         "--recursive",
         "-r",
         help="Search subdirectories",
+    ),
+    tags: Optional[str] = typer.Option(
+        None,
+        "--tags",
+        "-g",
+        help="Comma-separated tags for all files (e.g., 'inventory,accounting')",
     ),
     chunk_sizes: str = typer.Option(
         "2048,512,256",
@@ -268,6 +288,9 @@ def ingest_batch(
         print_error(str(e))
         raise typer.Exit(1)
 
+    # Parse tags
+    tag_list = parse_tags(tags) or []
+
     results = []
     store_instance = get_store(config)
     try:
@@ -313,7 +336,7 @@ def ingest_batch(
                 )
                 metadata = enrich_all_chunks(chunks, document_id=doc_id)
                 embedded = embedder_instance.embed_chunks(chunks, batch_size=32)
-                store_instance.store_document(doc_id, title, embedded, metadata)
+                store_instance.store_document(doc_id, title, embedded, metadata, tags=tag_list)
 
                 file_result["chunks"] = len(chunks)
 

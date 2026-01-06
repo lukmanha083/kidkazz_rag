@@ -158,6 +158,7 @@ Arguments:
 Options:
   --doc-id TEXT            Document identifier (default: filename)
   --title TEXT             Document title (default: from H1 or filename)
+  -g, --tags TEXT          Comma-separated tags (e.g., 'inventory,accounting')
   --chunk-sizes TEXT       Chunk sizes as L1,L2,overlap (default: 2048,512,256)
   --model TEXT             Embedding model
   --store [mock|helix]     Storage backend
@@ -166,6 +167,7 @@ Options:
 
 Example:
   kidkazz ingest markdown output/textbook.md --doc-id ml_textbook
+  kidkazz ingest markdown inventory.md --tags inventory,accounting
 ```
 
 #### `kidkazz ingest batch`
@@ -181,6 +183,7 @@ Arguments:
 Options:
   --pattern TEXT           Glob pattern for files (default: *.pdf)
   --recursive             Search subdirectories
+  -g, --tags TEXT          Comma-separated tags for all files
   --converter TEXT         PDF converter to use
   --parallel INTEGER       Number of parallel workers (default: 1)
   --skip-existing         Skip files already in database
@@ -188,6 +191,7 @@ Options:
 
 Example:
   kidkazz ingest batch ./pdfs --pattern "*.pdf" --recursive --parallel 4
+  kidkazz ingest batch ./docs --pattern "*.md" --tags documentation
 ```
 
 ### Search Commands
@@ -205,6 +209,7 @@ Arguments:
 Options:
   -k, --top-k INTEGER      Number of results (default: 5)
   -d, --doc-id TEXT        Filter to specific document
+  -g, --tags TEXT          Filter by document tags (comma-separated, AND logic)
   -l, --level INTEGER      Filter by hierarchy level (1 or 2)
   -t, --type TEXT          Filter by semantic type
   --threshold FLOAT        Minimum similarity (0.0-1.0)
@@ -215,6 +220,7 @@ Options:
 Example:
   kidkazz search semantic "What is machine learning?" --top-k 10
   kidkazz search semantic "neural networks" --doc-id ml_textbook --level 2
+  kidkazz search semantic "safety stock" --tags inventory
 ```
 
 #### `kidkazz search keyword`
@@ -246,23 +252,26 @@ List all documents in the knowledge base.
 kidkazz docs list [OPTIONS]
 
 Options:
+  -g, --tags TEXT            Filter by document tags (comma-separated, AND logic)
   --sort [date|name|chunks]  Sort order (default: date)
   --reverse                 Reverse sort order
   --json                   Output as JSON
 
 Example:
   kidkazz docs list --sort chunks --reverse
+  kidkazz docs list --tags inventory
+  kidkazz docs list --tags inventory,accounting
 ```
 
 Output:
 ```
-┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
-┃ Document ID    ┃ Title                  ┃ Chunks ┃ Created            ┃
-┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
-│ ml_textbook    │ Machine Learning 101   │    127 │ 2024-01-15 10:30   │
-│ stats_guide    │ Statistics Handbook    │     89 │ 2024-01-14 15:45   │
-│ python_notes   │ Python Programming     │     56 │ 2024-01-13 09:00   │
-└────────────────┴────────────────────────┴────────┴────────────────────┘
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ Document ID    ┃ Title                  ┃ Tags                   ┃ Chunks ┃ Created            ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ inv_textbook   │ Inventory Management   │ inventory, accounting  │    127 │ 2024-01-15 10:30   │
+│ stats_guide    │ Statistics Handbook    │ statistics             │     89 │ 2024-01-14 15:45   │
+│ python_notes   │ Python Programming     │                        │     56 │ 2024-01-13 09:00   │
+└────────────────┴────────────────────────┴────────────────────────┴────────┴────────────────────┘
 ```
 
 #### `kidkazz docs stats`

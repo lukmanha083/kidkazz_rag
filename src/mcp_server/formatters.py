@@ -59,6 +59,7 @@ def format_document(doc: dict[str, Any]) -> dict[str, Any]:
     return {
         "doc_id": doc.get("doc_id", ""),
         "title": doc.get("title", ""),
+        "tags": doc.get("tags", []),
         "chunk_count": doc.get("chunk_count", 0),
         "created_at": doc.get("created_at"),
     }

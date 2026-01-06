@@ -43,6 +43,7 @@ class MockChunkStore:
         title: str,
         embedded_chunks: list[EmbeddedChunk],
         metadata_list: list[ChunkMetadata],
+        tags: Optional[list[str]] = None,
     ) -> None:
         """
         Store a complete document with all chunks, embeddings, and relationships.
@@ -52,13 +53,18 @@ class MockChunkStore:
             title: Document title
             embedded_chunks: List of chunks with embeddings
             metadata_list: Corresponding metadata for each chunk
+            tags: Optional list of document tags (e.g., ["inventory", "accounting"])
         """
         import time
+
+        # Normalize tags to lowercase and filter empty strings
+        normalized_tags = [t.lower().strip() for t in (tags or []) if t and t.strip()]
 
         # Store document
         self._documents[doc_id] = {
             "doc_id": doc_id,
             "title": title,
+            "tags": normalized_tags,
             "chunk_count": len(embedded_chunks),
             "created_at": int(time.time()),
         }
@@ -207,6 +213,7 @@ class MockChunkStore:
         level: Optional[int] = None,
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
+        tags: Optional[list[str]] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
         Find chunks similar to query embedding.
@@ -218,11 +225,22 @@ class MockChunkStore:
             level: Filter by hierarchy level (optional)
             semantic_type: Filter by semantic type (optional)
             threshold: Minimum similarity score (default: 0.0)
+            tags: Filter by document tags (optional, AND logic)
 
         Returns:
             List of (EmbeddedChunk, similarity_score) tuples, sorted by score
         """
         results: list[tuple[str, float]] = []
+
+        # Pre-compute set of doc_ids matching tag filter
+        if tags:
+            normalized_tags = {t.lower().strip() for t in tags}
+            matching_doc_ids = {
+                d["doc_id"] for d in self._documents.values()
+                if normalized_tags.issubset(set(d.get("tags", [])))
+            }
+        else:
+            matching_doc_ids = None
 
         for chunk_id, data in self._chunks.items():
             # Apply filters
@@ -231,6 +249,9 @@ class MockChunkStore:
             if level is not None and data.get("level") != level:
                 continue
             if semantic_type and data.get("semantic_type") != semantic_type:
+                continue
+            # Filter by document tags
+            if matching_doc_ids is not None and data.get("document_id") not in matching_doc_ids:
                 continue
 
             # Calculate similarity
@@ -421,14 +442,25 @@ class MockChunkStore:
         results.sort(key=lambda x: self._chunks[x.chunk.id].get("sequence_position", 0))
         return results
 
-    def list_documents(self) -> list[dict[str, Any]]:
+    def list_documents(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
         """
         List all documents with metadata.
+
+        Args:
+            tags: Filter by document tags (optional, AND logic)
 
         Returns:
             List of document metadata dictionaries
         """
-        return list(self._documents.values())
+        if not tags:
+            return list(self._documents.values())
+
+        # Filter by tags (AND logic - document must have ALL specified tags)
+        normalized_tags = {t.lower().strip() for t in tags}
+        return [
+            doc for doc in self._documents.values()
+            if normalized_tags.issubset(set(doc.get("tags", [])))
+        ]
 
     def get_document_stats(self, doc_id: str) -> Optional[dict[str, Any]]:
         """

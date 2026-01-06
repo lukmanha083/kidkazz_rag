@@ -7,7 +7,7 @@ import typer
 from ..config import CLIConfig
 from ..output import console, print_json, print_search_results, print_warning
 from ..progress import spinner
-from ..utils import get_embedder, get_store
+from ..utils import get_embedder, get_store, parse_tags
 
 app = typer.Typer(help="Search commands")
 
@@ -29,6 +29,12 @@ def search_semantic(
         "-d",
         "--doc-id",
         help="Filter to specific document",
+    ),
+    tags: Optional[str] = typer.Option(
+        None,
+        "-g",
+        "--tags",
+        help="Filter by document tags (comma-separated)",
     ),
     level: Optional[int] = typer.Option(
         None,
@@ -70,6 +76,9 @@ def search_semantic(
     embedder = get_embedder(config)
     store = get_store(config)
 
+    # Parse tags
+    tag_list = parse_tags(tags)
+
     # Generate query embedding
     with spinner("Generating query embedding"):
         query_embedding = embedder.embed_text(query)
@@ -82,6 +91,7 @@ def search_semantic(
         level=level,
         semantic_type=semantic_type,
         threshold=threshold,
+        tags=tag_list,
     )
 
     # Format results
