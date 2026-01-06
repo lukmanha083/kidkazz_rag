@@ -124,6 +124,9 @@ def ingest_markdown(
     final_doc_id = resolve_doc_id(file, doc_id)
     final_title = resolve_title(file, content, title)
 
+    # Parse tags early so they can be shown in dry-run
+    tag_list = parse_tags(tags) or []
+
     if dry_run:
         # Just show what would be created
         chunks = create_hierarchical_chunks(
@@ -134,13 +137,12 @@ def ingest_markdown(
         console.print(f"[bold]Dry run:[/bold] Would create {len(chunks)} chunks")
         console.print(f"  Document ID: {final_doc_id}")
         console.print(f"  Title: {final_title}")
+        if tag_list:
+            console.print(f"  Tags: {', '.join(tag_list)}")
         console.print(f"  Chunk sizes: {level_sizes}")
         console.print()
         print_chunks_preview(chunks)
         return
-
-    # Parse tags
-    tag_list = parse_tags(tags) or []
 
     result = {
         "doc_id": final_doc_id,
