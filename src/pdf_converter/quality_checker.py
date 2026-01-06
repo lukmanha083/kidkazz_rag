@@ -55,6 +55,7 @@ class QualityMetrics:
     # Chunk metrics (optional - only for chunked output)
     chunk_count: Optional[int] = None
     empty_chunk_count: Optional[int] = None
+    small_chunk_count: Optional[int] = None  # Chunks below min_chunk_words
     avg_chunk_size: Optional[float] = None
 
 
@@ -288,6 +289,11 @@ class ReductoQualityChecker:
         ]
         metrics.avg_chunk_size = sum(chunk_sizes) / len(chunk_sizes) if chunk_sizes else 0.0
 
+        # Count chunks smaller than min_chunk_words threshold
+        metrics.small_chunk_count = sum(
+            1 for size in chunk_sizes if size < self.thresholds.min_chunk_words
+        )
+
         issues = self._detect_issues(metrics)
         score = self._calculate_score(
             words_per_page=metrics.words_per_page,
@@ -455,6 +461,31 @@ class ReductoQualityChecker:
                     )
                 )
 
+        # Check low confidence word ratio
+        if metrics.low_confidence_word_ratio is not None:
+            if metrics.low_confidence_word_ratio > t.low_confidence_word_ratio_error:
+                issues.append(
+                    QualityIssue(
+                        code="HIGH_LOW_CONFIDENCE_WORDS",
+                        message=f"Low confidence word ratio ({metrics.low_confidence_word_ratio:.1%}) exceeds limit",
+                        severity=IssueSeverity.ERROR,
+                        metric_name="low_confidence_word_ratio",
+                        actual_value=metrics.low_confidence_word_ratio,
+                        threshold_value=t.low_confidence_word_ratio_error,
+                    )
+                )
+            elif metrics.low_confidence_word_ratio > t.low_confidence_word_ratio_warning:
+                issues.append(
+                    QualityIssue(
+                        code="HIGH_LOW_CONFIDENCE_WORDS",
+                        message=f"Low confidence word ratio ({metrics.low_confidence_word_ratio:.1%}) is elevated",
+                        severity=IssueSeverity.WARNING,
+                        metric_name="low_confidence_word_ratio",
+                        actual_value=metrics.low_confidence_word_ratio,
+                        threshold_value=t.low_confidence_word_ratio_warning,
+                    )
+                )
+
         # Check words per page
         if metrics.words_per_page < t.words_per_page_error:
             issues.append(
@@ -576,6 +607,33 @@ class ReductoQualityChecker:
                         threshold_value=t.empty_chunk_ratio_warning,
                     )
                 )
+
+            # Check for small chunks (below min_chunk_words)
+            if metrics.small_chunk_count is not None and metrics.small_chunk_count > 0:
+                small_ratio = metrics.small_chunk_count / metrics.chunk_count
+                # Treat >20% small chunks as error, >10% as warning
+                if small_ratio > 0.20:
+                    issues.append(
+                        QualityIssue(
+                            code="HIGH_SMALL_CHUNKS",
+                            message=f"{metrics.small_chunk_count} chunks ({small_ratio:.1%}) below {t.min_chunk_words} words",
+                            severity=IssueSeverity.ERROR,
+                            metric_name="small_chunk_count",
+                            actual_value=metrics.small_chunk_count,
+                            threshold_value=t.min_chunk_words,
+                        )
+                    )
+                elif small_ratio > 0.10:
+                    issues.append(
+                        QualityIssue(
+                            code="HIGH_SMALL_CHUNKS",
+                            message=f"{metrics.small_chunk_count} chunks ({small_ratio:.1%}) below {t.min_chunk_words} words",
+                            severity=IssueSeverity.WARNING,
+                            metric_name="small_chunk_count",
+                            actual_value=metrics.small_chunk_count,
+                            threshold_value=t.min_chunk_words,
+                        )
+                    )
 
         return issues
 
