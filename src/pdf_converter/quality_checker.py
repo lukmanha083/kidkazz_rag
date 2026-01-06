@@ -646,47 +646,49 @@ class ReductoQualityChecker:
         ocr_confidence_avg: Optional[float],
         empty_chunk_ratio: float,
     ) -> int:
-        """Calculate overall quality score (0-100)."""
+        """Calculate overall quality score (0-100).
+
+        Uses configurable thresholds from self.thresholds to ensure consistency
+        with _detect_issues() validation.
+        """
         score = 100.0
+        t = self.thresholds
 
         # Words per page contribution (max -30 points)
-        if words_per_page < 50:
+        if words_per_page < t.words_per_page_error:
             score -= 30
-        elif words_per_page < 100:
-            score -= 20
-        elif words_per_page < 150:
-            score -= 10
+        elif words_per_page < t.words_per_page_warning:
+            score -= 15
 
         # Special character ratio contribution (max -25 points)
-        if special_char_ratio > 0.20:
+        if special_char_ratio > t.special_char_ratio_error:
             score -= 25
-        elif special_char_ratio > 0.10:
-            score -= 15
-        elif special_char_ratio > 0.05:
-            score -= 5
+        elif special_char_ratio > t.special_char_ratio_warning:
+            score -= 12
 
         # Empty line ratio contribution (max -10 points)
-        if empty_line_ratio > 0.20:
+        if empty_line_ratio > t.empty_line_ratio_error:
             score -= 10
-        elif empty_line_ratio > 0.10:
+        elif empty_line_ratio > t.empty_line_ratio_warning:
             score -= 5
 
         # Broken tables contribution (max -15 points)
-        score -= min(broken_table_count * 5, 15)
+        if broken_table_count >= t.broken_table_error:
+            score -= 15
+        elif broken_table_count >= t.broken_table_warning:
+            score -= 7
 
         # OCR confidence contribution (max -20 points)
         if ocr_confidence_avg is not None:
-            if ocr_confidence_avg < 0.6:
+            if ocr_confidence_avg < t.ocr_confidence_error:
                 score -= 20
-            elif ocr_confidence_avg < 0.8:
+            elif ocr_confidence_avg < t.ocr_confidence_warning:
                 score -= 10
-            elif ocr_confidence_avg < 0.9:
-                score -= 5
 
         # Empty chunk ratio contribution (max -10 points)
-        if empty_chunk_ratio > 0.15:
+        if empty_chunk_ratio > t.empty_chunk_ratio_error:
             score -= 10
-        elif empty_chunk_ratio > 0.05:
+        elif empty_chunk_ratio > t.empty_chunk_ratio_warning:
             score -= 5
 
         return max(0, min(100, int(score)))
