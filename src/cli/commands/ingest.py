@@ -1,5 +1,6 @@
 """Ingest commands for document ingestion pipeline."""
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,7 @@ from ..output import (
     print_chunks_preview,
     print_error,
     print_ingestion_summary,
+    print_info,
     print_json,
     print_success,
     print_warning,
@@ -25,6 +27,15 @@ from ..utils import (
     resolve_title,
 )
 from src.chunker import create_hierarchical_chunks, enrich_all_chunks
+
+# Optional concept extraction support
+try:
+    from src.chunker.concept_extractor import ConceptExtractor
+
+    CONCEPT_EXTRACTION_AVAILABLE = True
+except ImportError:
+    ConceptExtractor = None  # type: ignore
+    CONCEPT_EXTRACTION_AVAILABLE = False
 
 app = typer.Typer(help="Document ingestion commands")
 
@@ -84,6 +95,16 @@ def ingest_markdown(
         False,
         "--dry-run",
         help="Show chunks without storing",
+    ),
+    extract_concepts: bool = typer.Option(
+        False,
+        "--extract-concepts",
+        help="Extract concepts using LLM (requires instructor)",
+    ),
+    concept_provider: Optional[str] = typer.Option(
+        None,
+        "--concept-provider",
+        help="LLM provider for concept extraction",
     ),
     json_output: bool = typer.Option(
         False,
@@ -150,8 +171,13 @@ def ingest_markdown(
         "tags": tag_list,
         "source": str(file),
         "chunks": 0,
+        "concepts": 0,
         "status": "success",
     }
+
+    # Resolve concept extraction settings
+    do_extract_concepts = extract_concepts or config.extract_concepts
+    final_concept_provider = concept_provider or config.concept_provider
 
     try:
         with ingestion_progress() as progress:
@@ -191,6 +217,55 @@ def ingest_markdown(
             tracker.complete("Storing in database...")
 
             result["chunks"] = len(chunks)
+
+            # Stage 4: Extract concepts (optional)
+            if do_extract_concepts:
+                if not CONCEPT_EXTRACTION_AVAILABLE:
+                    print_warning(
+                        "Concept extraction requires 'instructor' package. "
+                        "Install with: pip install instructor"
+                    )
+                else:
+                    tracker.add_stage("Extracting concepts...", total=100)
+                    try:
+                        extractor = ConceptExtractor(provider=final_concept_provider)
+                        extracted_concepts, relations = extractor.extract_from_chunks(
+                            chunks, final_title
+                        )
+
+                        # Store concepts
+                        concept_ids = {}
+                        for concept in extracted_concepts:
+                            internal_id = store_instance.store_concept(
+                                concept_id=concept.get("concept_id", ""),
+                                name=concept.get("name", ""),
+                                definition=concept.get("definition", ""),
+                                concept_type=concept.get("concept_type", "term"),
+                                source_documents=[final_doc_id],
+                                aliases=concept.get("aliases", []),
+                            )
+                            if internal_id:
+                                concept_ids[concept.get("concept_id")] = internal_id
+
+                                # Link defining chunks to concept
+                                for chunk_id in concept.get("source_chunk_ids", []):
+                                    store_instance.link_chunk_defines_concept(
+                                        chunk_id, internal_id
+                                    )
+
+                        # Store relationships
+                        for relation in relations:
+                            from_id = concept_ids.get(relation.get("from_concept"))
+                            to_id = concept_ids.get(relation.get("to_concept"))
+                            if from_id and to_id:
+                                store_instance.link_concept_relates_to(from_id, to_id)
+
+                        result["concepts"] = len(extracted_concepts)
+                        tracker.complete("Extracting concepts...")
+
+                    except Exception as concept_error:
+                        tracker.complete("Extracting concepts...")
+                        print_warning(f"Concept extraction failed: {concept_error}")
 
     except Exception as e:
         result["status"] = "error"
@@ -256,6 +331,16 @@ def ingest_batch(
         "--skip-existing",
         help="Skip files already in database",
     ),
+    extract_concepts: bool = typer.Option(
+        False,
+        "--extract-concepts",
+        help="Extract concepts using LLM (requires instructor)",
+    ),
+    concept_provider: Optional[str] = typer.Option(
+        None,
+        "--concept-provider",
+        help="LLM provider for concept extraction",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -264,6 +349,22 @@ def ingest_batch(
 ) -> None:
     """Process multiple files in a directory."""
     config = CLIConfig.load()
+
+    # Resolve concept extraction settings
+    do_extract_concepts = extract_concepts or config.extract_concepts
+    final_concept_provider = concept_provider or config.concept_provider
+
+    # Initialize extractor if needed
+    extractor = None
+    if do_extract_concepts:
+        if not CONCEPT_EXTRACTION_AVAILABLE:
+            print_warning(
+                "Concept extraction requires 'instructor' package. "
+                "Install with: pip install instructor"
+            )
+            do_extract_concepts = False
+        else:
+            extractor = ConceptExtractor(provider=final_concept_provider)
 
     # Find files
     if recursive:
@@ -339,6 +440,38 @@ def ingest_batch(
                 store_instance.store_document(doc_id, title, embedded, metadata, tags=tag_list)
 
                 file_result["chunks"] = len(chunks)
+
+                # Extract concepts if enabled
+                if do_extract_concepts and extractor:
+                    try:
+                        extracted_concepts, relations = extractor.extract_from_chunks(
+                            chunks, title
+                        )
+
+                        # Store concepts
+                        concept_ids = {}
+                        for concept in extracted_concepts:
+                            internal_id = store_instance.store_concept(
+                                concept_id=concept.get("concept_id", ""),
+                                name=concept.get("name", ""),
+                                definition=concept.get("definition", ""),
+                                concept_type=concept.get("concept_type", "term"),
+                                source_documents=[doc_id],
+                                aliases=concept.get("aliases", []),
+                            )
+                            if internal_id:
+                                concept_ids[concept.get("concept_id")] = internal_id
+
+                        # Store relationships
+                        for relation in relations:
+                            from_id = concept_ids.get(relation.get("from_concept"))
+                            to_id = concept_ids.get(relation.get("to_concept"))
+                            if from_id and to_id:
+                                store_instance.link_concept_relates_to(from_id, to_id)
+
+                        file_result["concepts"] = len(extracted_concepts)
+                    except Exception as concept_error:
+                        file_result["concept_error"] = str(concept_error)
 
             except Exception as e:
                 file_result["status"] = "error"
