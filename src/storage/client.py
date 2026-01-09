@@ -32,16 +32,36 @@ from .converters import (
     helix_to_embedded_chunk,
 )
 from .queries import (
-    AddChunkRelationship,
-    AddChunkWithEmbedding,
+    AddChunk,
+    AddChunkVector,
+    AddConcept,
     AddDocument,
+    AddNextSibling,
+    AddParentChild,
     DeleteDocument,
+    DropChunk,
+    DropDocument,
     GetChunk,
+    GetChunksByParentId,
     GetChunkWithContext,
+    GetConceptById,
+    GetConceptByName,
+    GetConceptDefinitionChunks,
+    GetDocumentByDocId,
     GetDocumentChunks,
+    GetRelatedConcepts,
+    LinkChunkDefinesConcept,
+    LinkChunkMentionsConcept,
+    LinkChunkVector,
+    LinkConceptRelatesTo,
+    LinkDocumentChunk,
+    ListConcepts,
+    ListDocumentConcepts,
     ListDocuments,
+    QueryResult,
     SearchKeyword,
     SearchSimilarChunks,
+    UpdateChunkContent,
 )
 
 
@@ -187,8 +207,6 @@ class HelixChunkStore:
         Returns:
             QueryResult from the query's response() method
         """
-        from .queries import QueryResult
-
         raw_result = self._client.query(query)
 
         # If helix-py already returned a QueryResult-like object, use it directly
@@ -222,6 +240,33 @@ class HelixChunkStore:
         # Fallback: wrap in QueryResult
         return QueryResult(success=True, data=raw_result)
 
+    def _extract_node_id(self, response: Any) -> Optional[str]:
+        """Extract internal node ID from helix-py response.
+
+        Args:
+            response: Response from helix-py query
+
+        Returns:
+            Internal node ID string, or None if not found
+        """
+        # Response could be a list of results
+        if isinstance(response, list) and len(response) > 0:
+            response = response[0]
+
+        # Check for ID in various formats helix-py might return
+        if hasattr(response, 'id'):
+            return str(response.id)
+        if hasattr(response, 'data'):
+            data = response.data
+            if isinstance(data, dict):
+                return data.get('id') or data.get('_id') or data.get('node_id')
+            if hasattr(data, 'id'):
+                return str(data.id)
+        if isinstance(response, dict):
+            return response.get('id') or response.get('_id') or response.get('node_id')
+
+        return None
+
     def store_document(
         self,
         doc_id: str,
@@ -248,39 +293,62 @@ class HelixChunkStore:
 
         # Add document node with tags
         doc_query = AddDocument(doc_id, title, len(embedded_chunks), tags=tags)
-        self._client.query(doc_query)
+        doc_response = self._client.query(doc_query)
+        doc_internal_id = self._extract_node_id(doc_response)
 
-        # Add chunks with embeddings
+        # Track chunk string IDs to internal IDs mapping
+        chunk_id_map: dict[str, str] = {}
+
+        # Add chunks with their embeddings
         for ec, meta in zip(embedded_chunks, metadata_list, strict=True):
+            # Add chunk node
             chunk_props = chunk_to_helix_node(ec.chunk, meta)
-            chunk_query = AddChunkWithEmbedding(
-                chunk_props=chunk_props,
-                embedding=ec.embedding,
-                doc_id=doc_id,
-            )
-            self._client.query(chunk_query)
+            chunk_query = AddChunk(chunk_props)
+            chunk_response = self._client.query(chunk_query)
+            chunk_internal_id = self._extract_node_id(chunk_response)
 
-        # Add relationship edges
+            # Map string chunk_id to internal ID
+            if chunk_internal_id:
+                chunk_id_map[ec.chunk.id] = chunk_internal_id
+
+            # Link document to chunk if we have both IDs
+            if doc_internal_id and chunk_internal_id:
+                link_query = LinkDocumentChunk(doc_internal_id, chunk_internal_id)
+                self._client.query(link_query)
+
+            # Store vector embedding if chunk has one
+            if ec.embedding and chunk_internal_id:
+                vec_query = AddChunkVector(
+                    embedding=ec.embedding,
+                    model_name=ec.model_name,
+                    embedding_dim=ec.embedding_dim,
+                )
+                vec_response = self._client.query(vec_query)
+                vec_internal_id = self._extract_node_id(vec_response)
+
+                # Link chunk to its embedding vector
+                if vec_internal_id:
+                    link_vec_query = LinkChunkVector(chunk_internal_id, vec_internal_id)
+                    self._client.query(link_vec_query)
+
+        # Add relationship edges using internal IDs
         for ec in embedded_chunks:
             chunk = ec.chunk
+            chunk_internal = chunk_id_map.get(chunk.id)
 
             # Parent-child relationships
-            if chunk.parent_id:
-                edge_query = AddChunkRelationship(
-                    "ParentOf",
-                    chunk.parent_id,
-                    chunk.id,
-                )
-                self._client.query(edge_query)
+            if chunk.parent_id and chunk.parent_id in chunk_id_map:
+                parent_internal = chunk_id_map[chunk.parent_id]
+                if parent_internal and chunk_internal:
+                    edge_query = AddParentChild(parent_internal, chunk_internal)
+                    self._client.query(edge_query)
 
             # Sequential relationships
-            if chunk.next_id:
-                edge_query = AddChunkRelationship(
-                    "NextSibling",
-                    chunk.id,
-                    chunk.next_id,
-                )
-                self._client.query(edge_query)
+            if chunk.next_id and chunk.next_id in chunk_id_map:
+                next_internal = chunk_id_map[chunk.next_id]
+                if chunk_internal and next_internal:
+                    edge_query = AddNextSibling(chunk_internal, next_internal)
+                    self._client.query(edge_query)
 
     def get_chunk(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """
@@ -300,100 +368,176 @@ class HelixChunkStore:
         if not result.success or not result.data:
             return None
 
-        node = result.data.get("node", {})
-        embedding = result.data.get("embedding", [])
-        model_name = result.data.get("model_name", "unknown")
+        # Handle response format from HelixQL GetChunkByChunkId
+        # Response may be {"node": {...}} or direct node dict
+        node = result.data.get("node") if isinstance(result.data, dict) else result.data
+        if not node:
+            return None
+
+        # Embedding may be in response or empty (HelixQL doesn't return embeddings by default)
+        embedding = result.data.get("embedding", []) if isinstance(result.data, dict) else []
+        model_name = result.data.get("model_name", "unknown") if isinstance(result.data, dict) else "unknown"
 
         return helix_to_embedded_chunk(node, embedding, model_name)
 
     def delete_chunk(self, chunk_id: str) -> bool:
         """
-        Delete a chunk and its relationships.
+        Delete a chunk and its relationships using HelixQL.
+
+        Dropping a chunk also removes all connected edges (HasChunk,
+        ParentOf, NextSibling, HasEmbedding) and cascades to vectors.
 
         Args:
-            chunk_id: Unique chunk identifier
+            chunk_id: Unique chunk identifier (user-facing)
 
         Returns:
             True if deleted, False if not found
         """
         self._ensure_connected()
 
-        # Get chunk first to update relationships
-        chunk = self.get_chunk(chunk_id)
-        if not chunk:
+        # First, get the chunk to retrieve its internal ID
+        get_query = GetChunk(chunk_id)
+        get_result = self._execute_query(get_query)
+
+        if not get_result.success or not get_result.data:
             return False
 
-        # Delete via direct query
-        delete_query = {
-            "operation": "delete_node",
-            "node_type": "Chunk",
-            "filter": {"chunk_id": chunk_id},
-        }
-        self._client.query(delete_query)
-        return True
+        # Extract internal ID from response
+        node = get_result.data.get("node") if isinstance(get_result.data, dict) else get_result.data
+        internal_id = self._extract_node_id(get_result.data) or node.get("id") if node else None
+
+        if not internal_id:
+            # Fallback: try to get internal ID from the raw response
+            # Some queries return ID in the node itself
+            return False
+
+        # Drop the chunk using internal ID
+        drop_query = DropChunk(internal_id)
+        drop_result = self._execute_query(drop_query)
+
+        return drop_result.success
 
     def update_chunk(
         self,
         chunk_id: str,
         content: Optional[str] = None,
         embedding: Optional[list[float]] = None,
+        model_name: Optional[str] = None,
     ) -> bool:
         """
-        Update chunk content and/or embedding.
+        Update chunk content and/or embedding using HelixQL.
 
         Args:
-            chunk_id: Unique chunk identifier
+            chunk_id: Unique chunk identifier (user-facing)
             content: New content (optional)
             embedding: New embedding (optional)
+            model_name: Model name for new embedding (required if embedding provided)
 
         Returns:
             True if updated, False if not found
+
+        Note:
+            Embedding updates require dropping and re-adding the vector
+            since HelixDB doesn't support direct vector updates.
         """
         self._ensure_connected()
 
-        chunk = self.get_chunk(chunk_id)
-        if not chunk:
+        # Get chunk to verify existence and get internal ID
+        get_query = GetChunk(chunk_id)
+        get_result = self._execute_query(get_query)
+
+        if not get_result.success or not get_result.data:
             return False
 
-        updates: dict[str, Any] = {}
+        # Extract internal ID from response
+        node = get_result.data.get("node") if isinstance(get_result.data, dict) else get_result.data
+        internal_id = self._extract_node_id(get_result.data) or (node.get("id") if node else None)
+
+        if not internal_id:
+            return False
+
+        # Update content if provided
         if content is not None:
-            updates["content"] = content
-            updates["word_count"] = len(content.split())
+            word_count = len(content.split())
+            update_query = UpdateChunkContent(internal_id, content, word_count)
+            update_result = self._execute_query(update_query)
+            if not update_result.success:
+                return False
 
-        if updates:
-            update_query = {
-                "operation": "update_node",
-                "node_type": "Chunk",
-                "filter": {"chunk_id": chunk_id},
-                "set": updates,
-            }
-            self._client.query(update_query)
-
+        # Update embedding if provided
+        # Note: HelixDB doesn't support direct vector updates
+        # We need to delete the old vector and add a new one
         if embedding is not None:
-            vector_update = {
-                "operation": "update_vector",
-                "filter": {"chunk_id": chunk_id},
-                "embedding": embedding,
-            }
-            self._client.query(vector_update)
+            if not model_name:
+                model_name = "unknown"
+
+            # Add new vector embedding
+            vec_query = AddChunkVector(
+                embedding=embedding,
+                model_name=model_name,
+                embedding_dim=len(embedding),
+            )
+            vec_response = self._client.query(vec_query)
+            vec_internal_id = self._extract_node_id(vec_response)
+
+            # Link chunk to new embedding vector
+            if vec_internal_id:
+                link_vec_query = LinkChunkVector(internal_id, vec_internal_id)
+                self._client.query(link_vec_query)
 
         return True
 
     def delete_document(self, doc_id: str) -> bool:
         """
-        Delete a document and all its chunks.
+        Delete a document and all its chunks using HelixQL CASCADE.
+
+        Steps:
+        1. Get the document to verify it exists and get internal ID
+        2. Get all chunks for this document
+        3. Drop each chunk (cascades to edges and vectors)
+        4. Drop the document
 
         Args:
-            doc_id: Unique document identifier
+            doc_id: Unique document identifier (user-facing)
 
         Returns:
             True if deleted, False if not found
         """
         self._ensure_connected()
 
-        query = DeleteDocument(doc_id)
-        result = self._execute_query(query)
-        return result.success
+        # Step 1: Get document to verify existence and get internal ID
+        doc_query = GetDocumentByDocId(doc_id)
+        doc_result = self._execute_query(doc_query)
+
+        if not doc_result.success or not doc_result.data:
+            return False
+
+        # Extract document internal ID
+        doc_node = doc_result.data.get("node") if isinstance(doc_result.data, dict) else doc_result.data
+        doc_internal_id = self._extract_node_id(doc_result.data) or (doc_node.get("id") if doc_node else None)
+
+        # Step 2: Get all chunks for this document
+        chunks_query = GetDocumentChunks(doc_id)
+        chunks_result = self._execute_query(chunks_query)
+
+        # Step 3: Drop each chunk (this cascades to edges and vectors)
+        if chunks_result.success and chunks_result.data:
+            for chunk_data in chunks_result.data:
+                # Extract chunk internal ID
+                chunk_node = chunk_data.get("node", chunk_data) if isinstance(chunk_data, dict) else chunk_data
+                chunk_internal_id = self._extract_node_id(chunk_data) or (chunk_node.get("id") if chunk_node else None)
+
+                if chunk_internal_id:
+                    drop_chunk_query = DropChunk(chunk_internal_id)
+                    self._execute_query(drop_chunk_query)
+
+        # Step 4: Drop the document itself
+        if doc_internal_id:
+            drop_doc_query = DropDocument(doc_internal_id)
+            drop_result = self._execute_query(drop_doc_query)
+            return drop_result.success
+
+        return False
 
     def search_similar(
         self,
@@ -406,16 +550,16 @@ class HelixChunkStore:
         tags: Optional[list[str]] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
-        Find chunks similar to query embedding.
+        Find chunks similar to query embedding with post-filtering.
 
         Args:
-            query_embedding: Query vector (384 dims)
+            query_embedding: Query vector
             top_k: Number of results
-            doc_id: Filter by document (optional)
-            level: Filter by hierarchy level (optional)
-            semantic_type: Filter by semantic type (optional)
-            threshold: Minimum similarity score (default: 0.0)
-            tags: Filter by document tags (optional, AND logic)
+            doc_id: Filter by document (post-filtered)
+            level: Filter by hierarchy level (post-filtered)
+            semantic_type: Filter by semantic type (post-filtered)
+            threshold: Minimum similarity score (post-filtered)
+            tags: Filter by document tags (post-filtered, AND logic)
 
         Returns:
             List of (EmbeddedChunk, similarity_score) tuples, sorted by score
@@ -435,12 +579,10 @@ class HelixChunkStore:
             if not matching_doc_ids:
                 return []
 
-        # Request more results if filtering by tags (we'll filter in memory)
-        request_top_k = top_k * 3 if tags else top_k
-
+        # Query requests extra results for post-filtering
         query = SearchSimilarChunks(
             query_embedding=query_embedding,
-            top_k=request_top_k,
+            top_k=top_k,
             doc_id=doc_id,
             level=level,
             semantic_type=semantic_type,
@@ -451,19 +593,38 @@ class HelixChunkStore:
         if not result.success:
             return []
 
-        # Convert results to EmbeddedChunks
+        # Post-filter results
         results: list[tuple[EmbeddedChunk, float]] = []
         for item in result.data or []:
-            node = item.get("node", {})
-            embedding = item.get("embedding", [])
-            model_name = item.get("model_name", "unknown")
-            score = item.get("score", 0.0)
+            # Extract node and score from response
+            # HelixQL may return {"node": {...}, "score": ...} or direct node
+            node = item.get("node", item) if isinstance(item, dict) else item
+            score = item.get("score", 0.0) if isinstance(item, dict) else 0.0
 
-            # Filter by document tags
+            # Apply threshold filter
+            if threshold > 0 and score < threshold:
+                continue
+
+            # Apply doc_id filter
+            if doc_id and node.get("document_id") != doc_id:
+                continue
+
+            # Apply level filter
+            if level is not None and node.get("level") != level:
+                continue
+
+            # Apply semantic_type filter
+            if semantic_type and node.get("semantic_type") != semantic_type:
+                continue
+
+            # Apply tag filter
             if matching_doc_ids is not None:
                 chunk_doc_id = node.get("document_id", "")
                 if chunk_doc_id not in matching_doc_ids:
                     continue
+
+            embedding = item.get("embedding", []) if isinstance(item, dict) else []
+            model_name = item.get("model_name", "unknown") if isinstance(item, dict) else "unknown"
 
             ec = helix_to_embedded_chunk(node, embedding, model_name)
             results.append((ec, score))
@@ -503,12 +664,13 @@ class HelixChunkStore:
         case_sensitive: bool = False,
     ) -> list[EmbeddedChunk]:
         """
-        Full-text keyword search in chunk content.
+        BM25 keyword search with post-filtering.
 
         Args:
             keyword: Search term
-            doc_id: Filter by document (optional)
-            case_sensitive: Whether search is case-sensitive (default: False)
+            doc_id: Filter by document (post-filtered)
+            case_sensitive: Whether to apply case-sensitive filter (post-filtered)
+                           Note: BM25 doesn't support case-sensitive natively
 
         Returns:
             List of matching EmbeddedChunks
@@ -521,11 +683,24 @@ class HelixChunkStore:
         if not result.success:
             return []
 
+        # Post-filter results
         results: list[EmbeddedChunk] = []
         for item in result.data or []:
-            node = item.get("node", {})
-            embedding = item.get("embedding", [])
-            model_name = item.get("model_name", "unknown")
+            # HelixQL may return {"node": {...}} or direct node
+            node = item.get("node", item) if isinstance(item, dict) else item
+
+            # Apply doc_id filter
+            if doc_id and node.get("document_id") != doc_id:
+                continue
+
+            # Apply case-sensitive filter in Python (BM25 doesn't support it)
+            if case_sensitive:
+                content = node.get("content", "")
+                if keyword not in content:
+                    continue
+
+            embedding = item.get("embedding", []) if isinstance(item, dict) else []
+            model_name = item.get("model_name", "unknown") if isinstance(item, dict) else "unknown"
 
             ec = helix_to_embedded_chunk(node, embedding, model_name)
             results.append(ec)
@@ -534,7 +709,7 @@ class HelixChunkStore:
 
     def get_parent(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """
-        Get parent chunk (Level 2 -> Level 1).
+        Get parent chunk using parent_id field lookup.
 
         Args:
             chunk_id: Child chunk ID
@@ -544,25 +719,17 @@ class HelixChunkStore:
         """
         self._ensure_connected()
 
-        query = GetChunkWithContext(chunk_id)
-        result = self._execute_query(query)
-
-        if not result.success or not result.data:
+        # First get the chunk to find its parent_id
+        chunk = self.get_chunk(chunk_id)
+        if not chunk or not chunk.chunk.parent_id:
             return None
 
-        parent_data = result.data.get("parent")
-        if not parent_data:
-            return None
-
-        return helix_to_embedded_chunk(
-            parent_data.get("node", {}),
-            parent_data.get("embedding", []),
-            parent_data.get("model_name", "unknown"),
-        )
+        # Then get the parent by its chunk_id
+        return self.get_chunk(chunk.chunk.parent_id)
 
     def get_children(self, chunk_id: str) -> list[EmbeddedChunk]:
         """
-        Get child chunks (Level 1 -> Level 2).
+        Get child chunks by querying parent_id field.
 
         Args:
             chunk_id: Parent chunk ID
@@ -573,19 +740,18 @@ class HelixChunkStore:
         self._ensure_connected()
 
         # Query for chunks where parent_id = chunk_id
-        query = {
-            "operation": "get_nodes",
-            "node_type": "Chunk",
-            "filter": {"parent_id": chunk_id},
-            "include_vector": True,
-        }
-        result = self._client.query(query)
+        query = GetChunksByParentId(chunk_id)
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
 
         results: list[EmbeddedChunk] = []
-        for item in result or []:
-            node = item.get("node", {})
-            embedding = item.get("embedding", [])
-            model_name = item.get("model_name", "unknown")
+        for item in result.data or []:
+            # HelixQL may return direct nodes or {"node": {...}}
+            node = item.get("node", item) if isinstance(item, dict) else item
+            embedding = item.get("embedding", []) if isinstance(item, dict) else []
+            model_name = item.get("model_name", "unknown") if isinstance(item, dict) else "unknown"
 
             ec = helix_to_embedded_chunk(node, embedding, model_name)
             results.append(ec)
@@ -604,24 +770,16 @@ class HelixChunkStore:
         """
         self._ensure_connected()
 
-        query = GetChunkWithContext(chunk_id)
-        result = self._execute_query(query)
-
-        if not result.success or not result.data:
+        # First get the chunk to find its parent_id
+        chunk = self.get_chunk(chunk_id)
+        if not chunk or not chunk.chunk.parent_id:
             return []
 
-        siblings_data = result.data.get("siblings", [])
-        results: list[EmbeddedChunk] = []
+        # Get all children of the parent
+        siblings = self.get_children(chunk.chunk.parent_id)
 
-        for sibling in siblings_data:
-            ec = helix_to_embedded_chunk(
-                sibling.get("node", {}),
-                sibling.get("embedding", []),
-                sibling.get("model_name", "unknown"),
-            )
-            results.append(ec)
-
-        return results
+        # Filter out self
+        return [s for s in siblings if s.chunk.id != chunk_id]
 
     def get_context_window(
         self,
@@ -703,9 +861,10 @@ class HelixChunkStore:
 
         results: list[EmbeddedChunk] = []
         for item in result.data or []:
-            node = item.get("node", {})
-            embedding = item.get("embedding", [])
-            model_name = item.get("model_name", "unknown")
+            # HelixQL may return direct nodes or {"node": {...}}
+            node = item.get("node", item) if isinstance(item, dict) else item
+            embedding = item.get("embedding", []) if isinstance(item, dict) else []
+            model_name = item.get("model_name", "unknown") if isinstance(item, dict) else "unknown"
 
             ec = helix_to_embedded_chunk(node, embedding, model_name)
             results.append(ec)
@@ -730,7 +889,15 @@ class HelixChunkStore:
         if not result.success:
             return []
 
-        docs = result.data or []
+        # Convert raw nodes to document dicts using converter
+        from .converters import helix_node_to_document
+
+        docs: list[dict[str, Any]] = []
+        for item in result.data or []:
+            # HelixQL returns direct nodes
+            node = item if isinstance(item, dict) else {}
+            if node:
+                docs.append(helix_node_to_document(node))
 
         # Filter by tags if specified
         if tags:
@@ -799,3 +966,226 @@ class HelixChunkStore:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         self.close()
+
+    # ========================================================================
+    # Concept Storage Methods
+    # ========================================================================
+
+    def store_concept(
+        self,
+        concept_id: str,
+        name: str,
+        definition: str,
+        concept_type: str,
+        source_documents: list[str],
+        aliases: list[str],
+    ) -> Optional[str]:
+        """
+        Store a concept and return its internal ID.
+
+        Args:
+            concept_id: Slugified unique ID (e.g., "cost-of-goods-sold")
+            name: Display name (e.g., "Cost of Goods Sold")
+            definition: 1-2 sentence definition
+            concept_type: Type (term, method, principle, formula, account)
+            source_documents: List of document IDs where concept is defined
+            aliases: Alternative names or abbreviations
+
+        Returns:
+            Internal concept node ID, or None if storage fails
+        """
+        self._ensure_connected()
+
+        try:
+            query = AddConcept(
+                concept_id=concept_id,
+                name=name,
+                definition=definition,
+                concept_type=concept_type,
+                source_documents=source_documents,
+                aliases=aliases,
+            )
+            response = self._client.query(query)
+            return self._extract_node_id(response)
+        except Exception:
+            return None
+
+    def get_concept(self, concept_id: str) -> Optional[dict]:
+        """
+        Get concept by concept_id.
+
+        Args:
+            concept_id: Slugified concept identifier
+
+        Returns:
+            Concept dictionary if found, None otherwise
+        """
+        self._ensure_connected()
+
+        query = GetConceptById(concept_id)
+        result = self._execute_query(query)
+
+        if result.success and result.data:
+            return result.data.get("node")
+        return None
+
+    def get_concept_by_name(self, name: str) -> Optional[dict]:
+        """
+        Get concept by name.
+
+        Args:
+            name: Concept display name
+
+        Returns:
+            Concept dictionary if found, None otherwise
+        """
+        self._ensure_connected()
+
+        query = GetConceptByName(name)
+        result = self._execute_query(query)
+
+        if result.success and result.data:
+            return result.data.get("node")
+        return None
+
+    def list_concepts(self, doc_id: Optional[str] = None) -> list[dict]:
+        """
+        List all concepts, optionally filtered by document.
+
+        Args:
+            doc_id: Filter to concepts defined in this document (optional)
+
+        Returns:
+            List of concept dictionaries
+        """
+        self._ensure_connected()
+
+        if doc_id:
+            query = ListDocumentConcepts(doc_id)
+        else:
+            query = ListConcepts()
+
+        result = self._execute_query(query)
+
+        if result.success:
+            return result.data or []
+        return []
+
+    def link_chunk_defines_concept(
+        self,
+        chunk_internal_id: str,
+        concept_internal_id: str,
+    ) -> bool:
+        """
+        Create DefinesConcept edge from chunk to concept.
+
+        Args:
+            chunk_internal_id: Internal chunk node ID
+            concept_internal_id: Internal concept node ID
+
+        Returns:
+            True if link created successfully
+        """
+        self._ensure_connected()
+
+        query = LinkChunkDefinesConcept(chunk_internal_id, concept_internal_id)
+        result = self._execute_query(query)
+        return result.success
+
+    def link_chunk_mentions_concept(
+        self,
+        chunk_internal_id: str,
+        concept_internal_id: str,
+    ) -> bool:
+        """
+        Create MentionsConcept edge from chunk to concept.
+
+        Args:
+            chunk_internal_id: Internal chunk node ID
+            concept_internal_id: Internal concept node ID
+
+        Returns:
+            True if link created successfully
+        """
+        self._ensure_connected()
+
+        query = LinkChunkMentionsConcept(chunk_internal_id, concept_internal_id)
+        result = self._execute_query(query)
+        return result.success
+
+    def link_concept_relates_to(
+        self,
+        from_concept_id: str,
+        to_concept_id: str,
+    ) -> bool:
+        """
+        Create RelatesTo edge between concepts.
+
+        Args:
+            from_concept_id: Internal source concept node ID
+            to_concept_id: Internal target concept node ID
+
+        Returns:
+            True if link created successfully
+        """
+        self._ensure_connected()
+
+        query = LinkConceptRelatesTo(from_concept_id, to_concept_id)
+        result = self._execute_query(query)
+        return result.success
+
+    def get_concept_definition_chunks(self, concept_id: str) -> list[dict]:
+        """
+        Get chunks that define a concept (for citations).
+
+        Args:
+            concept_id: Slugified concept identifier
+
+        Returns:
+            List of chunk dictionaries that define the concept
+        """
+        self._ensure_connected()
+
+        # First get the concept to find its internal ID
+        concept = self.get_concept(concept_id)
+        if not concept:
+            return []
+
+        internal_id = self._extract_node_id(concept) or concept.get("id")
+        if not internal_id:
+            return []
+
+        query = GetConceptDefinitionChunks(internal_id)
+        result = self._execute_query(query)
+
+        if result.success:
+            return result.data or []
+        return []
+
+    def get_related_concepts(self, concept_id: str) -> list[dict]:
+        """
+        Get concepts related to a given concept.
+
+        Args:
+            concept_id: Slugified concept identifier
+
+        Returns:
+            List of related concept dictionaries
+        """
+        self._ensure_connected()
+
+        # First get the concept to find its internal ID
+        concept = self.get_concept(concept_id)
+        if not concept:
+            return []
+
+        internal_id = self._extract_node_id(concept) or concept.get("id")
+        if not internal_id:
+            return []
+
+        query = GetRelatedConcepts(internal_id)
+        result = self._execute_query(query)
+
+        if result.success:
+            return result.data or []
+        return []
