@@ -122,3 +122,96 @@ def format_optional_chunk(ec: Optional[EmbeddedChunk]) -> Optional[dict[str, Any
     if ec is None:
         return None
     return format_chunk(ec)
+
+
+# ============================================================================
+# Concept Formatters
+# ============================================================================
+
+
+def format_concept(concept: dict[str, Any]) -> dict[str, Any]:
+    """Format a single concept for MCP output.
+
+    Args:
+        concept: Concept dictionary from storage
+
+    Returns:
+        Formatted concept dictionary with parsed JSON fields
+    """
+    import json
+
+    # Parse JSON string fields
+    aliases_raw = concept.get("aliases", "[]")
+    try:
+        aliases = json.loads(aliases_raw) if isinstance(aliases_raw, str) else aliases_raw
+    except json.JSONDecodeError:
+        aliases = []
+
+    source_docs_raw = concept.get("source_documents", "[]")
+    try:
+        source_documents = json.loads(source_docs_raw) if isinstance(source_docs_raw, str) else source_docs_raw
+    except json.JSONDecodeError:
+        source_documents = []
+
+    return {
+        "concept_id": concept.get("concept_id", ""),
+        "name": concept.get("name", ""),
+        "definition": concept.get("definition", ""),
+        "concept_type": concept.get("concept_type", ""),
+        "aliases": aliases,
+        "source_documents": source_documents,
+    }
+
+
+def format_concept_list(concepts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Format a list of concepts.
+
+    Args:
+        concepts: List of concept dictionaries
+
+    Returns:
+        List of formatted concept dictionaries
+    """
+    return [format_concept(c) for c in concepts]
+
+
+def format_concept_with_context(
+    concept: dict[str, Any],
+    definition_chunks: list[dict[str, Any]],
+    related_concepts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Format concept with full context for rich responses.
+
+    Args:
+        concept: The concept dictionary
+        definition_chunks: Chunks that define this concept
+        related_concepts: Concepts related to this one
+
+    Returns:
+        Dictionary with concept, citations, and related concepts
+    """
+    import json
+
+    formatted_chunks = []
+    for chunk in definition_chunks:
+        section_path_raw = chunk.get("section_path", "[]")
+        try:
+            section_path = json.loads(section_path_raw) if isinstance(section_path_raw, str) else section_path_raw
+        except json.JSONDecodeError:
+            section_path = []
+
+        content = chunk.get("content", "")
+        content_preview = content[:200] + "..." if len(content) > 200 else content
+
+        formatted_chunks.append({
+            "document_id": chunk.get("document_id", ""),
+            "section_path": section_path,
+            "content_preview": content_preview,
+            "chunk_id": chunk.get("chunk_id", ""),
+        })
+
+    return {
+        "concept": format_concept(concept),
+        "citations": formatted_chunks,
+        "related_concepts": format_concept_list(related_concepts),
+    }

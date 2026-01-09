@@ -71,6 +71,43 @@ SCHEMA_INFO = {
             "name": "get_document_stats",
             "description": "Get document statistics",
         },
+        # Concept tools
+        {
+            "name": "list_concepts",
+            "description": "List all concepts, optionally filtered by document or type",
+        },
+        {
+            "name": "get_concept",
+            "description": "Get detailed info about a specific concept by name",
+        },
+        {
+            "name": "get_concept_with_citations",
+            "description": "Get concept with source citations - use for 'What is X?' questions",
+        },
+        {
+            "name": "get_related_concepts",
+            "description": "Get concepts related to a given concept (cross-document)",
+        },
+        {
+            "name": "search_concepts",
+            "description": "Search concepts by name, definition, or aliases",
+        },
+        {
+            "name": "explain_concept_cross_document",
+            "description": "Get comprehensive cross-document explanation of a concept",
+        },
+        # Graph visualization
+        {
+            "name": "get_concept_graph_dot",
+            "description": "Get concept graph in DOT format for visualization",
+        },
+    ],
+    "concept_types": [
+        "term",
+        "method",
+        "principle",
+        "formula",
+        "account",
     ],
 }
 
