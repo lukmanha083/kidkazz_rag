@@ -42,10 +42,11 @@ def chunk_to_helix_node(
             "topic_tags": json.dumps(metadata.topic_tags),
             "sequence_position": metadata.sequence_position,
             "sibling_ids": json.dumps(metadata.sibling_ids),
-            "has_table": metadata.has_table,
-            "has_code": metadata.has_code,
-            "has_math": metadata.has_math,
-            "has_list": metadata.has_list,
+            # Convert booleans to integers (Helix-DB schema uses U32)
+            "has_table": int(metadata.has_table),
+            "has_code": int(metadata.has_code),
+            "has_math": int(metadata.has_math),
+            "has_list": int(metadata.has_list),
         })
 
     return node

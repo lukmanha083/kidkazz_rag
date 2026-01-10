@@ -87,10 +87,11 @@ class TestChunkToHelixNode:
         assert result["semantic_type"] == "definition"
         assert json.loads(result["topic_tags"]) == ["topic1", "topic2"]
         assert result["sequence_position"] == 3
-        assert result["has_table"] is True
-        assert result["has_code"] is False
-        assert result["has_math"] is True
-        assert result["has_list"] is False
+        # Helix-DB uses U32 for boolean fields, so values are 0 or 1
+        assert result["has_table"] == 1
+        assert result["has_code"] == 0
+        assert result["has_math"] == 1
+        assert result["has_list"] == 0
 
     def test_handles_none_optional_fields(self):
         """Should handle None values for optional fields."""

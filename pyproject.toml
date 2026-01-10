@@ -57,6 +57,10 @@ cli = [
     "tomli>=2.0.0;python_version<'3.11'",
     "tomli-w>=1.0.0",
 ]
+concepts = [
+    "instructor>=1.0.0",
+    "graphviz>=0.20",
+]
 all = [
     "fastembed>=0.2.0",
     "helix-py>=0.1.0",
@@ -68,6 +72,8 @@ all = [
     "rich>=13.0.0",
     "tomli>=2.0.0;python_version<'3.11'",
     "tomli-w>=1.0.0",
+    "instructor>=1.0.0",
+    "graphviz>=0.20",
 ]
 
 [project.scripts]

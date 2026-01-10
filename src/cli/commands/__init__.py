@@ -1,8 +1,9 @@
 """CLI command modules."""
 
-from . import config_cmd, db, docs, ingest, search
+from . import concepts, config_cmd, db, docs, ingest, search
 
 __all__ = [
+    "concepts",
     "config_cmd",
     "db",
     "docs",

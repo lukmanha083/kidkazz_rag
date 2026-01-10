@@ -62,6 +62,11 @@ class CLIConfig:
     cloud_remote: str = ""
     cloud_path: str = "kidkazz_inbox"
 
+    # Concept extraction settings
+    extract_concepts: bool = False
+    concept_provider: str = "anthropic/claude-sonnet-4-20250514"
+    max_concepts_per_chunk: int = 10
+
     # Source tracking (which config file each setting came from)
     _sources: dict[str, str] = field(default_factory=dict)
 
@@ -174,6 +179,19 @@ class CLIConfig:
                 self.cloud_path = cloud_sync["path"]
                 self._sources["cloud_path"] = source
 
+        # Concept extraction settings
+        if "concepts" in data:
+            concepts = data["concepts"]
+            if "enabled" in concepts:
+                self.extract_concepts = bool(concepts["enabled"])
+                self._sources["extract_concepts"] = source
+            if "provider" in concepts:
+                self.concept_provider = concepts["provider"]
+                self._sources["concept_provider"] = source
+            if "max_concepts_per_chunk" in concepts:
+                self.max_concepts_per_chunk = int(concepts["max_concepts_per_chunk"])
+                self._sources["max_concepts_per_chunk"] = source
+
     def _load_from_env(self) -> None:
         """Load settings from environment variables.
 
@@ -221,6 +239,11 @@ class CLIConfig:
             "cloud_sync": {
                 "remote": self.cloud_remote,
                 "path": self.cloud_path,
+            },
+            "concepts": {
+                "enabled": self.extract_concepts,
+                "provider": self.concept_provider,
+                "max_concepts_per_chunk": self.max_concepts_per_chunk,
             },
         }
 
@@ -273,6 +296,9 @@ class CLIConfig:
             "processed_dir": ("processed_dir", str),
             "cloud_remote": ("cloud_remote", str),
             "cloud_path": ("cloud_path", str),
+            "extract_concepts": ("extract_concepts", lambda x: x.lower() in ("true", "1", "yes") if isinstance(x, str) else bool(x)),
+            "concept_provider": ("concept_provider", str),
+            "max_concepts_per_chunk": ("max_concepts_per_chunk", int),
         }
 
         if key not in key_mapping:

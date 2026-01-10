@@ -19,6 +19,7 @@ This project provides tools to:
 6. Query documents via MCP integration with Claude Code or CLI tool
 7. Manage PDF inbox with auto-delete after conversion
 8. Tag documents by topic for filtered search (e.g., "inventory", "accounting")
+9. Extract concepts and build cross-document knowledge graphs (LLM-powered)
 
 ## Current Status
 
@@ -32,6 +33,7 @@ This project provides tools to:
 | 6 | PDF Inbox Management | ✅ Complete |
 | 7 | Document Tagging | ✅ Complete |
 | 8 | Quality Checker | ✅ Complete |
+| 9 | Concept Extraction & Knowledge Graph | ✅ Complete |
 
 ## Architecture
 
@@ -64,7 +66,8 @@ Markdown Document
      |                           ├── Markdown structure parsing
      |                           ├── Multi-level chunks (doc→section→leaf)
      |                           ├── Graph relationships (parent/child/sibling)
-     |                           └── Semantic type detection
+     |                           ├── Semantic type detection
+     |                           └── Optional: LLM concept extraction
      v
 [Embeddings] ─────────────────── Two Options:
      |                           ├── FastEmbed (local CPU, free)
@@ -75,14 +78,16 @@ Markdown Document
 [Helix-DB Storage] ─────────── Vector + Graph Storage
      |                           ├── MockChunkStore (testing)
      |                           ├── HelixChunkStore (production)
-     |                           └── Document tagging for filtered search
+     |                           ├── Document tagging for filtered search
+     |                           └── Concept graph (cross-document links)
      |
      ├─────────────────────────────────────────────────────────┐
      v                                                         v
 [MCP Server] ────────────────── Claude Code Integration  [CLI Tool] ── Command Line
      |                           ├── 10 search/retrieval tools  |        ├── kidkazz ingest
-     |                           └── 4 resource endpoints       |        ├── kidkazz search
-     v                                                         v        ├── kidkazz docs
+     |                           ├── 5 concept graph tools      |        ├── kidkazz search
+     |                           └── 4 resource endpoints       |        ├── kidkazz docs
+     v                                                         v        ├── kidkazz concepts
 Chat with your documents                               Terminal access  ├── kidkazz inbox
                                                                         └── kidkazz config
 ```
@@ -1193,6 +1198,11 @@ You don't need to manually start the server - Claude Code does it automatically 
 | `list_documents` | List all documents | tags |
 | `get_document_chunks` | Get all chunks from doc | doc_id, level |
 | `get_document_stats` | Get document statistics | doc_id |
+| `search_concepts` | Search for concepts by name | query, top_k |
+| `get_concept` | Get concept definition and citations | concept_name |
+| `get_related_concepts` | Get related concepts | concept_name, include_reverse |
+| `get_concept_chunks` | Get chunks defining/mentioning concept | concept_name, include_mentions |
+| `explain_concept_with_context` | Get concept with cross-document context | concept_name |
 
 ### Available Resources
 
@@ -1351,6 +1361,7 @@ The CLI tool (`kidkazz`) provides command-line access to all RAG functionality w
 | `kidkazz ingest` | markdown, batch, pdf | Ingest documents into knowledge base |
 | `kidkazz search` | semantic, keyword | Search the knowledge base |
 | `kidkazz docs` | list, stats, export, delete | Manage documents |
+| `kidkazz concepts` | list, show, search, related, graph, export | Query concept graph |
 | `kidkazz db` | init, status, clear | Database operations |
 | `kidkazz inbox` | status, list, clear, sync, parse | Manage PDF inbox |
 | `kidkazz config` | show, set, reset, init | Configuration management |
@@ -1418,6 +1429,52 @@ kidkazz docs export textbook --format json --output chunks.json
 
 # Delete a document
 kidkazz docs delete textbook --force
+```
+
+### Concept Commands
+
+Query the extracted concept knowledge graph:
+
+```bash
+# List all concepts
+kidkazz concepts list
+kidkazz concepts list --doc-id textbook
+kidkazz concepts list --type method  # Filter by type: term, method, principle, formula, account
+kidkazz concepts list --json
+
+# Show concept details with citations
+kidkazz concepts show "Cost of Goods Sold"
+kidkazz concepts show "FIFO" --json
+
+# Search concepts
+kidkazz concepts search "inventory valuation"
+kidkazz concepts search "cost" --top-k 10
+
+# Get related concepts
+kidkazz concepts related "COGS"
+kidkazz concepts related "FIFO" --depth 2  # Traverse deeper
+
+# Generate graph visualization
+kidkazz concepts graph --format dot --output concepts.dot
+kidkazz concepts graph --doc-id textbook --format png --output graph.png
+kidkazz concepts graph --open  # Render and open in viewer
+
+# Export concepts
+kidkazz concepts export --format json --output concepts.json
+kidkazz concepts export --format csv --output concepts.csv
+```
+
+**Ingesting with concept extraction:**
+
+```bash
+# Extract concepts during ingestion (requires ANTHROPIC_API_KEY)
+kidkazz ingest markdown textbook.md --extract-concepts
+
+# Use specific LLM provider
+kidkazz ingest markdown textbook.md --extract-concepts --concept-provider anthropic/claude-opus-4-20250514
+
+# Batch ingest with concept extraction
+kidkazz ingest batch ./docs --pattern "*.md" --extract-concepts
 ```
 
 ### Database Operations
