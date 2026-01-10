@@ -21,6 +21,7 @@ Usage:
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
@@ -51,6 +52,7 @@ from .queries import (
     GetDocumentByDocId,
     GetDocumentChunks,
     GetRelatedConcepts,
+    GetConceptDependents,
     LinkChunkDefinesConcept,
     LinkChunkMentionsConcept,
     LinkChunkVector,
@@ -65,6 +67,8 @@ from .queries import (
     UpdateChunkContent,
     UpdateConcept,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -1009,8 +1013,12 @@ class HelixChunkStore:
             )
             response = self._client.query(query)
             return self._extract_node_id(response)
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error(f"Network error storing concept '{concept_id}': {e}")
             return None
+        except Exception as e:
+            logger.exception(f"Unexpected error storing concept '{concept_id}': {e}")
+            raise
 
     def update_concept(
         self,
@@ -1043,8 +1051,12 @@ class HelixChunkStore:
             response = self._client.query(query)
             result = query.response(response)
             return result.success
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error(f"Network error updating concept '{concept_id}': {e}")
             return False
+        except Exception as e:
+            logger.exception(f"Unexpected error updating concept '{concept_id}': {e}")
+            raise
 
     def store_or_merge_concept(
         self,
@@ -1301,6 +1313,34 @@ class HelixChunkStore:
             return []
 
         query = GetRelatedConcepts(internal_id)
+        result = self._execute_query(query)
+
+        if result.success:
+            return result.data or []
+        return []
+
+    def get_concept_dependents(self, concept_id: str) -> list[dict]:
+        """
+        Get concepts that relate TO this concept (reverse relationships).
+
+        Args:
+            concept_id: Slugified concept identifier
+
+        Returns:
+            List of dependent concept dictionaries
+        """
+        self._ensure_connected()
+
+        # First get the concept to find its internal ID
+        concept = self.get_concept(concept_id)
+        if not concept:
+            return []
+
+        internal_id = self._extract_node_id(concept) or concept.get("id")
+        if not internal_id:
+            return []
+
+        query = GetConceptDependents(internal_id)
         result = self._execute_query(query)
 
         if result.success:

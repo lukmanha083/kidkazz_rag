@@ -394,6 +394,16 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         concept_id = concept.get("concept_id")
         related = state.store.get_related_concepts(concept_id)
 
+        # Include reverse relationships if requested
+        if include_reverse:
+            dependents = state.store.get_concept_dependents(concept_id)
+            # Merge and deduplicate by concept_id
+            seen_ids = {c.get("concept_id") for c in related}
+            for dep in dependents:
+                if dep.get("concept_id") not in seen_ids:
+                    related.append(dep)
+                    seen_ids.add(dep.get("concept_id"))
+
         logger.info(f"get_related_concepts: found {len(related)} related concepts")
         return format_concept_list(related)
 

@@ -52,20 +52,16 @@ class TestIngestWithConceptExtraction:
         self, mock_extractor_class, sample_markdown
     ):
         """Should extract concepts when --extract-concepts flag is passed."""
+        # Create mock Pydantic-like object with attributes
+        mock_concept = MagicMock()
+        mock_concept.name = "FIFO"
+        mock_concept.definition = "First-In, First-Out inventory method."
+        mock_concept.concept_type = MagicMock(value="method")
+        mock_concept.aliases = []
+
         # Setup mock extractor
         mock_extractor = MagicMock()
-        mock_extractor.extract_from_chunks.return_value = (
-            [
-                {
-                    "concept_id": "fifo",
-                    "name": "FIFO",
-                    "definition": "First-In, First-Out inventory method.",
-                    "concept_type": "method",
-                    "aliases": [],
-                },
-            ],
-            [],
-        )
+        mock_extractor.extract_from_chunks.return_value = ([mock_concept], [])
         mock_extractor_class.return_value = mock_extractor
 
         with patch.dict("os.environ", {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
@@ -119,25 +115,22 @@ class TestIngestWithConceptExtraction:
     @patch("src.cli.commands.ingest.ConceptExtractor")
     def test_concepts_stored_in_database(self, mock_extractor_class, sample_markdown):
         """Should store extracted concepts in the database."""
+        # Create mock Pydantic-like objects with attributes
+        mock_concept = MagicMock()
+        mock_concept.name = "FIFO"
+        mock_concept.definition = "First-In, First-Out inventory method."
+        mock_concept.concept_type = MagicMock(value="method")
+        mock_concept.aliases = ["First-In First-Out"]
+
+        mock_relation = MagicMock()
+        mock_relation.from_concept = "FIFO"
+        mock_relation.to_concept = "COGS"
+        mock_relation.relation_type = "used_in"
+
         mock_extractor = MagicMock()
         mock_extractor.extract_from_chunks.return_value = (
-            [
-                {
-                    "concept_id": "fifo",
-                    "name": "FIFO",
-                    "definition": "First-In, First-Out inventory method.",
-                    "concept_type": "method",
-                    "aliases": ["First-In First-Out"],
-                    "source_chunk_ids": ["chunk_1"],
-                },
-            ],
-            [
-                {
-                    "from_concept": "fifo",
-                    "to_concept": "cogs",
-                    "relation_type": "used_in",
-                },
-            ],
+            [mock_concept],
+            [mock_relation],
         )
         mock_extractor_class.return_value = mock_extractor
 
@@ -181,12 +174,22 @@ class TestIngestWithConceptExtraction:
     @patch("src.cli.commands.ingest.ConceptExtractor")
     def test_json_output_includes_concepts_count(self, mock_extractor_class, sample_markdown):
         """JSON output should include concepts count when extracted."""
+        # Create mock Pydantic-like objects with attributes
+        mock_concept1 = MagicMock()
+        mock_concept1.name = "FIFO"
+        mock_concept1.definition = "First-In, First-Out"
+        mock_concept1.concept_type = MagicMock(value="method")
+        mock_concept1.aliases = []
+
+        mock_concept2 = MagicMock()
+        mock_concept2.name = "LIFO"
+        mock_concept2.definition = "Last-In, First-Out"
+        mock_concept2.concept_type = MagicMock(value="method")
+        mock_concept2.aliases = []
+
         mock_extractor = MagicMock()
         mock_extractor.extract_from_chunks.return_value = (
-            [
-                {"concept_id": "fifo", "name": "FIFO", "definition": "...", "concept_type": "method", "aliases": []},
-                {"concept_id": "lifo", "name": "LIFO", "definition": "...", "concept_type": "method", "aliases": []},
-            ],
+            [mock_concept1, mock_concept2],
             [],
         )
         mock_extractor_class.return_value = mock_extractor

@@ -75,9 +75,9 @@ class TestStoreConcept:
 
         assert result == "concept_internal_123"
 
-    def test_store_concept_returns_none_on_failure(self, store, mock_helix_client):
-        """Should return None if storage fails."""
-        mock_helix_client.query.side_effect = Exception("Database error")
+    def test_store_concept_returns_none_on_network_error(self, store, mock_helix_client):
+        """Should return None on network errors (ConnectionError, TimeoutError, OSError)."""
+        mock_helix_client.query.side_effect = ConnectionError("Network unavailable")
 
         result = store.store_concept(
             concept_id="test",
@@ -89,6 +89,20 @@ class TestStoreConcept:
         )
 
         assert result is None
+
+    def test_store_concept_raises_on_unexpected_error(self, store, mock_helix_client):
+        """Should raise unexpected exceptions for debugging."""
+        mock_helix_client.query.side_effect = ValueError("Unexpected error")
+
+        with pytest.raises(ValueError, match="Unexpected error"):
+            store.store_concept(
+                concept_id="test",
+                name="Test",
+                definition="Test def.",
+                concept_type="term",
+                source_documents=[],
+                aliases=[],
+            )
 
 
 class TestGetConcept:

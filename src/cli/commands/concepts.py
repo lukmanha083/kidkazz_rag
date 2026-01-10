@@ -403,7 +403,8 @@ def graph_concepts(
                     elif platform.system() == "Linux":
                         subprocess.run(["xdg-open", str(rendered_path)])
                     elif platform.system() == "Windows":
-                        subprocess.run(["start", str(rendered_path)], shell=True)
+                        import os
+                        os.startfile(str(rendered_path))
             else:
                 print_error("Failed to render graph")
                 raise typer.Exit(1)

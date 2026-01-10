@@ -234,29 +234,28 @@ def ingest_markdown(
                         )
 
                         # Store or merge concepts (cross-document linking)
+                        from src.chunker.concept_extractor import slugify
+
                         concept_ids = {}
                         for concept in extracted_concepts:
+                            concept_slug = slugify(concept.name)
                             internal_id = store_instance.store_or_merge_concept(
-                                concept_id=concept.get("concept_id", ""),
-                                name=concept.get("name", ""),
-                                definition=concept.get("definition", ""),
-                                concept_type=concept.get("concept_type", "term"),
+                                concept_id=concept_slug,
+                                name=concept.name,
+                                definition=concept.definition,
+                                concept_type=concept.concept_type.value if hasattr(concept.concept_type, 'value') else str(concept.concept_type),
                                 source_documents=[final_doc_id],
-                                aliases=concept.get("aliases", []),
+                                aliases=concept.aliases,
                             )
                             if internal_id:
-                                concept_ids[concept.get("concept_id")] = internal_id
-
-                                # Link defining chunks to concept
-                                for chunk_id in concept.get("source_chunk_ids", []):
-                                    store_instance.link_chunk_defines_concept(
-                                        chunk_id, internal_id
-                                    )
+                                concept_ids[concept_slug] = internal_id
 
                         # Store relationships
                         for relation in relations:
-                            from_id = concept_ids.get(relation.get("from_concept"))
-                            to_id = concept_ids.get(relation.get("to_concept"))
+                            from_slug = slugify(relation.from_concept)
+                            to_slug = slugify(relation.to_concept)
+                            from_id = concept_ids.get(from_slug)
+                            to_id = concept_ids.get(to_slug)
                             if from_id and to_id:
                                 store_instance.link_concept_relates_to(from_id, to_id)
 
@@ -444,6 +443,8 @@ def ingest_batch(
                 # Extract concepts if enabled
                 if do_extract_concepts and extractor:
                     try:
+                        from src.chunker.concept_extractor import slugify
+
                         extracted_concepts, relations = extractor.extract_from_chunks(
                             chunks, title
                         )
@@ -451,21 +452,24 @@ def ingest_batch(
                         # Store or merge concepts (cross-document linking)
                         concept_ids = {}
                         for concept in extracted_concepts:
+                            concept_slug = slugify(concept.name)
                             internal_id = store_instance.store_or_merge_concept(
-                                concept_id=concept.get("concept_id", ""),
-                                name=concept.get("name", ""),
-                                definition=concept.get("definition", ""),
-                                concept_type=concept.get("concept_type", "term"),
+                                concept_id=concept_slug,
+                                name=concept.name,
+                                definition=concept.definition,
+                                concept_type=concept.concept_type.value if hasattr(concept.concept_type, 'value') else str(concept.concept_type),
                                 source_documents=[doc_id],
-                                aliases=concept.get("aliases", []),
+                                aliases=concept.aliases,
                             )
                             if internal_id:
-                                concept_ids[concept.get("concept_id")] = internal_id
+                                concept_ids[concept_slug] = internal_id
 
                         # Store relationships
                         for relation in relations:
-                            from_id = concept_ids.get(relation.get("from_concept"))
-                            to_id = concept_ids.get(relation.get("to_concept"))
+                            from_slug = slugify(relation.from_concept)
+                            to_slug = slugify(relation.to_concept)
+                            from_id = concept_ids.get(from_slug)
+                            to_id = concept_ids.get(to_slug)
                             if from_id and to_id:
                                 store_instance.link_concept_relates_to(from_id, to_id)
 
