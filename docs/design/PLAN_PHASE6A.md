@@ -1,5 +1,7 @@
 # Phase 6A: Concept Extraction - Core Infrastructure
 
+**Status: ✅ Complete**
+
 ## Overview
 
 Build the foundational infrastructure for concept extraction: Pydantic models, LLM-powered extractor, Helix-DB schema extension, and query classes.

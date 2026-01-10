@@ -1,5 +1,7 @@
 # Phase 6B: Concept Extraction - CLI and Ingestion Integration
 
+**Status: ✅ Complete**
+
 ## Overview
 
 Integrate concept extraction into the ingestion pipeline and create CLI commands for concept management.

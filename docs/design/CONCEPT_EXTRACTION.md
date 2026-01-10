@@ -1,5 +1,32 @@
 # Concept Extraction Feature Design Document
 
+## Implementation Status
+
+| Phase | Component | Status |
+|-------|-----------|--------|
+| 6A | Core Infrastructure (extractor, schema, queries) | ✅ Complete |
+| 6B | CLI and Ingestion Integration | ✅ Complete |
+| 6C | MCP Tools | ✅ Complete |
+| 6D | Graph Visualization | ✅ Complete |
+
+**All phases complete.** Feature is production-ready.
+
+### Implemented Files
+
+| File | Description |
+|------|-------------|
+| `src/chunker/concept_extractor.py` | LLM-powered concept extraction with Instructor |
+| `src/cli/commands/concepts.py` | CLI command group for concept queries |
+| `src/cli/graph_viz.py` | DOT/PNG graph visualization |
+| `src/mcp_server/tools.py` | Extended with 5 concept tools |
+| `src/storage/client.py` | Extended with concept storage methods |
+| `db/schema.hx` | Extended with Concept node and edges |
+| `db/queries.hx` | Extended with concept queries |
+| `tests/test_concept_extractor.py` | Extractor unit tests |
+| `tests/test_ingest_concepts.py` | Ingestion integration tests |
+| `tests/test_storage_client_concepts.py` | Storage client tests |
+| `tests/test_mcp_concept_tools.py` | MCP tools tests |
+
 ## Overview
 
 This document outlines the design for an LLM-powered concept extraction feature that builds a knowledge graph from textbook content. Concepts are extracted during ingestion, stored in Helix-DB as graph nodes with typed relationships, and queryable via CLI and MCP tools.

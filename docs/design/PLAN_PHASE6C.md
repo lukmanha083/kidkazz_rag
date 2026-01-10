@@ -1,5 +1,7 @@
 # Phase 6C: Concept Extraction - MCP Tools
 
+**Status: ✅ Complete**
+
 ## Overview
 
 Add MCP tools for concept queries, enabling Claude Code to search concepts, get definitions with citations, and traverse concept relationships.
