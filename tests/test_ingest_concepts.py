@@ -144,7 +144,7 @@ class TestIngestWithConceptExtraction:
         with patch.dict("os.environ", {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
             with patch("src.cli.commands.ingest.get_store") as mock_get_store:
                 mock_store = MagicMock()
-                mock_store.store_concept.return_value = "concept_internal_123"
+                mock_store.store_or_merge_concept.return_value = "concept_internal_123"
                 mock_get_store.return_value = mock_store
 
                 result = runner.invoke(app, [
@@ -153,8 +153,8 @@ class TestIngestWithConceptExtraction:
                     "--json",
                 ])
 
-        # Should have called store_concept
-        mock_store.store_concept.assert_called()
+        # Should have called store_or_merge_concept
+        mock_store.store_or_merge_concept.assert_called()
         assert result.exit_code == 0
 
     @patch("src.cli.commands.ingest.CONCEPT_EXTRACTION_AVAILABLE", True)
@@ -192,16 +192,23 @@ class TestIngestWithConceptExtraction:
         mock_extractor_class.return_value = mock_extractor
 
         with patch.dict("os.environ", {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
-            result = runner.invoke(app, [
-                "ingest", "markdown", str(sample_markdown),
-                "--extract-concepts",
-                "--json",
-            ])
+            with patch("src.cli.commands.ingest.get_store") as mock_get_store:
+                mock_store = MagicMock()
+                mock_store.store_or_merge_concept.return_value = "concept-id"
+                mock_get_store.return_value = mock_store
+
+                result = runner.invoke(app, [
+                    "ingest", "markdown", str(sample_markdown),
+                    "--extract-concepts",
+                    "--json",
+                ])
 
         assert result.exit_code == 0
         # Extract JSON from output (may have progress bars before it)
         import re
         clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
+        # Remove any control characters
+        clean_output = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', clean_output)
         # Find the JSON object (starts with { ends with })
         json_match = re.search(r'\{[^}]+\}', clean_output, re.DOTALL)
         assert json_match, f"No JSON found in output: {clean_output[:200]}"

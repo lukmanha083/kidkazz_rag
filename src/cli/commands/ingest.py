@@ -233,10 +233,10 @@ def ingest_markdown(
                             chunks, final_title
                         )
 
-                        # Store concepts
+                        # Store or merge concepts (cross-document linking)
                         concept_ids = {}
                         for concept in extracted_concepts:
-                            internal_id = store_instance.store_concept(
+                            internal_id = store_instance.store_or_merge_concept(
                                 concept_id=concept.get("concept_id", ""),
                                 name=concept.get("name", ""),
                                 definition=concept.get("definition", ""),
@@ -448,10 +448,10 @@ def ingest_batch(
                             chunks, title
                         )
 
-                        # Store concepts
+                        # Store or merge concepts (cross-document linking)
                         concept_ids = {}
                         for concept in extracted_concepts:
-                            internal_id = store_instance.store_concept(
+                            internal_id = store_instance.store_or_merge_concept(
                                 concept_id=concept.get("concept_id", ""),
                                 name=concept.get("name", ""),
                                 definition=concept.get("definition", ""),

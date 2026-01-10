@@ -828,6 +828,49 @@ class AddConcept(_get_query_base_class()):
         return QueryResult(success=True, data={"concept_id": self.concept_id})
 
 
+class UpdateConcept(_get_query_base_class()):
+    """Update an existing concept's source_documents and aliases.
+
+    Maps to HelixQL UpdateConcept query.
+    Used for cross-document concept merging.
+    """
+
+    def __init__(
+        self,
+        concept_id: str,
+        source_documents: list[str],
+        aliases: list[str],
+        definition: Optional[str] = None,
+    ) -> None:
+        """
+        Initialize UpdateConcept query.
+
+        Args:
+            concept_id: Slugified unique ID of concept to update
+            source_documents: Updated list of document IDs
+            aliases: Updated list of aliases
+            definition: Optional updated definition (None to keep existing)
+        """
+        super().__init__(endpoint="UpdateConcept")
+        self.concept_id = concept_id
+        self.source_documents = source_documents
+        self.aliases = aliases
+        self.definition = definition
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL UpdateConcept query."""
+        return [{
+            "concept_id": self.concept_id,
+            "source_documents": json.dumps(self.source_documents),
+            "aliases": json.dumps(self.aliases),
+            "definition": self.definition,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True, data={"concept_id": self.concept_id})
+
+
 class GetConceptByName(_get_query_base_class()):
     """Get concept by name.
 

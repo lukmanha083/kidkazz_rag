@@ -20,6 +20,7 @@ Usage:
     store.close()
 """
 
+import json
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
@@ -62,6 +63,7 @@ from .queries import (
     SearchKeyword,
     SearchSimilarChunks,
     UpdateChunkContent,
+    UpdateConcept,
 )
 
 
@@ -1009,6 +1011,121 @@ class HelixChunkStore:
             return self._extract_node_id(response)
         except Exception:
             return None
+
+    def update_concept(
+        self,
+        concept_id: str,
+        source_documents: list[str],
+        aliases: list[str],
+        definition: Optional[str] = None,
+    ) -> bool:
+        """
+        Update an existing concept's source_documents and aliases.
+
+        Args:
+            concept_id: Slugified concept identifier
+            source_documents: Updated list of document IDs
+            aliases: Updated list of aliases
+            definition: Optional updated definition (None to keep existing)
+
+        Returns:
+            True if update succeeded, False otherwise
+        """
+        self._ensure_connected()
+
+        try:
+            query = UpdateConcept(
+                concept_id=concept_id,
+                source_documents=source_documents,
+                aliases=aliases,
+                definition=definition,
+            )
+            response = self._client.query(query)
+            result = query.response(response)
+            return result.success
+        except Exception:
+            return False
+
+    def store_or_merge_concept(
+        self,
+        concept_id: str,
+        name: str,
+        definition: str,
+        concept_type: str,
+        source_documents: list[str],
+        aliases: list[str],
+    ) -> Optional[str]:
+        """
+        Store a new concept or merge with existing one.
+
+        If concept with same name exists, merges source_documents and aliases.
+        Otherwise creates a new concept.
+
+        Args:
+            concept_id: Slugified unique ID
+            name: Display name
+            definition: 1-2 sentence definition
+            concept_type: Type (term, method, principle, formula, account)
+            source_documents: List of document IDs
+            aliases: Alternative names
+
+        Returns:
+            Internal concept node ID, or None if operation fails
+        """
+        # Check if concept already exists
+        existing = self.get_concept_by_name(name)
+
+        if existing is None:
+            # Create new concept
+            return self.store_concept(
+                concept_id=concept_id,
+                name=name,
+                definition=definition,
+                concept_type=concept_type,
+                source_documents=source_documents,
+                aliases=aliases,
+            )
+
+        # Merge with existing concept
+        # Parse existing source_documents and aliases
+        existing_docs_raw = existing.get("source_documents", "[]")
+        existing_aliases_raw = existing.get("aliases", "[]")
+
+        try:
+            existing_docs = json.loads(existing_docs_raw) if isinstance(existing_docs_raw, str) else existing_docs_raw
+        except json.JSONDecodeError:
+            existing_docs = []
+
+        try:
+            existing_aliases = json.loads(existing_aliases_raw) if isinstance(existing_aliases_raw, str) else existing_aliases_raw
+        except json.JSONDecodeError:
+            existing_aliases = []
+
+        # Merge and deduplicate source_documents
+        merged_docs = list(set(existing_docs + source_documents))
+
+        # Merge and deduplicate aliases (case-insensitive)
+        existing_aliases_lower = {a.lower(): a for a in existing_aliases}
+        for alias in aliases:
+            if alias.lower() not in existing_aliases_lower:
+                existing_aliases_lower[alias.lower()] = alias
+        merged_aliases = list(existing_aliases_lower.values())
+
+        # Update the concept
+        success = self.update_concept(
+            concept_id=existing.get("concept_id", concept_id),
+            source_documents=merged_docs,
+            aliases=merged_aliases,
+        )
+
+        if success:
+            # Return existing internal ID
+            node_data = existing.get("N", {})
+            if isinstance(node_data, dict):
+                return node_data.get("Id")
+            return existing.get("concept_id")
+
+        return None
 
     def get_concept(self, concept_id: str) -> Optional[dict]:
         """
