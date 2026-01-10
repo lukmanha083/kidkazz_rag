@@ -271,7 +271,14 @@ class HelixChunkStore:
             if hasattr(data, 'id'):
                 return str(data.id)
         if isinstance(response, dict):
-            return response.get('id') or response.get('_id') or response.get('node_id')
+            # Check common ID locations
+            result = response.get('id') or response.get('_id') or response.get('node_id')
+            if result:
+                return result
+            # Helix-DB sometimes nests node data under "N" key with "Id" (capitalized)
+            node_data = response.get('N') or response.get('node')
+            if isinstance(node_data, dict):
+                return node_data.get('Id') or node_data.get('id')
 
         return None
 
@@ -1133,11 +1140,15 @@ class HelixChunkStore:
         )
 
         if success:
-            # Return existing internal ID
-            node_data = existing.get("N", {})
-            if isinstance(node_data, dict):
-                return node_data.get("Id")
-            return existing.get("concept_id")
+            # Return existing internal ID using same pattern as other methods
+            internal_id = self._extract_node_id(existing) or existing.get("id")
+            if internal_id:
+                return internal_id
+            # If we still can't get internal ID, log warning and return None
+            logger.warning(
+                f"Could not extract internal ID for merged concept '{name}'. "
+                "This may cause issues with relationship linking."
+            )
 
         return None
 
