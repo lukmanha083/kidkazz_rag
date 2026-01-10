@@ -101,9 +101,40 @@ E::MentionsConcept {
     To: Concept,
 }
 
-// Concept relates to another concept
+// Concept relationship edges - typed for semantic meaning
+// Generic relation (fallback)
 E::RelatesTo {
     From: Concept,
     To: Concept,
-    relation_type: String,  // uses, requires, calculated_from, component_of, recorded_in, supersedes
+}
+
+// Specific typed relations
+E::Uses {
+    From: Concept,
+    To: Concept,
+}
+
+E::Requires {
+    From: Concept,
+    To: Concept,
+}
+
+E::CalculatedFrom {
+    From: Concept,
+    To: Concept,
+}
+
+E::ComponentOf {
+    From: Concept,
+    To: Concept,
+}
+
+E::RecordedIn {
+    From: Concept,
+    To: Concept,
+}
+
+E::Supersedes {
+    From: Concept,
+    To: Concept,
 }

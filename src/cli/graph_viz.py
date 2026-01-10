@@ -211,15 +211,12 @@ def generate_concept_graph(
         if hasattr(store, 'get_related_concepts_with_types'):
             edges = store.get_related_concepts_with_types(concept_id)
             for edge in edges:
-                # Extract relation_type from edge (may be stored directly or nested)
-                relation_type = (
-                    edge.get("relation_type") or
-                    edge.get("properties", {}).get("relation_type") or
-                    "relates_to"
-                )
+                # New format: {"concept": target_concept_dict, "relation_type": "uses"}
+                relation_type = edge.get("relation_type", "relates_to")
 
-                # Get target concept - edge may have 'to', 'To', 'target', or be linked via ID
-                target = edge.get("to") or edge.get("To") or edge.get("target")
+                # Get target concept from 'concept' key (new format)
+                # or fallback to old format for backwards compatibility
+                target = edge.get("concept") or edge.get("to") or edge.get("To") or edge.get("target")
                 if isinstance(target, dict):
                     to_name = target.get("name")
                 elif isinstance(target, str):

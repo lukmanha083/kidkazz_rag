@@ -273,11 +273,48 @@ QUERY LinkChunkMentionsConcept(chunk_id: ID, concept_id: ID) =>
     AddE<MentionsConcept>::From(chunk)::To(concept)
     RETURN chunk
 
-// Link two concepts with a relationship
-QUERY LinkConceptRelatesTo(from_id: ID, to_id: ID, relation_type: String) =>
+// Link two concepts with a generic relationship (fallback)
+QUERY LinkConceptRelatesTo(from_id: ID, to_id: ID) =>
     from_concept <- N<Concept>(from_id)
     to_concept <- N<Concept>(to_id)
-    AddE<RelatesTo>({relation_type: relation_type})::From(from_concept)::To(to_concept)
+    AddE<RelatesTo>::From(from_concept)::To(to_concept)
+    RETURN from_concept
+
+// Typed relationship queries
+QUERY LinkConceptUses(from_id: ID, to_id: ID) =>
+    from_concept <- N<Concept>(from_id)
+    to_concept <- N<Concept>(to_id)
+    AddE<Uses>::From(from_concept)::To(to_concept)
+    RETURN from_concept
+
+QUERY LinkConceptRequires(from_id: ID, to_id: ID) =>
+    from_concept <- N<Concept>(from_id)
+    to_concept <- N<Concept>(to_id)
+    AddE<Requires>::From(from_concept)::To(to_concept)
+    RETURN from_concept
+
+QUERY LinkConceptCalculatedFrom(from_id: ID, to_id: ID) =>
+    from_concept <- N<Concept>(from_id)
+    to_concept <- N<Concept>(to_id)
+    AddE<CalculatedFrom>::From(from_concept)::To(to_concept)
+    RETURN from_concept
+
+QUERY LinkConceptComponentOf(from_id: ID, to_id: ID) =>
+    from_concept <- N<Concept>(from_id)
+    to_concept <- N<Concept>(to_id)
+    AddE<ComponentOf>::From(from_concept)::To(to_concept)
+    RETURN from_concept
+
+QUERY LinkConceptRecordedIn(from_id: ID, to_id: ID) =>
+    from_concept <- N<Concept>(from_id)
+    to_concept <- N<Concept>(to_id)
+    AddE<RecordedIn>::From(from_concept)::To(to_concept)
+    RETURN from_concept
+
+QUERY LinkConceptSupersedes(from_id: ID, to_id: ID) =>
+    from_concept <- N<Concept>(from_id)
+    to_concept <- N<Concept>(to_id)
+    AddE<Supersedes>::From(from_concept)::To(to_concept)
     RETURN from_concept
 
 // ========== CONCEPT QUERIES ==========
@@ -315,25 +352,48 @@ QUERY GetConceptMentionChunks(concept_id: ID) =>
     chunks <- N<Concept>(concept_id)::In<MentionsConcept>
     RETURN chunks
 
-// Get related concepts (one hop out) - returns concepts only (legacy)
+// Get related concepts via generic RelatesTo edge
 QUERY GetRelatedConcepts(concept_id: ID) =>
     related <- N<Concept>(concept_id)::Out<RelatesTo>
     RETURN related
 
-// Get related concepts with relationship types - returns edges with target concepts
-QUERY GetRelatedConceptsWithTypes(concept_id: ID) =>
-    edges <- N<Concept>(concept_id)::OutE<RelatesTo>
-    RETURN edges
+// Get related concepts via typed edges
+QUERY GetConceptsUses(concept_id: ID) =>
+    related <- N<Concept>(concept_id)::Out<Uses>
+    RETURN related
 
-// Get concepts that relate TO this one (reverse) - concepts only (legacy)
+QUERY GetConceptsRequires(concept_id: ID) =>
+    related <- N<Concept>(concept_id)::Out<Requires>
+    RETURN related
+
+QUERY GetConceptsCalculatedFrom(concept_id: ID) =>
+    related <- N<Concept>(concept_id)::Out<CalculatedFrom>
+    RETURN related
+
+QUERY GetConceptsComponentOf(concept_id: ID) =>
+    related <- N<Concept>(concept_id)::Out<ComponentOf>
+    RETURN related
+
+QUERY GetConceptsRecordedIn(concept_id: ID) =>
+    related <- N<Concept>(concept_id)::Out<RecordedIn>
+    RETURN related
+
+QUERY GetConceptsSupersedes(concept_id: ID) =>
+    related <- N<Concept>(concept_id)::Out<Supersedes>
+    RETURN related
+
+// Get concepts that relate TO this one (reverse)
 QUERY GetConceptDependents(concept_id: ID) =>
     dependents <- N<Concept>(concept_id)::In<RelatesTo>
     RETURN dependents
 
-// Get concepts that depend on this one with relationship types
-QUERY GetConceptDependentsWithTypes(concept_id: ID) =>
-    edges <- N<Concept>(concept_id)::InE<RelatesTo>
-    RETURN edges
+QUERY GetConceptUsedBy(concept_id: ID) =>
+    dependents <- N<Concept>(concept_id)::In<Uses>
+    RETURN dependents
+
+QUERY GetConceptRequiredBy(concept_id: ID) =>
+    dependents <- N<Concept>(concept_id)::In<Requires>
+    RETURN dependents
 
 // ========== CONCEPT UPDATE ==========
 

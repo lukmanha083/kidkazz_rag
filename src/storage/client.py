@@ -52,9 +52,7 @@ from .queries import (
     GetDocumentByDocId,
     GetDocumentChunks,
     GetRelatedConcepts,
-    GetRelatedConceptsWithTypes,
     GetConceptDependents,
-    GetConceptDependentsWithTypes,
     LinkChunkDefinesConcept,
     LinkChunkMentionsConcept,
     LinkChunkVector,
@@ -68,6 +66,8 @@ from .queries import (
     SearchSimilarChunks,
     UpdateChunkContent,
     UpdateConcept,
+    TYPED_CONCEPT_QUERIES_FORWARD,
+    TYPED_CONCEPT_QUERIES_REVERSE,
 )
 
 logger = logging.getLogger(__name__)
@@ -1339,11 +1339,14 @@ class HelixChunkStore:
         """
         Get concepts related to a given concept with relationship types.
 
+        Queries all typed edge types (Uses, Requires, CalculatedFrom, etc.)
+        and combines results with type annotations.
+
         Args:
             concept_id: Slugified concept identifier
 
         Returns:
-            List of dicts with 'concept' (target concept) and 'relation_type'
+            List of dicts with 'concept' (target concept data) and 'relation_type'
         """
         self._ensure_connected()
 
@@ -1356,14 +1359,19 @@ class HelixChunkStore:
         if not internal_id:
             return []
 
-        query = GetRelatedConceptsWithTypes(internal_id)
-        result = self._execute_query(query)
+        # Query all typed edges and combine results
+        results = []
+        for relation_type, query_class in TYPED_CONCEPT_QUERIES_FORWARD.items():
+            query = query_class(internal_id)
+            result = self._execute_query(query)
+            if result.success and result.data:
+                for target_concept in result.data:
+                    results.append({
+                        "concept": target_concept,
+                        "relation_type": relation_type,
+                    })
 
-        if result.success and result.data:
-            # Edges may return different formats - normalize to include relation_type
-            # and target concept info
-            return result.data
-        return []
+        return results
 
     def get_concept_dependents(self, concept_id: str) -> list[dict]:
         """

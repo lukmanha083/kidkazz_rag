@@ -1034,11 +1034,22 @@ class LinkChunkMentionsConcept(_get_query_base_class()):
 
 
 class LinkConceptRelatesTo(_get_query_base_class()):
-    """Link two concepts with a relationship.
+    """Link two concepts with a relationship using typed edges.
 
-    Maps to HelixQL LinkConceptRelatesTo query.
-    Creates RelatesTo edge from Concept to Concept with relation_type.
+    Maps to HelixQL typed relationship queries (LinkConceptUses, etc.)
+    or falls back to LinkConceptRelatesTo for unknown types.
     """
+
+    # Map relation types to HelixQL query endpoints
+    RELATION_ENDPOINTS = {
+        "uses": "LinkConceptUses",
+        "requires": "LinkConceptRequires",
+        "calculated_from": "LinkConceptCalculatedFrom",
+        "component_of": "LinkConceptComponentOf",
+        "recorded_in": "LinkConceptRecordedIn",
+        "supersedes": "LinkConceptSupersedes",
+        "relates_to": "LinkConceptRelatesTo",
+    }
 
     def __init__(self, from_id: str, to_id: str, relation_type: str = "relates_to") -> None:
         """
@@ -1049,14 +1060,17 @@ class LinkConceptRelatesTo(_get_query_base_class()):
             to_id: Internal target concept node ID
             relation_type: Relationship type (uses, requires, calculated_from, etc.)
         """
-        super().__init__(endpoint="LinkConceptRelatesTo")
+        # Normalize relation_type and get appropriate endpoint
+        normalized_type = relation_type.lower().replace("-", "_").replace(" ", "_")
+        endpoint = self.RELATION_ENDPOINTS.get(normalized_type, "LinkConceptRelatesTo")
+        super().__init__(endpoint=endpoint)
         self.from_id = from_id
         self.to_id = to_id
         self.relation_type = relation_type
 
     def query(self) -> list[dict[str, Any]]:
-        """Return parameters for HelixQL LinkConceptRelatesTo query."""
-        return [{"from_id": self.from_id, "to_id": self.to_id, "relation_type": self.relation_type}]
+        """Return parameters for HelixQL typed relationship query."""
+        return [{"from_id": self.from_id, "to_id": self.to_id}]
 
     def response(self, response: Any) -> QueryResult:
         """Process response."""
@@ -1175,60 +1189,184 @@ class GetConceptDependents(_get_query_base_class()):
         return QueryResult(success=True, data=[])
 
 
-class GetRelatedConceptsWithTypes(_get_query_base_class()):
-    """Get related concepts with relationship types.
-
-    Maps to HelixQL GetRelatedConceptsWithTypes query.
-    Returns edges with relation_type property and target concept info.
-    """
+# Typed concept traversal queries - forward direction (Out edges)
+class GetConceptsUses(_get_query_base_class()):
+    """Get concepts this one uses (Out<Uses>)."""
 
     def __init__(self, concept_id: str) -> None:
-        """
-        Initialize GetRelatedConceptsWithTypes query.
-
-        Args:
-            concept_id: Internal concept node ID
-        """
-        super().__init__(endpoint="GetRelatedConceptsWithTypes")
+        super().__init__(endpoint="GetConceptsUses")
         self.concept_id = concept_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return parameters for HelixQL GetRelatedConceptsWithTypes query."""
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of edges with relation_type."""
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
 
 
-class GetConceptDependentsWithTypes(_get_query_base_class()):
-    """Get concepts that depend on this one with relationship types.
-
-    Maps to HelixQL GetConceptDependentsWithTypes query.
-    Returns edges with relation_type property and source concept info.
-    """
+class GetConceptsRequires(_get_query_base_class()):
+    """Get concepts this one requires (Out<Requires>)."""
 
     def __init__(self, concept_id: str) -> None:
-        """
-        Initialize GetConceptDependentsWithTypes query.
-
-        Args:
-            concept_id: Internal concept node ID
-        """
-        super().__init__(endpoint="GetConceptDependentsWithTypes")
+        super().__init__(endpoint="GetConceptsRequires")
         self.concept_id = concept_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return parameters for HelixQL GetConceptDependentsWithTypes query."""
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of edges with relation_type."""
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
+
+
+class GetConceptsCalculatedFrom(_get_query_base_class()):
+    """Get concepts this one is calculated from (Out<CalculatedFrom>)."""
+
+    def __init__(self, concept_id: str) -> None:
+        super().__init__(endpoint="GetConceptsCalculatedFrom")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetConceptsComponentOf(_get_query_base_class()):
+    """Get concepts this one is a component of (Out<ComponentOf>)."""
+
+    def __init__(self, concept_id: str) -> None:
+        super().__init__(endpoint="GetConceptsComponentOf")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetConceptsRecordedIn(_get_query_base_class()):
+    """Get concepts this one is recorded in (Out<RecordedIn>)."""
+
+    def __init__(self, concept_id: str) -> None:
+        super().__init__(endpoint="GetConceptsRecordedIn")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetConceptsSupersedes(_get_query_base_class()):
+    """Get concepts this one supersedes (Out<Supersedes>)."""
+
+    def __init__(self, concept_id: str) -> None:
+        super().__init__(endpoint="GetConceptsSupersedes")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+# Typed concept traversal queries - reverse direction (In edges)
+class GetConceptUsedBy(_get_query_base_class()):
+    """Get concepts that use this one (In<Uses>)."""
+
+    def __init__(self, concept_id: str) -> None:
+        super().__init__(endpoint="GetConceptUsedBy")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetConceptRequiredBy(_get_query_base_class()):
+    """Get concepts that require this one (In<Requires>)."""
+
+    def __init__(self, concept_id: str) -> None:
+        super().__init__(endpoint="GetConceptRequiredBy")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+# Mapping of relation types to their forward/reverse query classes
+TYPED_CONCEPT_QUERIES_FORWARD = {
+    "uses": GetConceptsUses,
+    "requires": GetConceptsRequires,
+    "calculated_from": GetConceptsCalculatedFrom,
+    "component_of": GetConceptsComponentOf,
+    "recorded_in": GetConceptsRecordedIn,
+    "supersedes": GetConceptsSupersedes,
+    "relates_to": GetRelatedConcepts,  # Fallback generic type
+}
+
+TYPED_CONCEPT_QUERIES_REVERSE = {
+    "uses": GetConceptUsedBy,
+    "requires": GetConceptRequiredBy,
+    "relates_to": GetConceptDependents,  # Fallback generic type
+}
+
+
+class GetRelatedConceptsWithTypes:
+    """Helper class to get related concepts with relationship types.
+
+    This is not a query class itself but provides a method to query
+    all typed edges and combine results with type annotations.
+    """
+
+    @staticmethod
+    def get_all_typed_queries(concept_id: str) -> dict[str, Any]:
+        """Get mapping of relation_type to query instance for forward traversals."""
+        return {
+            rel_type: query_class(concept_id)
+            for rel_type, query_class in TYPED_CONCEPT_QUERIES_FORWARD.items()
+        }
+
+
+class GetConceptDependentsWithTypes:
+    """Helper class to get concepts that depend on this one with types.
+
+    This is not a query class itself but provides a method to query
+    all typed edges in reverse and combine results with type annotations.
+    """
+
+    @staticmethod
+    def get_all_typed_queries(concept_id: str) -> dict[str, Any]:
+        """Get mapping of relation_type to query instance for reverse traversals."""
+        return {
+            rel_type: query_class(concept_id)
+            for rel_type, query_class in TYPED_CONCEPT_QUERIES_REVERSE.items()
+        }
 
 
 class DropConcept(_get_query_base_class()):
