@@ -105,4 +105,5 @@ E::MentionsConcept {
 E::RelatesTo {
     From: Concept,
     To: Concept,
+    relation_type: String,  // uses, requires, calculated_from, component_of, recorded_in, supersedes
 }

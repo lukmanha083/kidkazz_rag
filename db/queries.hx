@@ -274,10 +274,10 @@ QUERY LinkChunkMentionsConcept(chunk_id: ID, concept_id: ID) =>
     RETURN chunk
 
 // Link two concepts with a relationship
-QUERY LinkConceptRelatesTo(from_id: ID, to_id: ID) =>
+QUERY LinkConceptRelatesTo(from_id: ID, to_id: ID, relation_type: String) =>
     from_concept <- N<Concept>(from_id)
     to_concept <- N<Concept>(to_id)
-    AddE<RelatesTo>::From(from_concept)::To(to_concept)
+    AddE<RelatesTo>({relation_type: relation_type})::From(from_concept)::To(to_concept)
     RETURN from_concept
 
 // ========== CONCEPT QUERIES ==========
@@ -315,15 +315,25 @@ QUERY GetConceptMentionChunks(concept_id: ID) =>
     chunks <- N<Concept>(concept_id)::In<MentionsConcept>
     RETURN chunks
 
-// Get related concepts (one hop out)
+// Get related concepts (one hop out) - returns concepts only (legacy)
 QUERY GetRelatedConcepts(concept_id: ID) =>
     related <- N<Concept>(concept_id)::Out<RelatesTo>
     RETURN related
 
-// Get concepts that relate TO this one (reverse)
+// Get related concepts with relationship types - returns edges with target concepts
+QUERY GetRelatedConceptsWithTypes(concept_id: ID) =>
+    edges <- N<Concept>(concept_id)::OutE<RelatesTo>
+    RETURN edges
+
+// Get concepts that relate TO this one (reverse) - concepts only (legacy)
 QUERY GetConceptDependents(concept_id: ID) =>
     dependents <- N<Concept>(concept_id)::In<RelatesTo>
     RETURN dependents
+
+// Get concepts that depend on this one with relationship types
+QUERY GetConceptDependentsWithTypes(concept_id: ID) =>
+    edges <- N<Concept>(concept_id)::InE<RelatesTo>
+    RETURN edges
 
 // ========== CONCEPT UPDATE ==========
 

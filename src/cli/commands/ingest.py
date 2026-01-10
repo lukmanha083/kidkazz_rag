@@ -257,7 +257,9 @@ def ingest_markdown(
                             from_id = concept_ids.get(from_slug)
                             to_id = concept_ids.get(to_slug)
                             if from_id and to_id:
-                                store_instance.link_concept_relates_to(from_id, to_id)
+                                store_instance.link_concept_relates_to(
+                                    from_id, to_id, relation.relation_type
+                                )
 
                         result["concepts"] = len(extracted_concepts)
                         tracker.complete("Extracting concepts...")
@@ -471,7 +473,9 @@ def ingest_batch(
                             from_id = concept_ids.get(from_slug)
                             to_id = concept_ids.get(to_slug)
                             if from_id and to_id:
-                                store_instance.link_concept_relates_to(from_id, to_id)
+                                store_instance.link_concept_relates_to(
+                                    from_id, to_id, relation.relation_type
+                                )
 
                         file_result["concepts"] = len(extracted_concepts)
                     except Exception as concept_error:

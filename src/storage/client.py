@@ -52,7 +52,9 @@ from .queries import (
     GetDocumentByDocId,
     GetDocumentChunks,
     GetRelatedConcepts,
+    GetRelatedConceptsWithTypes,
     GetConceptDependents,
+    GetConceptDependentsWithTypes,
     LinkChunkDefinesConcept,
     LinkChunkMentionsConcept,
     LinkChunkVector,
@@ -1246,20 +1248,23 @@ class HelixChunkStore:
         self,
         from_concept_id: str,
         to_concept_id: str,
+        relation_type: str = "relates_to",
     ) -> bool:
         """
-        Create RelatesTo edge between concepts.
+        Create RelatesTo edge between concepts with a relation type.
 
         Args:
             from_concept_id: Internal source concept node ID
             to_concept_id: Internal target concept node ID
+            relation_type: Type of relationship (uses, requires, calculated_from,
+                          component_of, recorded_in, supersedes, relates_to)
 
         Returns:
             True if link created successfully
         """
         self._ensure_connected()
 
-        query = LinkConceptRelatesTo(from_concept_id, to_concept_id)
+        query = LinkConceptRelatesTo(from_concept_id, to_concept_id, relation_type)
         result = self._execute_query(query)
         return result.success
 
@@ -1317,6 +1322,36 @@ class HelixChunkStore:
 
         if result.success:
             return result.data or []
+        return []
+
+    def get_related_concepts_with_types(self, concept_id: str) -> list[dict]:
+        """
+        Get concepts related to a given concept with relationship types.
+
+        Args:
+            concept_id: Slugified concept identifier
+
+        Returns:
+            List of dicts with 'concept' (target concept) and 'relation_type'
+        """
+        self._ensure_connected()
+
+        # First get the concept to find its internal ID
+        concept = self.get_concept(concept_id)
+        if not concept:
+            return []
+
+        internal_id = self._extract_node_id(concept) or concept.get("id")
+        if not internal_id:
+            return []
+
+        query = GetRelatedConceptsWithTypes(internal_id)
+        result = self._execute_query(query)
+
+        if result.success and result.data:
+            # Edges may return different formats - normalize to include relation_type
+            # and target concept info
+            return result.data
         return []
 
     def get_concept_dependents(self, concept_id: str) -> list[dict]:

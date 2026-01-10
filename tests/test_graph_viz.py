@@ -294,17 +294,19 @@ class TestGenerateConceptGraph:
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
-            {"concept_id": "cogs", "name": "COGS", "concept_type": "formula", "aliases": "[]"},
-            {"concept_id": "fifo", "name": "FIFO", "concept_type": "method", "aliases": "[]"},
+            {"concept_id": "cogs", "name": "COGS", "concept_type": "formula", "aliases": "[]", "id": "internal_cogs"},
+            {"concept_id": "fifo", "name": "FIFO", "concept_type": "method", "aliases": "[]", "id": "internal_fifo"},
         ]
-        mock_store.get_related_concepts.side_effect = [
-            [{"concept_id": "fifo", "name": "FIFO"}],  # COGS relates to FIFO
+        # Mock the new method that returns edges with relation_type
+        mock_store.get_related_concepts_with_types.side_effect = [
+            [{"relation_type": "uses", "to": {"name": "FIFO", "concept_id": "fifo"}}],  # COGS uses FIFO
             [],  # FIFO has no relations
         ]
 
         dot, path = generate_concept_graph(mock_store)
 
         assert '"cogs" -> "fifo"' in dot
+        assert 'label="uses"' in dot  # Check relation type is included
 
     def test_filters_by_doc_id(self):
         """Should filter concepts by doc_id."""

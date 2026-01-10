@@ -199,20 +199,52 @@ def generate_concept_graph(
     relations: list[tuple[str, str, str]] = []
     seen_relations: set[tuple[str, str]] = set()
 
+    # Build a concept lookup by internal ID for resolving edge targets
+    concept_lookup = {c.get("id"): c for c in concepts if c.get("id")}
+    concept_lookup_by_slug = {c.get("concept_id"): c for c in concepts if c.get("concept_id")}
+
     for concept in concepts:
         concept_id = concept.get("concept_id")
-        related = store.get_related_concepts(concept_id)
+        from_name = concept.get("name")
 
-        for rel_concept in related:
-            from_name = concept.get("name")
-            to_name = rel_concept.get("name")
-            # Default relation type (could be enhanced to store actual type)
-            relation_type = "relates_to"
+        # Try to get relations with types first
+        if hasattr(store, 'get_related_concepts_with_types'):
+            edges = store.get_related_concepts_with_types(concept_id)
+            for edge in edges:
+                # Extract relation_type from edge (may be stored directly or nested)
+                relation_type = (
+                    edge.get("relation_type") or
+                    edge.get("properties", {}).get("relation_type") or
+                    "relates_to"
+                )
 
-            relation_key = (from_name, to_name)
-            if relation_key not in seen_relations:
-                seen_relations.add(relation_key)
-                relations.append((from_name, to_name, relation_type))
+                # Get target concept - edge may have 'to', 'To', 'target', or be linked via ID
+                target = edge.get("to") or edge.get("To") or edge.get("target")
+                if isinstance(target, dict):
+                    to_name = target.get("name")
+                elif isinstance(target, str):
+                    # It's an ID - look up the concept
+                    target_concept = concept_lookup.get(target) or concept_lookup_by_slug.get(target)
+                    to_name = target_concept.get("name") if target_concept else None
+                else:
+                    to_name = None
+
+                if from_name and to_name:
+                    relation_key = (from_name, to_name)
+                    if relation_key not in seen_relations:
+                        seen_relations.add(relation_key)
+                        relations.append((from_name, to_name, relation_type))
+        else:
+            # Fallback to legacy method without types
+            related = store.get_related_concepts(concept_id)
+            for rel_concept in related:
+                to_name = rel_concept.get("name")
+                relation_type = "relates_to"
+
+                relation_key = (from_name, to_name)
+                if relation_key not in seen_relations:
+                    seen_relations.add(relation_key)
+                    relations.append((from_name, to_name, relation_type))
 
     # Generate title
     if not title:

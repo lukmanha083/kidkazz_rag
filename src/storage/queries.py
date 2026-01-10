@@ -1037,24 +1037,26 @@ class LinkConceptRelatesTo(_get_query_base_class()):
     """Link two concepts with a relationship.
 
     Maps to HelixQL LinkConceptRelatesTo query.
-    Creates RelatesTo edge from Concept to Concept.
+    Creates RelatesTo edge from Concept to Concept with relation_type.
     """
 
-    def __init__(self, from_id: str, to_id: str) -> None:
+    def __init__(self, from_id: str, to_id: str, relation_type: str = "relates_to") -> None:
         """
         Initialize LinkConceptRelatesTo query.
 
         Args:
             from_id: Internal source concept node ID
             to_id: Internal target concept node ID
+            relation_type: Relationship type (uses, requires, calculated_from, etc.)
         """
         super().__init__(endpoint="LinkConceptRelatesTo")
         self.from_id = from_id
         self.to_id = to_id
+        self.relation_type = relation_type
 
     def query(self) -> list[dict[str, Any]]:
         """Return parameters for HelixQL LinkConceptRelatesTo query."""
-        return [{"from_id": self.from_id, "to_id": self.to_id}]
+        return [{"from_id": self.from_id, "to_id": self.to_id, "relation_type": self.relation_type}]
 
     def response(self, response: Any) -> QueryResult:
         """Process response."""
@@ -1168,6 +1170,62 @@ class GetConceptDependents(_get_query_base_class()):
 
     def response(self, response: Any) -> QueryResult:
         """Process response - expects list of concept nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetRelatedConceptsWithTypes(_get_query_base_class()):
+    """Get related concepts with relationship types.
+
+    Maps to HelixQL GetRelatedConceptsWithTypes query.
+    Returns edges with relation_type property and target concept info.
+    """
+
+    def __init__(self, concept_id: str) -> None:
+        """
+        Initialize GetRelatedConceptsWithTypes query.
+
+        Args:
+            concept_id: Internal concept node ID
+        """
+        super().__init__(endpoint="GetRelatedConceptsWithTypes")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetRelatedConceptsWithTypes query."""
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of edges with relation_type."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetConceptDependentsWithTypes(_get_query_base_class()):
+    """Get concepts that depend on this one with relationship types.
+
+    Maps to HelixQL GetConceptDependentsWithTypes query.
+    Returns edges with relation_type property and source concept info.
+    """
+
+    def __init__(self, concept_id: str) -> None:
+        """
+        Initialize GetConceptDependentsWithTypes query.
+
+        Args:
+            concept_id: Internal concept node ID
+        """
+        super().__init__(endpoint="GetConceptDependentsWithTypes")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetConceptDependentsWithTypes query."""
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of edges with relation_type."""
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
