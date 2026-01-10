@@ -831,7 +831,7 @@ class AddConcept(_get_query_base_class()):
 class UpdateConcept(_get_query_base_class()):
     """Update an existing concept's source_documents and aliases.
 
-    Maps to HelixQL UpdateConcept query.
+    Maps to HelixQL UpdateConcept or UpdateConceptWithDefinition query.
     Used for cross-document concept merging.
     """
 
@@ -851,7 +851,9 @@ class UpdateConcept(_get_query_base_class()):
             aliases: Updated list of aliases
             definition: Optional updated definition (None to keep existing)
         """
-        super().__init__(endpoint="UpdateConcept")
+        # Use different endpoint based on whether definition is provided
+        endpoint = "UpdateConceptWithDefinition" if definition else "UpdateConcept"
+        super().__init__(endpoint=endpoint)
         self.concept_id = concept_id
         self.source_documents = source_documents
         self.aliases = aliases
@@ -859,12 +861,14 @@ class UpdateConcept(_get_query_base_class()):
 
     def query(self) -> list[dict[str, Any]]:
         """Return parameters for HelixQL UpdateConcept query."""
-        return [{
+        params = {
             "concept_id": self.concept_id,
             "source_documents": json.dumps(self.source_documents),
             "aliases": json.dumps(self.aliases),
-            "definition": self.definition,
-        }]
+        }
+        if self.definition is not None:
+            params["definition"] = self.definition
+        return [params]
 
     def response(self, response: Any) -> QueryResult:
         """Process response."""

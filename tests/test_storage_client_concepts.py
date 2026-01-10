@@ -1,6 +1,5 @@
 """Tests for concept-related methods in HelixChunkStore (TDD - tests written first)."""
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -45,8 +44,6 @@ class TestStoreConcept:
 
     def test_store_concept_calls_execute_query(self, store, mock_helix_client):
         """Should call _execute_query with AddConcept query."""
-        from src.storage.queries import QueryResult
-
         # Mock the response
         mock_helix_client.query.return_value = {"id": "concept_internal_123"}
 
@@ -114,8 +111,6 @@ class TestGetConcept:
 
     def test_get_concept_returns_concept_dict(self, store, mock_helix_client):
         """Should return concept dictionary."""
-        from src.storage.queries import QueryResult
-
         mock_helix_client.query.return_value = [
             {"concept_id": "fifo", "name": "FIFO", "definition": "First-In, First-Out."}
         ]

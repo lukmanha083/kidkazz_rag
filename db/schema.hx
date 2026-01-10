@@ -1,0 +1,108 @@
+// KidKazz RAG Schema
+// Defines nodes and edges for hierarchical document chunking with vector embeddings
+
+// Document node: Top-level container for chunks
+N::Document {
+    INDEX doc_id: String,
+    title: String,
+    tags: String,           // JSON array of document tags
+    created_at: I64,
+    chunk_count: U32,
+}
+
+// Chunk node: Text content with metadata
+N::Chunk {
+    INDEX chunk_id: String,
+    content: String,
+    INDEX level: U32,             // 0=doc, 1=section, 2=leaf
+    token_count: U32,
+    word_count: U32,
+    INDEX document_id: String,
+    INDEX semantic_type: String,  // definition, example, procedure, theorem, narrative
+    topic_tags: String,     // JSON array
+    section_path: String,   // JSON array
+    source_section: String,
+    sequence_position: U32,
+    INDEX parent_id: String,
+    child_ids: String,      // JSON array
+    sibling_ids: String,    // JSON array
+    prev_id: String,
+    next_id: String,
+    has_table: U32,
+    has_code: U32,
+    has_math: U32,
+    has_list: U32,
+}
+
+// ChunkVector: Embedding vector for similarity search
+// Note: Vector data is stored implicitly, metadata fields only
+V::ChunkVector {
+    model_name: String,
+    embedding_dim: U32,
+}
+
+// Document contains chunks
+E::HasChunk {
+    From: Document,
+    To: Chunk,
+}
+
+// Chunk hierarchy (L1 -> L2)
+E::ParentOf {
+    From: Chunk,
+    To: Chunk,
+}
+
+// Sequential order
+E::NextSibling {
+    From: Chunk,
+    To: Chunk,
+}
+
+E::PrevSibling {
+    From: Chunk,
+    To: Chunk,
+}
+
+// Same parent chunks
+E::SiblingOf {
+    From: Chunk,
+    To: Chunk,
+}
+
+// Chunk to embedding link
+E::HasEmbedding {
+    From: Chunk,
+    To: ChunkVector,
+}
+
+
+// ========== CONCEPT GRAPH ==========
+
+// Concept node: Extracted entity from textbooks
+N::Concept {
+    INDEX concept_id: String,      // Slugified: "cost-of-goods-sold"
+    INDEX name: String,            // Display: "Cost of Goods Sold"
+    definition: String,            // Brief definition
+    concept_type: String,          // term, method, principle, formula, account
+    source_documents: String,      // JSON array of doc_ids
+    aliases: String,               // JSON array: ["COGS", "cost of sales"]
+}
+
+// Chunk defines a concept (contains definition)
+E::DefinesConcept {
+    From: Chunk,
+    To: Concept,
+}
+
+// Chunk mentions a concept (references without defining)
+E::MentionsConcept {
+    From: Chunk,
+    To: Concept,
+}
+
+// Concept relates to another concept
+E::RelatesTo {
+    From: Concept,
+    To: Concept,
+}
