@@ -85,19 +85,20 @@ class TestSyncCommand:
         assert result.exit_code == 0
         assert "2" in result.stdout or "synced" in result.stdout.lower()
 
-    def test_sync_no_remote_configured(self, temp_inbox_with_pdfs, temp_output):
+    @patch("src.cli.commands.inbox.CLIConfig.load")
+    def test_sync_no_remote_configured(self, mock_config_load, temp_inbox_with_pdfs, temp_output):
         """Test sync command when no remote is configured."""
         from src.cli.main import app
+        from src.cli.config import CLIConfig
 
-        with patch.dict(
-            "os.environ",
-            {
-                "KIDKAZZ_INBOX_PATH": str(temp_inbox_with_pdfs),
-                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
-                "KIDKAZZ_CLOUD_REMOTE": "",
-            },
-        ):
-            result = runner.invoke(app, ["inbox", "sync"])
+        # Create a config with no cloud remote
+        config = CLIConfig()
+        config.inbox_path = str(temp_inbox_with_pdfs)
+        config.output_path = str(temp_output)
+        config.cloud_remote = ""  # No remote configured
+        mock_config_load.return_value = config
+
+        result = runner.invoke(app, ["inbox", "sync"])
 
         assert result.exit_code == 1
         assert "remote" in result.stdout.lower() or "configure" in result.stdout.lower()

@@ -18,7 +18,7 @@ from rich.table import Table
 from src.cli.config import CLIConfig
 from src.cli.utils import slugify_filename
 from src.pdf_inbox import PDFInboxManager, PostConversionAction
-from src.pdf_inbox.cloud_sync import CloudSync
+from src.pdf_inbox.cloud_sync import CloudSync, SyncProgress
 
 app = typer.Typer(
     name="inbox",
@@ -321,23 +321,85 @@ def sync(
         # Get inbox path
         inbox_path = Path(config.inbox_path).expanduser()
 
-        # Perform sync
+        # Perform sync with progress bar
         if download:
             console.print(
                 f"[bold]Downloading from {config.cloud_remote}:{config.cloud_path}...[/bold]"
             )
-            result = cloud_sync.sync_from_remote(
-                local_path=inbox_path,
-                dry_run=dry_run,
-            )
+            if dry_run:
+                # Dry run doesn't need progress bar
+                result = cloud_sync.sync_from_remote(
+                    local_path=inbox_path,
+                    dry_run=True,
+                )
+            else:
+                # Count pending files first for progress bar
+                pending = cloud_sync.count_pending_downloads(inbox_path)
+                total_files = len(pending)
+
+                if total_files == 0:
+                    console.print("[dim]No files to download[/dim]")
+                    result = cloud_sync.sync_from_remote(local_path=inbox_path)
+                else:
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TaskProgressColumn(),
+                        console=console,
+                    ) as progress:
+                        task = progress.add_task("Downloading...", total=total_files)
+
+                        def update_progress(p: SyncProgress) -> None:
+                            progress.update(
+                                task,
+                                completed=p.files_completed,
+                                description=f"[cyan]{p.current_file}[/cyan]",
+                            )
+
+                        result = cloud_sync.sync_from_remote_with_progress(
+                            local_path=inbox_path,
+                            progress_callback=update_progress,
+                        )
         else:
             console.print(
                 f"[bold]Uploading to {config.cloud_remote}:{config.cloud_path}...[/bold]"
             )
-            result = cloud_sync.sync_to_remote(
-                local_path=inbox_path,
-                dry_run=dry_run,
-            )
+            if dry_run:
+                # Dry run doesn't need progress bar
+                result = cloud_sync.sync_to_remote(
+                    local_path=inbox_path,
+                    dry_run=True,
+                )
+            else:
+                # Count pending files first for progress bar
+                pending = cloud_sync.count_pending_uploads(inbox_path)
+                total_files = len(pending)
+
+                if total_files == 0:
+                    console.print("[dim]No files to upload[/dim]")
+                    result = cloud_sync.sync_to_remote(local_path=inbox_path)
+                else:
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TaskProgressColumn(),
+                        console=console,
+                    ) as progress:
+                        task = progress.add_task("Uploading...", total=total_files)
+
+                        def update_progress(p: SyncProgress) -> None:
+                            progress.update(
+                                task,
+                                completed=p.files_completed,
+                                description=f"[cyan]{p.current_file}[/cyan]",
+                            )
+
+                        result = cloud_sync.sync_to_remote_with_progress(
+                            local_path=inbox_path,
+                            progress_callback=update_progress,
+                        )
 
         if result.success:
             action = "Would sync" if dry_run else "Synced"

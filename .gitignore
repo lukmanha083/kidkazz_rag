@@ -49,3 +49,10 @@ data/
 .env.local
 *.key
 *_credentials.json
+
+# direnv
+.envrc
+.direnv/
+
+# Database Helix
+.helix/
