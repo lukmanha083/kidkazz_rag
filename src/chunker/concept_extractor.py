@@ -314,7 +314,8 @@ def filter_chunks_by_semantic_type(
     filtered_chunks = []
     filtered_metadata = []
 
-    for chunk, meta in zip(chunks, metadata_list):
+    # Use strict=False to allow graceful handling when lists have different lengths
+    for chunk, meta in zip(chunks, metadata_list, strict=False):
         if getattr(meta, "semantic_type", None) in semantic_types:
             filtered_chunks.append(chunk)
             filtered_metadata.append(meta)
@@ -378,7 +379,7 @@ def infer_relationships_from_headers(
         key=lambda x: x[1][0] if x[1][0] else "",
     )
 
-    for concept_name, (chunk_id, level) in sorted_concepts:
+    for concept_name, (_chunk_id, level) in sorted_concepts:
         if level is None:
             continue
 

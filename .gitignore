@@ -56,3 +56,6 @@ data/
 
 # Database Helix
 .helix/
+
+# Local configuration
+.kidkazz.toml

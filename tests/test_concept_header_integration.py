@@ -209,7 +209,7 @@ class TestExtractFromChunksWithMetadata:
                 mock_metadata.semantic_type = "definition"
 
                 # Should not raise
-                concepts, relations = extractor.extract_from_chunks(
+                concepts, _relations = extractor.extract_from_chunks(
                     chunks, "Test Doc", metadata_list=[mock_metadata]
                 )
                 assert isinstance(concepts, list)
@@ -258,7 +258,7 @@ class TestExtractFromChunksWithMetadata:
 
                 chunks = [{"content": "Test", "section_path": ["Ch1"]}]
                 # Call without metadata_list
-                concepts, relations = extractor.extract_from_chunks(chunks, "Test Doc")
+                concepts, _relations = extractor.extract_from_chunks(chunks, "Test Doc")
                 assert isinstance(concepts, list)
 
     def test_handles_mismatched_metadata_length(self):
@@ -286,7 +286,7 @@ class TestExtractFromChunksWithMetadata:
                 mock_metadata.semantic_type = "definition"
 
                 # Should not raise, should handle gracefully
-                concepts, relations = extractor.extract_from_chunks(
+                concepts, _relations = extractor.extract_from_chunks(
                     chunks, "Test Doc", metadata_list=[mock_metadata]
                 )
                 assert isinstance(concepts, list)
@@ -321,7 +321,7 @@ class TestSemanticTypeFiltering:
             MagicMock(semantic_type="definition"),
         ]
 
-        filtered_chunks, filtered_metadata = filter_chunks_by_semantic_type(
+        filtered_chunks, _filtered_metadata = filter_chunks_by_semantic_type(
             chunks, metadata_list, semantic_types=["definition"]
         )
 
@@ -344,7 +344,7 @@ class TestSemanticTypeFiltering:
             MagicMock(semantic_type="narrative"),
         ]
 
-        filtered_chunks, filtered_metadata = filter_chunks_by_semantic_type(
+        filtered_chunks, _filtered_metadata = filter_chunks_by_semantic_type(
             chunks, metadata_list, semantic_types=["definition", "theorem"]
         )
 
