@@ -229,17 +229,174 @@ class ReductoClient:
     def _chunks_to_markdown(self, chunks) -> str:
         """Convert chunks to continuous readable markdown.
 
-        Merges chunks intelligently, removing redundant headers and
-        creating a smooth document flow.
+        Merges chunks intelligently, reconstructing header syntax from
+        block metadata and creating a smooth document flow.
         """
         parts = []
         for chunk in chunks:
-            content = chunk.content.strip()
-            if content:
-                parts.append(content)
+            chunk_content = self._process_chunk_with_headers(chunk)
+            if chunk_content:
+                parts.append(chunk_content)
 
-        # Join with single newlines to create continuous flow
+        # Join with double newlines to create continuous flow
         return "\n\n".join(parts)
+
+    def _process_chunk_with_headers(self, chunk) -> str:
+        """Process a single chunk, reconstructing markdown headers from block metadata.
+
+        Args:
+            chunk: A Reducto chunk object with content and optional blocks.
+
+        Returns:
+            Processed markdown string with headers properly formatted.
+        """
+        # Check if chunk has block-level metadata
+        blocks = getattr(chunk, "blocks", None)
+        if not blocks:
+            # No block metadata - return content as-is
+            return chunk.content.strip() if hasattr(chunk, "content") else ""
+
+        # Process blocks to reconstruct markdown
+        processed_parts = []
+        for block in blocks:
+            block_type = getattr(block, "type", None)
+            block_content = getattr(block, "content", "")
+
+            if not block_content:
+                continue
+
+            block_content = block_content.strip()
+            if not block_content:
+                continue
+
+            # Reconstruct markdown headers from Header blocks
+            if block_type and block_type.lower() == "header":
+                # Try to get header level if available, default to h2
+                level = getattr(block, "level", None)
+                if level is None:
+                    # Infer level from content characteristics
+                    level = self._infer_header_level(block_content)
+                prefix = "#" * level
+                processed_parts.append(f"{prefix} {block_content}")
+            else:
+                # Non-header content - use as-is
+                processed_parts.append(block_content)
+
+        if processed_parts:
+            return "\n\n".join(processed_parts)
+
+        # Fallback to chunk.content if no blocks processed
+        return chunk.content.strip() if hasattr(chunk, "content") else ""
+
+    def _infer_header_level(self, content: str) -> int:
+        """Infer markdown header level from content characteristics.
+
+        This is a heuristic for headers where Reducto doesn't provide an
+        explicit level. Only called for content already identified as a header.
+
+        Args:
+            content: Header text content (from a Reducto Header block).
+
+        Returns:
+            Header level 1, 2, or 3 based on heuristics:
+            - 1: All caps short text, or contains chapter/part/section keywords
+            - 2: Medium length headers (default for most section headers)
+            - 3: Longer headers (subsections)
+        """
+        # Very short, all caps = likely h1 (document/chapter title)
+        if len(content) < 50 and content.isupper():
+            return 1
+
+        # Short content with chapter/part keywords = h1
+        lower = content.lower()
+        if any(kw in lower for kw in ["chapter", "part", "section"]) and len(content) < 80:
+            return 1
+
+        # Medium length = h2 (default for most section headers)
+        if len(content) < 100:
+            return 2
+
+        # Longer headers = h3 (subsections)
+        return 3
+
+    def extract_block_metadata(self, chunk) -> dict:
+        """Extract header and block metadata from a Reducto chunk.
+
+        Args:
+            chunk: A Reducto chunk object with optional blocks array.
+
+        Returns:
+            Dictionary with header_text, header_level, and block_type.
+        """
+        blocks = getattr(chunk, "blocks", None)
+        if not blocks:
+            return {
+                "header_text": None,
+                "header_level": None,
+                "block_type": None,
+            }
+
+        # Find the first non-empty block to determine primary block type
+        first_block = None
+        for block in blocks:
+            block_content = getattr(block, "content", "")
+            if block_content and block_content.strip():
+                first_block = block
+                break
+
+        if not first_block:
+            return {
+                "header_text": None,
+                "header_level": None,
+                "block_type": None,
+            }
+
+        block_type = getattr(first_block, "type", None)
+        block_content = getattr(first_block, "content", "").strip()
+
+        # Check if this is a header block
+        if block_type and block_type.lower() == "header":
+            level = getattr(first_block, "level", None)
+            if level is None:
+                level = self._infer_header_level(block_content)
+            return {
+                "header_text": block_content,
+                "header_level": level,
+                "block_type": block_type,
+            }
+
+        # Non-header block
+        return {
+            "header_text": None,
+            "header_level": None,
+            "block_type": block_type,
+        }
+
+    def chunks_to_markdown_with_metadata(self, chunks) -> list[dict]:
+        """Convert chunks to markdown with preserved block metadata.
+
+        Args:
+            chunks: List of Reducto chunk objects.
+
+        Returns:
+            List of dictionaries with 'markdown' and 'metadata' keys.
+        """
+        results = []
+        for chunk in chunks:
+            # Get markdown content
+            markdown = self._process_chunk_with_headers(chunk)
+            if not markdown:
+                continue
+
+            # Extract block metadata
+            metadata = self.extract_block_metadata(chunk)
+
+            results.append({
+                "markdown": markdown,
+                "metadata": metadata,
+            })
+
+        return results
 
     def parse_files(
         self,

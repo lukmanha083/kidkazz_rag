@@ -64,6 +64,10 @@ CHUNK_NODE_SCHEMA: dict[str, str] = {
     "has_code": "Bool",
     "has_math": "Bool",
     "has_list": "Bool",
+    # Header/block metadata (from Reducto block mode)
+    "header_text": "String",  # Actual header text if this is a header block
+    "header_level": "U32",  # 0 if not a header, 1-6 for h1-h6
+    "block_type": "String",  # Block type from Reducto: "Header", "Text", "Table", etc.
 }
 
 VECTOR_NODE_SCHEMA: dict[str, str] = {
@@ -207,6 +211,11 @@ def validate_chunk_node(node: dict[str, Any]) -> list[str]:
         valid_types = {"definition", "example", "procedure", "theorem", "narrative"}
         if node["semantic_type"] not in valid_types:
             errors.append(f"Invalid semantic_type: {node['semantic_type']}")
+
+    # Validate header_level (must be 0 or 1-6; 0 means no header)
+    if "header_level" in node and node["header_level"] is not None:
+        if not isinstance(node["header_level"], int) or node["header_level"] < 0 or node["header_level"] > 6:
+            errors.append("Field 'header_level' must be an integer between 0 and 6 (0 means no header)")
 
     return errors
 

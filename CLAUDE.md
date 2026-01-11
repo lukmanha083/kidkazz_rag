@@ -58,7 +58,7 @@ kidkazz config show
 
 ### Core Modules
 
-- **`src/chunker/`** - Hierarchical chunking with graph relationships (parent/child/sibling). Chunks maintain metadata: semantic type, section paths, special content flags (has_table, has_code, has_math).
+- **`src/chunker/`** - Hierarchical chunking with graph relationships (parent/child/sibling). Chunks maintain metadata: semantic type, section paths, special content flags (has_table, has_code, has_math), and header metadata (header_text, header_level, block_type) for improved semantic search.
 
 - **`src/chunker/embedder.py`** - Three embedder implementations:
   - `ChunkEmbedder` (FastEmbed): Local CPU, ONNX Runtime, 384/768/1024 dims
@@ -91,6 +91,14 @@ CLI args > `KIDKAZZ_*` env vars > `.kidkazz.toml` (project) > `~/.config/kidkazz
 
 ### Graph-Aware Chunking
 Chunks maintain relationships: `parent_id`, `children_ids`, `sibling_ids`, `prev_chunk_id`, `next_chunk_id`. This enables context retrieval across chunk boundaries.
+
+### Header Metadata Extraction
+When using Reducto.ai with block/chunk mode, header information is extracted from block metadata and reconstructed as markdown syntax. The ingestion pipeline then extracts header metadata from markdown content:
+- `header_text`: The actual header text (without `#` prefix)
+- `header_level`: 1-6 for h1-h6 (stored as 0 if not a header)
+- `block_type`: Block type from Reducto (e.g., "Header", "Text", "Table")
+
+**Re-parsing required**: To leverage header detection, existing PDFs must be re-parsed (not just re-ingested) since the markdown files need proper header syntax.
 
 ## Configuration Files
 

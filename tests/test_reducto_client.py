@@ -486,3 +486,398 @@ class TestReductoParseResult:
         assert output_path.exists()
         assert output_path.name == "doc.md"
         assert output_path.read_text() == "# Title\n\nContent here"
+
+
+class TestHeaderReconstruction:
+    """Tests for header reconstruction from block metadata."""
+
+    def test_process_chunk_without_blocks(self):
+        """Test processing chunk without block metadata returns content as-is."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Plain text content"
+        mock_chunk.blocks = None
+
+        result = client._process_chunk_with_headers(mock_chunk)
+        assert result == "Plain text content"
+
+    def test_process_chunk_with_header_block(self):
+        """Test processing chunk with Header block type reconstructs markdown header."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        # Create mock block with Header type
+        mock_block = MagicMock()
+        mock_block.type = "Header"
+        mock_block.content = "Introduction"
+        mock_block.level = None  # No explicit level
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Introduction"
+        mock_chunk.blocks = [mock_block]
+
+        result = client._process_chunk_with_headers(mock_chunk)
+        # Should have markdown header syntax
+        assert result.startswith("#")
+        assert "Introduction" in result
+
+    def test_process_chunk_with_header_and_text_blocks(self):
+        """Test processing chunk with mixed Header and Text blocks."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        # Create mock blocks
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Chapter One"
+        header_block.level = None
+
+        text_block = MagicMock()
+        text_block.type = "Text"
+        text_block.content = "This is the chapter content."
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Chapter One\n\nThis is the chapter content."
+        mock_chunk.blocks = [header_block, text_block]
+
+        result = client._process_chunk_with_headers(mock_chunk)
+
+        # Should contain markdown header for Chapter One (h1 due to "chapter" keyword)
+        assert "# Chapter One" in result
+        assert "This is the chapter content." in result
+
+    def test_process_chunk_with_explicit_header_level(self):
+        """Test header block with explicit level attribute."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_block = MagicMock()
+        mock_block.type = "Header"
+        mock_block.content = "Subsection Title"
+        mock_block.level = 3  # Explicit h3
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = [mock_block]
+
+        result = client._process_chunk_with_headers(mock_chunk)
+        assert result == "### Subsection Title"
+
+    def test_process_chunk_lowercase_header_type(self):
+        """Test header type matching is case-insensitive."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_block = MagicMock()
+        mock_block.type = "header"  # lowercase
+        mock_block.content = "Title"
+        mock_block.level = 2
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = [mock_block]
+
+        result = client._process_chunk_with_headers(mock_chunk)
+        assert result == "## Title"
+
+    def test_infer_header_level_all_caps_short(self):
+        """Test all caps short content infers h1."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        level = client._infer_header_level("INTRODUCTION")
+        assert level == 1
+
+    def test_infer_header_level_chapter_keyword(self):
+        """Test chapter keyword infers h1."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        level = client._infer_header_level("Chapter 1: Getting Started")
+        assert level == 1
+
+    def test_infer_header_level_section_keyword(self):
+        """Test section keyword infers h1."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        level = client._infer_header_level("Section 2.1: Overview")
+        assert level == 1
+
+    def test_infer_header_level_medium_content(self):
+        """Test medium length content infers h2."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        level = client._infer_header_level("Understanding the Basics of Inventory")
+        assert level == 2
+
+    def test_infer_header_level_long_content(self):
+        """Test long content infers h3."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        long_title = "This is a very long subsection title that describes in detail what this particular section covers and includes multiple topics"
+        level = client._infer_header_level(long_title)
+        assert level == 3
+
+    def test_chunks_to_markdown_with_headers(self):
+        """Test _chunks_to_markdown reconstructs headers from blocks."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        # Create chunk with header block
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Document Title"
+        header_block.level = 1
+
+        text_block = MagicMock()
+        text_block.type = "Text"
+        text_block.content = "Some paragraph text here."
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = [header_block, text_block]
+
+        result = client._chunks_to_markdown([mock_chunk])
+
+        assert "# Document Title" in result
+        assert "Some paragraph text here." in result
+
+    def test_chunks_to_markdown_fallback_to_content(self):
+        """Test _chunks_to_markdown falls back to chunk.content when no blocks."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Fallback content"
+        mock_chunk.blocks = None
+
+        result = client._chunks_to_markdown([mock_chunk])
+
+        assert result == "Fallback content"
+
+    def test_process_chunk_empty_blocks(self):
+        """Test processing chunk with empty blocks list falls back to content."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Fallback content"
+        mock_chunk.blocks = []
+
+        result = client._process_chunk_with_headers(mock_chunk)
+        assert result == "Fallback content"
+
+    def test_process_chunk_skips_empty_block_content(self):
+        """Test blocks with empty content are skipped."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        empty_block = MagicMock()
+        empty_block.type = "Text"
+        empty_block.content = ""
+
+        text_block = MagicMock()
+        text_block.type = "Text"
+        text_block.content = "Valid content"
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Fallback"
+        mock_chunk.blocks = [empty_block, text_block]
+
+        result = client._process_chunk_with_headers(mock_chunk)
+        assert result == "Valid content"
+        assert "Fallback" not in result
+
+
+class TestBlockMetadataExtraction:
+    """Tests for extracting and preserving block metadata from Reducto (TDD)."""
+
+    def test_extract_block_metadata_from_header_block(self):
+        """Should extract header metadata from a Header block."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_block = MagicMock()
+        mock_block.type = "Header"
+        mock_block.content = "Chapter 1: Introduction"
+        mock_block.level = 1
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = [mock_block]
+
+        result = client.extract_block_metadata(mock_chunk)
+
+        assert result["header_text"] == "Chapter 1: Introduction"
+        assert result["header_level"] == 1
+        assert result["block_type"] == "Header"
+
+    def test_extract_block_metadata_from_text_block(self):
+        """Should extract metadata from a Text block."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_block = MagicMock()
+        mock_block.type = "Text"
+        mock_block.content = "This is paragraph text."
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = [mock_block]
+
+        result = client.extract_block_metadata(mock_chunk)
+
+        assert result["header_text"] is None
+        assert result["header_level"] is None
+        assert result["block_type"] == "Text"
+
+    def test_extract_block_metadata_infers_header_level(self):
+        """Should infer header level when not explicitly provided."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_block = MagicMock()
+        mock_block.type = "Header"
+        mock_block.content = "INTRODUCTION"  # All caps, should infer level 1
+        mock_block.level = None
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = [mock_block]
+
+        result = client.extract_block_metadata(mock_chunk)
+
+        assert result["header_text"] == "INTRODUCTION"
+        assert result["header_level"] == 1  # Inferred from all caps
+        assert result["block_type"] == "Header"
+
+    def test_extract_block_metadata_no_blocks(self):
+        """Should return empty metadata when chunk has no blocks."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = None
+
+        result = client.extract_block_metadata(mock_chunk)
+
+        assert result["header_text"] is None
+        assert result["header_level"] is None
+        assert result["block_type"] is None
+
+    def test_extract_block_metadata_uses_first_block_type(self):
+        """Should use the first block's type as the primary block_type."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Section Title"
+        header_block.level = 2
+
+        text_block = MagicMock()
+        text_block.type = "Text"
+        text_block.content = "Some text follows."
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = [header_block, text_block]
+
+        result = client.extract_block_metadata(mock_chunk)
+
+        # Should use the header block's metadata
+        assert result["header_text"] == "Section Title"
+        assert result["header_level"] == 2
+        assert result["block_type"] == "Header"
+
+    def test_extract_block_metadata_table_block(self):
+        """Should identify Table block type."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        mock_block = MagicMock()
+        mock_block.type = "Table"
+        mock_block.content = "| A | B |\n|---|---|\n| 1 | 2 |"
+
+        mock_chunk = MagicMock()
+        mock_chunk.blocks = [mock_block]
+
+        result = client.extract_block_metadata(mock_chunk)
+
+        assert result["header_text"] is None
+        assert result["header_level"] is None
+        assert result["block_type"] == "Table"
+
+    def test_chunks_to_markdown_with_metadata_returns_list(self):
+        """Should return list of (markdown, metadata) tuples."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key")
+        client = ReductoClient(config)
+
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Chapter 1"
+        header_block.level = 1
+
+        text_block = MagicMock()
+        text_block.type = "Text"
+        text_block.content = "Content here."
+
+        chunk1 = MagicMock()
+        chunk1.blocks = [header_block]
+
+        chunk2 = MagicMock()
+        chunk2.blocks = [text_block]
+
+        result = client.chunks_to_markdown_with_metadata([chunk1, chunk2])
+
+        assert len(result) == 2
+        assert isinstance(result, list)
+        # First item should have header metadata
+        assert result[0]["markdown"] == "# Chapter 1"
+        assert result[0]["metadata"]["header_text"] == "Chapter 1"
+        assert result[0]["metadata"]["header_level"] == 1
+        assert result[0]["metadata"]["block_type"] == "Header"
+        # Second item should have text metadata
+        assert result[1]["markdown"] == "Content here."
+        assert result[1]["metadata"]["header_text"] is None
+        assert result[1]["metadata"]["block_type"] == "Text"
