@@ -46,7 +46,7 @@ kidkazz search semantic "query text" --limit 10 --tags "inventory"
 kidkazz docs list
 kidkazz inbox status
 kidkazz inbox list                  # List PDFs in inbox
-kidkazz inbox list --output         # List parsed markdown files
+kidkazz inbox list --output         # List parsed markdown (status + quality)
 kidkazz inbox sync --dry-run        # Preview cloud sync
 kidkazz inbox parse                 # Parse PDFs with Reducto.ai
 kidkazz config show

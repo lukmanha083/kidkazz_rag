@@ -533,14 +533,15 @@ kidkazz inbox status
 # List PDF files in inbox
 kidkazz inbox list
 
-# List parsed markdown files in output directory
+# List parsed markdown files in output directory (with status & quality metrics)
 kidkazz inbox list --output
-
-# Filter by status
-kidkazz inbox list --status pending
-kidkazz inbox list --status completed
-kidkazz inbox list --status failed
+kidkazz inbox list --output --json
 ```
+
+The `--output` view shows:
+- **Status**: `ingested` (in database) or `pending` (not yet ingested)
+- **Quality metrics**: word count, headers, tables
+- **Summary**: total/ingested/pending counts
 
 **Step 4: Convert PDFs in Google Colab**
 
@@ -1503,10 +1504,9 @@ kidkazz inbox status
 
 # List PDF files in inbox
 kidkazz inbox list
-kidkazz inbox list --status pending
 kidkazz inbox list --json
 
-# List parsed markdown files in output directory
+# List parsed markdown files (shows status & quality metrics)
 kidkazz inbox list --output
 kidkazz inbox list --output --json
 
