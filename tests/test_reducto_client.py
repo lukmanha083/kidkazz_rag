@@ -641,7 +641,7 @@ class TestHeaderReconstruction:
         level = client._infer_header_level(long_title)
         assert level == 3
 
-    def test_chunks_to_markdown_with_headers(self, mock_reducto_sdk):
+    def test_chunks_to_markdown_with_headers(self):
         """Test _chunks_to_markdown reconstructs headers from blocks."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
@@ -666,7 +666,7 @@ class TestHeaderReconstruction:
         assert "# Document Title" in result
         assert "Some paragraph text here." in result
 
-    def test_chunks_to_markdown_fallback_to_content(self, mock_reducto_sdk):
+    def test_chunks_to_markdown_fallback_to_content(self):
         """Test _chunks_to_markdown falls back to chunk.content when no blocks."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 

@@ -66,7 +66,7 @@ CHUNK_NODE_SCHEMA: dict[str, str] = {
     "has_list": "Bool",
     # Header/block metadata (from Reducto block mode)
     "header_text": "String",  # Actual header text if this is a header block
-    "header_level": "U32",  # 1-6 for header level (h1-h6)
+    "header_level": "U32",  # 0 if not a header, 1-6 for h1-h6
     "block_type": "String",  # Block type from Reducto: "Header", "Text", "Table", etc.
 }
 
