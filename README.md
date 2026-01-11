@@ -530,8 +530,11 @@ mv ~/Downloads/*.pdf ~/.kidkazz/inbox/
 # View inbox summary
 kidkazz inbox status
 
-# List all PDFs with details
+# List PDF files in inbox
 kidkazz inbox list
+
+# List parsed markdown files in output directory
+kidkazz inbox list --output
 
 # Filter by status
 kidkazz inbox list --status pending
@@ -1363,7 +1366,7 @@ The CLI tool (`kidkazz`) provides command-line access to all RAG functionality w
 | `kidkazz docs` | list, stats, export, delete | Manage documents |
 | `kidkazz concepts` | list, show, search, related, graph, export | Query concept graph |
 | `kidkazz db` | init, status, clear | Database operations |
-| `kidkazz inbox` | status, list, clear, sync, parse | Manage PDF inbox |
+| `kidkazz inbox` | status, list, clear, sync, parse, quality | Manage PDF inbox and parsed output |
 | `kidkazz config` | show, set, reset, init | Configuration management |
 
 ### Ingest Commands
@@ -1502,6 +1505,10 @@ kidkazz inbox status
 kidkazz inbox list
 kidkazz inbox list --status pending
 kidkazz inbox list --json
+
+# List parsed markdown files in output directory
+kidkazz inbox list --output
+kidkazz inbox list --output --json
 
 # Clear inbox files
 kidkazz inbox clear --force

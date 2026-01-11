@@ -44,7 +44,11 @@ kidkazz ingest markdown file.md --tags "inventory,accounting"
 kidkazz ingest batch ./docs/ --pattern "*.md" --recursive
 kidkazz search semantic "query text" --limit 10 --tags "inventory"
 kidkazz docs list
-kidkazz inbox scan
+kidkazz inbox status
+kidkazz inbox list                  # List PDFs in inbox
+kidkazz inbox list --output         # List parsed markdown files
+kidkazz inbox sync --dry-run        # Preview cloud sync
+kidkazz inbox parse                 # Parse PDFs with Reducto.ai
 kidkazz config show
 ```
 
