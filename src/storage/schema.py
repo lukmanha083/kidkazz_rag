@@ -76,6 +76,29 @@ VECTOR_NODE_SCHEMA: dict[str, str] = {
     "embedding_dim": "U32",
 }
 
+# Table node schema (Phase 2: Table Processing)
+TABLE_NODE_SCHEMA: dict[str, str] = {
+    "table_id": "String",
+    "raw_markdown": "String",
+    "summary_text": "String",
+    "column_names": "String",  # JSON array
+    "column_types": "String",  # JSON array
+    "row_count": "U32",
+    "column_count": "U32",
+    "source_chunk_id": "String",
+    "source_document_id": "String",
+    "surrounding_context": "String",
+    "key_columns": "String",  # JSON array
+    "key_values": "String",  # JSON array
+}
+
+# Table vector schema for summary embeddings
+TABLE_VECTOR_SCHEMA: dict[str, str] = {
+    "embedding": "Vec32",  # Summary embedding for retrieval
+    "model_name": "String",
+    "embedding_dim": "U32",
+}
+
 # Edge type definitions
 EDGE_TYPES: dict[str, tuple[str, str]] = {
     "HasChunk": ("Document", "Chunk"),
@@ -84,6 +107,11 @@ EDGE_TYPES: dict[str, tuple[str, str]] = {
     "PrevSibling": ("Chunk", "Chunk"),
     "SiblingOf": ("Chunk", "Chunk"),
     "HasEmbedding": ("Chunk", "ChunkVector"),
+    # Table edges (Phase 2)
+    "HasTable": ("Document", "Table"),
+    "ChunkContainsTable": ("Chunk", "Table"),
+    "TableRelatedToConcept": ("Table", "Concept"),
+    "HasTableEmbedding": ("Table", "TableVector"),
 }
 
 
@@ -99,6 +127,8 @@ def get_schema_definition() -> dict[str, Any]:
             "Document": DOCUMENT_NODE_SCHEMA,
             "Chunk": CHUNK_NODE_SCHEMA,
             "ChunkVector": VECTOR_NODE_SCHEMA,
+            "Table": TABLE_NODE_SCHEMA,
+            "TableVector": TABLE_VECTOR_SCHEMA,
         },
         "edges": EDGE_TYPES,
     }
