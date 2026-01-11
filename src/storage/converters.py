@@ -69,19 +69,32 @@ def helix_node_to_chunk(node: dict[str, Any]) -> Chunk:
     # Parse JSON fields
     section_path = json.loads(node.get("section_path", "[]"))
     child_ids = json.loads(node.get("child_ids", "[]"))
+    sibling_ids = json.loads(node.get("sibling_ids", "[]"))
+    topic_tags = json.loads(node.get("topic_tags", "[]"))
 
-    # Preserve semantic_type and other metadata in chunk.metadata
-    metadata = {}
-    if "semantic_type" in node:
-        metadata["semantic_type"] = node["semantic_type"]
-    if "has_table" in node:
-        metadata["has_table"] = node["has_table"]
-    if "has_code" in node:
-        metadata["has_code"] = node["has_code"]
-    if "has_math" in node:
-        metadata["has_math"] = node["has_math"]
-    if "has_list" in node:
-        metadata["has_list"] = node["has_list"]
+    # Handle header fields (convert empty/0 back to None)
+    header_text = node.get("header_text")
+    header_text = header_text if header_text else None
+    header_level = node.get("header_level")
+    header_level = header_level if header_level else None
+    block_type = node.get("block_type")
+    block_type = block_type if block_type else None
+
+    # Include all metadata for MCP tools
+    metadata = {
+        "document_id": node.get("document_id"),
+        "semantic_type": node.get("semantic_type"),
+        "topic_tags": topic_tags,
+        "has_table": bool(node.get("has_table", 0)),
+        "has_code": bool(node.get("has_code", 0)),
+        "has_math": bool(node.get("has_math", 0)),
+        "has_list": bool(node.get("has_list", 0)),
+        "header_text": header_text,
+        "header_level": header_level,
+        "block_type": block_type,
+        "sibling_ids": sibling_ids,
+        "sequence_position": node.get("sequence_position", 0),
+    }
 
     return Chunk(
         id=node["chunk_id"],
