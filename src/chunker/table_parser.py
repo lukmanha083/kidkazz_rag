@@ -109,11 +109,8 @@ def parse_markdown_table(content: str, chunk_id: str) -> Optional[ParsedTable]:
             cells = cells[:len(columns)]
             rows.append(cells)
 
-    if not rows:
-        return None
-
-    # Infer column types
-    column_types = infer_column_types(columns, rows)
+    # Infer column types (empty list if no rows)
+    column_types = infer_column_types(columns, rows) if rows else ["text"] * len(columns)
 
     # Extract surrounding context (text before table)
     table_start = content.find(match.group(0))

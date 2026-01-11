@@ -303,10 +303,11 @@ class TestSearchTables:
 
         results = store.search_tables("test", top_k=5)
 
-        # Results should be tuples of (table, score)
-        if results:
-            table_result, score = results[0]
-            assert isinstance(score, float)
+        # Results should be non-empty and contain tuples of (table, score)
+        assert results, "Search should return at least one result when tables exist"
+        assert len(results) > 0
+        table_result, score = results[0]
+        assert isinstance(score, float)
 
 
 # ============================================================================

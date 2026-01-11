@@ -110,8 +110,8 @@ EDGE_TYPES: dict[str, tuple[str, str]] = {
     # Table edges (Phase 2)
     "HasTable": ("Document", "Table"),
     "ChunkContainsTable": ("Chunk", "Table"),
-    "TableRelatedToConcept": ("Table", "Concept"),
     "HasTableEmbedding": ("Table", "TableVector"),
+    # Note: TableRelatedToConcept edge will be added when Concept node is defined
 }
 
 
@@ -168,6 +168,17 @@ def create_kidkazz_schema(config: Optional[SchemaConfig] = None) -> Any:
             "embedding_dim": "U32",
         }
         schema.create_vector("ChunkVector", vector_schema)
+
+        # Create Table node (Phase 2: Table Processing)
+        schema.create_node("Table", TABLE_NODE_SCHEMA)
+
+        # Create TableVector for summary embeddings
+        table_vector_schema = {
+            "embedding": config.vector_type,
+            "model_name": "String",
+            "embedding_dim": "U32",
+        }
+        schema.create_vector("TableVector", table_vector_schema)
 
         # Create edges
         for edge_name, (from_node, to_node) in EDGE_TYPES.items():

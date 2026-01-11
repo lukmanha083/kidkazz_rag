@@ -323,8 +323,8 @@ class TestTableParserEdgeCases:
         content = "| A | B\n|---\n| 1"  # Missing delimiters
         result = parse_markdown_table(content, "chunk_001")
 
-        # Should return None or handle gracefully
-        assert result is None or isinstance(result, object)
+        # Malformed tables should return None
+        assert result is None
 
     def test_handles_empty_content(self):
         """Should handle empty content."""
@@ -344,8 +344,10 @@ class TestTableParserEdgeCases:
 """
         result = parse_markdown_table(content, "chunk_001")
 
-        # Should return None or empty rows
-        assert result is None or result.row_count == 0
+        # Header-only tables should return a ParsedTable with zero rows
+        assert result is not None
+        assert result.row_count == 0
+        assert result.column_names == ["A", "B", "C"]
 
     def test_handles_unicode_content(self):
         """Should handle unicode characters in tables."""

@@ -20,8 +20,8 @@ def _get_table_store():
         config = CLIConfig.load()
         embedder = get_embedder(config)
         return TableStore(embedder=embedder)
-    except ImportError as e:
-        print_error(f"Table store not available: {e}")
+    except Exception as e:
+        print_error(f"Failed to initialize table store: {e}")
         raise typer.Exit(1)
 
 
@@ -60,8 +60,9 @@ def list_tables(
             console.print(f"    Columns: {', '.join(table['column_names'])}")
             console.print(f"    Rows: {table['row_count']}")
             if table.get("summary"):
-                summary = table["summary"][:80] + "..." if len(table.get("summary", "")) > 80 else table.get("summary", "")
-                console.print(f"    Summary: {summary}")
+                summary_raw = table["summary"]
+                truncated = summary_raw[:80] + "..." if len(summary_raw) > 80 else summary_raw
+                console.print(f"    Summary: {truncated}")
             console.print()
 
 
@@ -111,11 +112,12 @@ def show_table(
             console.print("[bold]Content (Key-Value format):[/bold]")
             console.print(table.to_markdown_kv())
         elif format == "raw":
-            console.print("[bold]Raw Markdown:[/bold]")
+            console.print("[bold]Raw Markdown (source):[/bold]")
             console.print(table.raw_markdown)
         else:
-            console.print("[bold]Markdown:[/bold]")
-            console.print(table.raw_markdown)
+            # Default markdown format uses KV for better readability
+            console.print("[bold]Formatted Content:[/bold]")
+            console.print(table.to_markdown_kv())
 
         if table.surrounding_context:
             console.print(f"\n[dim]Context: {table.surrounding_context[:200]}[/dim]")
