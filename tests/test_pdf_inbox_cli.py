@@ -372,24 +372,6 @@ class TestInboxErrorHandling:
 class TestInputValidation:
     """Tests for input validation in inbox commands."""
 
-    def test_invalid_status_filter_rejected(self, temp_inbox, temp_output):
-        """Test that invalid status filter is rejected with error."""
-        from src.cli.main import app
-
-        create_mock_pdf(temp_inbox, "test.pdf")
-
-        with patch.dict(
-            "os.environ",
-            {
-                "KIDKAZZ_INBOX_PATH": str(temp_inbox),
-                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
-            },
-        ):
-            result = runner.invoke(app, ["inbox", "list", "--status", "invalid"])
-
-        assert result.exit_code == 1
-        assert "invalid" in result.stdout.lower()
-
     def test_conflicting_clear_flags_rejected(self, temp_inbox, temp_output):
         """Test that --failed and --completed flags conflict is rejected."""
         from src.cli.main import app

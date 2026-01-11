@@ -103,12 +103,6 @@ def list_pdfs(
         "-j",
         help="Output as JSON",
     ),
-    status_filter: Optional[str] = typer.Option(
-        None,
-        "--status",
-        "-s",
-        help="Filter by status (pending, processing, completed, failed)",
-    ),
     show_output: bool = typer.Option(
         False,
         "--output",
@@ -156,29 +150,15 @@ def list_pdfs(
                 console.print(table)
             return
 
-        # Default: list inbox PDFs
-        # Validate status filter
-        if status_filter:
-            normalized_status = status_filter.lower()
-            if normalized_status not in VALID_STATUSES:
-                console.print(
-                    f"[red]Invalid status '{status_filter}'. "
-                    f"Valid options: {', '.join(sorted(VALID_STATUSES))}[/red]"
-                )
-                raise typer.Exit(1)
-
+        # Default: list inbox PDFs (all are pending - parsed PDFs are moved out)
         manager = get_inbox_manager()
         pdfs = manager.scan()
-
-        # Apply status filter
-        if status_filter:
-            pdfs = [p for p in pdfs if p.status.value == status_filter.lower()]
 
         if not pdfs:
             if json_output:
                 console.print("[]")
             else:
-                console.print("[dim]No PDF files found[/dim]")
+                console.print("[dim]No PDF files in inbox[/dim]")
             return
 
         if json_output:
@@ -187,23 +167,18 @@ def list_pdfs(
                     "name": pdf.name,
                     "path": str(pdf.path),
                     "size": pdf.size,
-                    "status": pdf.status.value,
-                    "output_path": str(pdf.output_path) if pdf.output_path else None,
-                    "error": pdf.error_message,
                 }
                 for pdf in pdfs
             ]
             console.print(json.dumps(data, indent=2))
         else:
-            table = Table(title="PDF Files")
+            table = Table(title="PDF Files in Inbox")
             table.add_column("Name", style="cyan")
             table.add_column("Size", justify="right")
-            table.add_column("Status")
 
             for pdf in pdfs:
                 size_str = _format_size(pdf.size)
-                status_style = _get_status_style(pdf.status.value)
-                table.add_row(pdf.name, size_str, f"[{status_style}]{pdf.status.value}[/{status_style}]")
+                table.add_row(pdf.name, size_str)
 
             console.print(table)
 
