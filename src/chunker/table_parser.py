@@ -97,11 +97,15 @@ def parse_markdown_table(content: str, chunk_id: str) -> Optional[ParsedTable]:
         line = line.strip()
         if not line:
             continue
-        # Split by | and filter empty strings
+        # Split by | and strip whitespace
         cells = [c.strip() for c in line.split('|')]
-        # Remove first and last empty strings from split
-        cells = [c for c in cells if c or cells.index(c) not in (0, len(cells) - 1)]
-        # Keep only non-empty or intentionally empty cells
+        # Remove leading empty string from "|col1|col2|" format
+        if cells and cells[0] == "":
+            cells = cells[1:]
+        # Remove trailing empty string from "|col1|col2|" format
+        if cells and cells[-1] == "":
+            cells = cells[:-1]
+        # Process non-empty row
         if cells:
             # Pad or truncate to match column count
             while len(cells) < len(columns):
