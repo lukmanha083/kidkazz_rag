@@ -15,20 +15,40 @@ def format_chunk(ec: EmbeddedChunk) -> dict[str, Any]:
         Dictionary with chunk data suitable for MCP response
     """
     chunk = ec.chunk
+    meta = chunk.metadata or {}
+
     return {
+        # Core chunk fields
         "chunk_id": chunk.id,
         "content": chunk.content,
         "level": chunk.level,
         "token_count": chunk.token_count,
         "word_count": chunk.word_count,
+        # Graph relationships
         "parent_id": chunk.parent_id,
         "child_ids": chunk.child_ids,
         "prev_id": chunk.prev_id,
         "next_id": chunk.next_id,
+        "sibling_ids": meta.get("sibling_ids", []),
+        # Section info
         "section_path": chunk.section_path,
         "source_section": chunk.source_section,
+        # Embedding info
         "model_name": ec.model_name,
         "embedding_dim": ec.embedding_dim,
+        # Metadata for filtering and context
+        "document_id": meta.get("document_id"),
+        "semantic_type": meta.get("semantic_type"),
+        "topic_tags": meta.get("topic_tags", []),
+        # Content flags
+        "has_table": meta.get("has_table", False),
+        "has_code": meta.get("has_code", False),
+        "has_math": meta.get("has_math", False),
+        "has_list": meta.get("has_list", False),
+        # Header metadata (from Reducto block mode)
+        "header_text": meta.get("header_text"),
+        "header_level": meta.get("header_level"),
+        "block_type": meta.get("block_type"),
     }
 
 

@@ -93,6 +93,10 @@ class MockChunkStore:
                 "has_code": meta.has_code,
                 "has_math": meta.has_math,
                 "has_list": meta.has_list,
+                # Header metadata (from Reducto block mode)
+                "header_text": meta.header_text,
+                "header_level": meta.header_level,
+                "block_type": meta.block_type,
             }
             self._embeddings[chunk.id] = ec.embedding
             self._model_names[chunk.id] = ec.model_name
@@ -528,6 +532,22 @@ class MockChunkStore:
         embedding = self._embeddings.get(chunk_id, [])
         model_name = self._model_names.get(chunk_id, "unknown")
 
+        # Include stored metadata for MCP tools
+        metadata = {
+            "document_id": data.get("document_id"),
+            "semantic_type": data.get("semantic_type"),
+            "topic_tags": data.get("topic_tags", []),
+            "has_table": data.get("has_table", False),
+            "has_code": data.get("has_code", False),
+            "has_math": data.get("has_math", False),
+            "has_list": data.get("has_list", False),
+            "header_text": data.get("header_text"),
+            "header_level": data.get("header_level"),
+            "block_type": data.get("block_type"),
+            "sibling_ids": data.get("sibling_ids", []),
+            "sequence_position": data.get("sequence_position", 0),
+        }
+
         chunk = Chunk(
             id=data["chunk_id"],
             content=data["content"],
@@ -539,6 +559,7 @@ class MockChunkStore:
             next_id=data.get("next_id"),
             source_section=data.get("source_section"),
             section_path=data.get("section_path", []),
+            metadata=metadata,
         )
 
         return EmbeddedChunk(
