@@ -230,7 +230,7 @@ def ingest_markdown(
                     try:
                         extractor = ConceptExtractor(provider=final_concept_provider)
                         extracted_concepts, relations = extractor.extract_from_chunks(
-                            chunks, final_title
+                            chunks, final_title, metadata_list=metadata
                         )
 
                         # Store or merge concepts (cross-document linking)
@@ -448,7 +448,7 @@ def ingest_batch(
                         from src.chunker.concept_extractor import slugify
 
                         extracted_concepts, relations = extractor.extract_from_chunks(
-                            chunks, title
+                            chunks, title, metadata_list=metadata
                         )
 
                         # Store or merge concepts (cross-document linking)

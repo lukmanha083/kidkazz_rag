@@ -60,6 +60,11 @@ kidkazz config show
 
 - **`src/chunker/`** - Hierarchical chunking with graph relationships (parent/child/sibling). Chunks maintain metadata: semantic type, section paths, special content flags (has_table, has_code, has_math), and header metadata (header_text, header_level, block_type) for improved semantic search.
 
+- **`src/chunker/concept_extractor.py`** - LLM-powered concept extraction using Instructor. Features:
+  - Header-aware prompts (includes header_text, header_level in context)
+  - Semantic type filtering via `filter_chunks_by_semantic_type()`
+  - Header hierarchy relationship inference via `infer_relationships_from_headers()`
+
 - **`src/chunker/embedder.py`** - Three embedder implementations:
   - `ChunkEmbedder` (FastEmbed): Local CPU, ONNX Runtime, 384/768/1024 dims
   - `OpenAIEmbedder`: API-based, 1536/3072 dims
