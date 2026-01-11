@@ -37,6 +37,19 @@ except ImportError:
     ConceptExtractor = None  # type: ignore
     CONCEPT_EXTRACTION_AVAILABLE = False
 
+# Optional table processing support
+try:
+    from src.chunker.table_parser import parse_markdown_table
+    from src.chunker.table_summarizer import TableSummarizer
+    from src.storage.table_store import TableStore
+
+    TABLE_PROCESSING_AVAILABLE = True
+except ImportError:
+    parse_markdown_table = None  # type: ignore
+    TableSummarizer = None  # type: ignore
+    TableStore = None  # type: ignore
+    TABLE_PROCESSING_AVAILABLE = False
+
 app = typer.Typer(help="Document ingestion commands")
 
 
@@ -106,6 +119,11 @@ def ingest_markdown(
         "--concept-provider",
         help="LLM provider for concept extraction",
     ),
+    extract_tables: bool = typer.Option(
+        False,
+        "--extract-tables",
+        help="Extract and summarize tables for semantic search",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -172,6 +190,7 @@ def ingest_markdown(
         "source": str(file),
         "chunks": 0,
         "concepts": 0,
+        "tables": 0,
         "status": "success",
     }
 
@@ -267,6 +286,42 @@ def ingest_markdown(
                     except Exception as concept_error:
                         tracker.complete("Extracting concepts...")
                         print_warning(f"Concept extraction failed: {concept_error}")
+
+            # Stage 5: Table processing (optional)
+            if extract_tables:
+                if not TABLE_PROCESSING_AVAILABLE:
+                    print_warning(
+                        "Table processing requires table modules. "
+                        "Check installation."
+                    )
+                else:
+                    tracker.add_stage("Processing tables...", total=100)
+                    try:
+                        table_summarizer = TableSummarizer(provider=final_concept_provider or "anthropic")
+                        table_store = TableStore(embedder=embedder_instance)
+
+                        table_count = 0
+                        for i, (chunk, meta) in enumerate(zip(chunks, metadata, strict=False)):
+                            if getattr(meta, "has_table", False):
+                                # Parse table from chunk content
+                                parsed_table = parse_markdown_table(
+                                    chunk["content"], chunk["id"]
+                                )
+                                if parsed_table:
+                                    # Generate summary
+                                    summary = table_summarizer.summarize(parsed_table)
+                                    # Store table
+                                    table_id = table_store.store_table(
+                                        parsed_table, summary, final_doc_id
+                                    )
+                                    table_count += 1
+
+                        result["tables"] = table_count
+                        tracker.complete("Processing tables...")
+
+                    except Exception as table_error:
+                        tracker.complete("Processing tables...")
+                        print_warning(f"Table processing failed: {table_error}")
 
     except Exception as e:
         result["status"] = "error"
