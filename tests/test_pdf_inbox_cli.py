@@ -149,6 +149,89 @@ class TestInboxListCommand:
         assert len(data) == 1
         assert data[0]["name"] == "test.pdf"
 
+    def test_list_output_shows_markdown_files(self, temp_inbox, temp_output):
+        """Test list --output shows markdown files from output directory."""
+        from src.cli.main import app
+
+        # Create markdown files in output directory
+        (temp_output / "document.md").write_text("# Document")
+        (temp_output / "report.md").write_text("# Report")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "list", "--output"])
+
+        assert result.exit_code == 0
+        assert "document.md" in result.stdout
+        assert "report.md" in result.stdout
+
+    def test_list_output_empty_directory(self, temp_inbox, temp_output):
+        """Test list --output with empty output directory."""
+        from src.cli.main import app
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "list", "--output"])
+
+        assert result.exit_code == 0
+        assert "no" in result.stdout.lower() or "empty" in result.stdout.lower()
+
+    def test_list_output_json_format(self, temp_inbox, temp_output):
+        """Test list --output with JSON output."""
+        from src.cli.main import app
+        import json
+
+        # Create markdown file in output directory
+        (temp_output / "test.md").write_text("# Test content here")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "list", "--output", "--json"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["name"] == "test.md"
+        assert "size" in data[0]
+
+    def test_list_default_shows_inbox_pdfs(self, temp_inbox, temp_output):
+        """Test list without --output shows inbox PDFs (default behavior)."""
+        from src.cli.main import app
+
+        # Create PDF in inbox and markdown in output
+        create_mock_pdf(temp_inbox, "inbox_file.pdf")
+        (temp_output / "output_file.md").write_text("# Output")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "list"])
+
+        assert result.exit_code == 0
+        # Should show inbox PDF, not output markdown
+        assert "inbox_file.pdf" in result.stdout
+        assert "output_file.md" not in result.stdout
+
 
 class TestInboxClearCommand:
     """Tests for 'kidkazz inbox clear' command."""

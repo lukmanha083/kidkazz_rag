@@ -109,9 +109,54 @@ def list_pdfs(
         "-s",
         help="Filter by status (pending, processing, completed, failed)",
     ),
+    show_output: bool = typer.Option(
+        False,
+        "--output",
+        "-o",
+        help="List parsed markdown files from output directory instead of inbox PDFs",
+    ),
 ) -> None:
-    """List PDF files in the inbox."""
+    """List PDF files in the inbox or parsed markdown files in output directory."""
     try:
+        config = CLIConfig.load()
+
+        # List output directory (markdown files)
+        if show_output:
+            output_path = Path(config.output_path).expanduser()
+            output_path.mkdir(parents=True, exist_ok=True)
+
+            md_files = list(output_path.glob("*.md"))
+
+            if not md_files:
+                if json_output:
+                    console.print("[]")
+                else:
+                    console.print("[dim]No markdown files found[/dim]")
+                return
+
+            if json_output:
+                data = [
+                    {
+                        "name": f.name,
+                        "path": str(f),
+                        "size": f.stat().st_size,
+                    }
+                    for f in sorted(md_files, key=lambda x: x.name)
+                ]
+                console.print(json.dumps(data, indent=2))
+            else:
+                table = Table(title="Parsed Markdown Files")
+                table.add_column("Name", style="cyan")
+                table.add_column("Size", justify="right")
+
+                for md_file in sorted(md_files, key=lambda x: x.name):
+                    size_str = _format_size(md_file.stat().st_size)
+                    table.add_row(md_file.name, size_str)
+
+                console.print(table)
+            return
+
+        # Default: list inbox PDFs
         # Validate status filter
         if status_filter:
             normalized_status = status_filter.lower()
@@ -361,6 +406,8 @@ def sync(
                             local_path=inbox_path,
                             progress_callback=update_progress,
                         )
+                        # Ensure progress bar shows final state
+                        progress.update(task, completed=result.files_synced)
         else:
             console.print(
                 f"[bold]Uploading to {config.cloud_remote}:{config.cloud_path}...[/bold]"
@@ -400,6 +447,8 @@ def sync(
                             local_path=inbox_path,
                             progress_callback=update_progress,
                         )
+                        # Ensure progress bar shows final state
+                        progress.update(task, completed=result.files_synced)
 
         if result.success:
             action = "Would sync" if dry_run else "Synced"
@@ -673,6 +722,10 @@ def _print_quality_summary(reports: list) -> None:
 
 @app.command()
 def parse(
+    filename: Optional[str] = typer.Argument(
+        None,
+        help="PDF filename to parse (looks in inbox directory). If not provided, parses all PDFs in inbox.",
+    ),
     agentic: bool = typer.Option(
         False,
         "--agentic",
@@ -732,7 +785,8 @@ def parse(
     Use --no-quality-check to force save regardless of quality.
 
     Examples:
-        kidkazz inbox parse                        # Human-readable output
+        kidkazz inbox parse document.pdf           # Parse single file from inbox
+        kidkazz inbox parse                        # Parse all PDFs in inbox
         kidkazz inbox parse --chunk-mode variable  # RAG-optimized chunks
         kidkazz inbox parse --agentic -c block     # High-accuracy + citations
         kidkazz inbox parse --dry-run              # Preview only
@@ -772,11 +826,25 @@ def parse(
         inbox_path.mkdir(parents=True, exist_ok=True)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Find PDF files (recursive if configured)
-        if config.inbox_recursive:
-            pdf_files = list(inbox_path.rglob("*.pdf"))
+        # Find PDF files
+        if filename:
+            # Single file mode - look for file in inbox
+            pdf_path = inbox_path / filename
+            if not pdf_path.exists():
+                # Try adding .pdf extension if not provided
+                if not filename.lower().endswith(".pdf"):
+                    pdf_path = inbox_path / f"{filename}.pdf"
+                if not pdf_path.exists():
+                    console.print(f"[red]File not found: {filename}[/red]")
+                    console.print(f"Inbox path: {inbox_path}")
+                    raise typer.Exit(1)
+            pdf_files = [pdf_path]
         else:
-            pdf_files = list(inbox_path.glob("*.pdf"))
+            # All files mode (recursive if configured)
+            if config.inbox_recursive:
+                pdf_files = list(inbox_path.rglob("*.pdf"))
+            else:
+                pdf_files = list(inbox_path.glob("*.pdf"))
 
         if not pdf_files:
             console.print("[yellow]No PDF files found in inbox[/yellow]")

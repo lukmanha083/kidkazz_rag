@@ -195,14 +195,29 @@ class CLIConfig:
     def _load_from_env(self) -> None:
         """Load settings from environment variables.
 
-        Note: Only API keys/secrets should be in .env file.
-        All other config should be in .kidkazz.toml.
-        This method is kept for backwards compatibility but no longer
-        loads non-secret configuration from environment variables.
+        Environment variables override config file settings.
+        Prefix: KIDKAZZ_
         """
-        # API keys are loaded directly where needed (e.g., reducto_client.py)
-        # All other config comes from .kidkazz.toml only
-        pass
+        env_mappings = {
+            "KIDKAZZ_STORE_TYPE": ("store_type", str),
+            "KIDKAZZ_HELIX_PORT": ("helix_port", int),
+            "KIDKAZZ_HELIX_LOCAL": ("helix_local", lambda x: x.lower() in ("true", "1", "yes")),
+            "KIDKAZZ_EMBEDDER_TYPE": ("embedder_type", str),
+            "KIDKAZZ_MODEL_NAME": ("model_name", str),
+            "KIDKAZZ_INBOX_PATH": ("inbox_path", str),
+            "KIDKAZZ_OUTPUT_PATH": ("output_path", str),
+            "KIDKAZZ_POST_ACTION": ("post_action", str),
+            "KIDKAZZ_INBOX_RECURSIVE": ("inbox_recursive", lambda x: x.lower() in ("true", "1", "yes")),
+            "KIDKAZZ_PROCESSED_DIR": ("processed_dir", str),
+            "KIDKAZZ_CLOUD_REMOTE": ("cloud_remote", str),
+            "KIDKAZZ_CLOUD_PATH": ("cloud_path", str),
+        }
+
+        for env_var, (attr, converter) in env_mappings.items():
+            value = os.environ.get(env_var)
+            if value is not None:
+                setattr(self, attr, converter(value))
+                self._sources[attr] = "env"
 
     def get_source(self, key: str) -> str:
         """Get the source of a configuration value."""

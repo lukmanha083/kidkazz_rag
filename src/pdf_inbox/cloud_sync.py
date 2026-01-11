@@ -151,20 +151,18 @@ class CloudSync:
         try:
             # Use rclone check --one-way to find files missing on remote
             result = subprocess.run(
-                [
-                    "rclone", "check", str(local_path), remote_dest,
-                    "--one-way", "--missing-on-dst", "/dev/stderr",
-                ],
+                ["rclone", "check", str(local_path), remote_dest, "--one-way"],
                 capture_output=True,
                 timeout=120,
             )
             # Parse missing files from stderr
-            # Format: "ERROR : file.pdf: File not in Dest"
+            # Format: "ERROR : file.pdf: file not in <remote>"
             files = []
             for line in result.stderr.decode().split("\n"):
-                if "File not in" in line or "Sizes differ" in line:
-                    # Extract filename between first and second colon
-                    match = re.search(r":\s*(.+?):\s*(?:File not in|Sizes differ)", line)
+                # Match: "ERROR : filename.pdf: file not in ..." or "... sizes differ"
+                if "file not in" in line.lower() or "sizes differ" in line.lower():
+                    # Extract filename: "ERROR : filename.pdf: file not in..."
+                    match = re.search(r"ERROR\s*:\s*(.+?):\s*(?:file not in|sizes differ)", line, re.IGNORECASE)
                     if match:
                         filename = match.group(1).strip()
                         filepath = local_path / filename
@@ -193,18 +191,16 @@ class CloudSync:
         try:
             # Use rclone check --one-way (reversed) to find files missing locally
             result = subprocess.run(
-                [
-                    "rclone", "check", remote_src, str(local_path),
-                    "--one-way", "--missing-on-dst", "/dev/stderr",
-                ],
+                ["rclone", "check", remote_src, str(local_path), "--one-way"],
                 capture_output=True,
                 timeout=120,
             )
             # Parse missing files from stderr
+            # Format: "ERROR : file.pdf: file not in <local>"
             files = []
             for line in result.stderr.decode().split("\n"):
-                if "File not in" in line or "Sizes differ" in line:
-                    match = re.search(r":\s*(.+?):\s*(?:File not in|Sizes differ)", line)
+                if "file not in" in line.lower() or "sizes differ" in line.lower():
+                    match = re.search(r"ERROR\s*:\s*(.+?):\s*(?:file not in|sizes differ)", line, re.IGNORECASE)
                     if match:
                         filename = match.group(1).strip()
                         files.append({"name": filename, "size": 0})
@@ -261,11 +257,11 @@ class CloudSync:
                 output_lines.append(line)
 
                 # Parse progress from verbose output
-                if ": Copied" in line or "Would copy" in line:
+                if ": Copied" in line or "Skipped copy as --dry-run is set" in line:
                     files_completed += 1
-                    # Extract filename
-                    match = re.search(r":\s*(.+?):\s*(?:Copied|Would copy)", line)
-                    current_file = match.group(1) if match else ""
+                    # Extract filename - anchor on INFO to avoid capturing timestamp
+                    match = re.search(r"INFO\s*:\s*(.+?):\s*(?:Copied|Skipped copy)", line)
+                    current_file = match.group(1).strip() if match else ""
                     progress_callback(SyncProgress(
                         current_file=current_file,
                         files_completed=files_completed,
@@ -345,10 +341,11 @@ class CloudSync:
             for line in process.stderr:
                 output_lines.append(line)
 
-                if ": Copied" in line or "Would copy" in line:
+                if ": Copied" in line or "Skipped copy as --dry-run is set" in line:
                     files_completed += 1
-                    match = re.search(r":\s*(.+?):\s*(?:Copied|Would copy)", line)
-                    current_file = match.group(1) if match else ""
+                    # Extract filename - anchor on INFO to avoid capturing timestamp
+                    match = re.search(r"INFO\s*:\s*(.+?):\s*(?:Copied|Skipped copy)", line)
+                    current_file = match.group(1).strip() if match else ""
                     progress_callback(SyncProgress(
                         current_file=current_file,
                         files_completed=files_completed,
@@ -600,8 +597,8 @@ class CloudSync:
             # Count actual transfers: "INFO  : file.pdf: Copied (new)"
             if ": Copied" in line:
                 count += 1
-            # Count dry-run would-copy: "NOTICE: file.pdf: Would copy"
-            elif "Would copy" in line:
+            # Count dry-run: "NOTICE: file.pdf: Skipped copy as --dry-run is set"
+            elif "Skipped copy as --dry-run is set" in line:
                 count += 1
             # Also handle stats summary format: "Transferred: 3 files"
             elif "transferred:" in line.lower() and "files" in line.lower():
