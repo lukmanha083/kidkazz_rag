@@ -192,7 +192,7 @@ class TestInboxListCommand:
         import json
 
         # Create markdown file in output directory
-        (temp_output / "test.md").write_text("# Test content here")
+        (temp_output / "test.md").write_text("# Test content here\n\nSome words in the document.")
 
         with patch.dict(
             "os.environ",
@@ -209,6 +209,69 @@ class TestInboxListCommand:
         assert len(data) == 1
         assert data[0]["name"] == "test.md"
         assert "size" in data[0]
+        assert "status" in data[0]
+        assert data[0]["status"] == "pending"
+        assert "quality" in data[0]
+        assert data[0]["quality"]["words"] > 0
+
+    def test_list_output_shows_quality_metrics(self, temp_inbox, temp_output):
+        """Test list --output shows quality metrics like words, headers, tables."""
+        from src.cli.main import app
+
+        # Create markdown file with various content
+        md_content = """# Main Header
+
+Some text content here with multiple words.
+
+## Sub Header
+
+| Column 1 | Column 2 |
+|----------|----------|
+| Data 1   | Data 2   |
+
+```python
+code_block = True
+```
+"""
+        (temp_output / "quality_test.md").write_text(md_content)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "list", "--output"])
+
+        assert result.exit_code == 0
+        # Check for quality column headers
+        assert "Words" in result.stdout
+        assert "Headers" in result.stdout
+        assert "Tables" in result.stdout
+        # Check for status column
+        assert "Status" in result.stdout
+        assert "pending" in result.stdout.lower()
+
+    def test_list_output_summary_line(self, temp_inbox, temp_output):
+        """Test list --output shows summary with total/ingested/pending counts."""
+        from src.cli.main import app
+
+        (temp_output / "doc1.md").write_text("# Doc 1")
+        (temp_output / "doc2.md").write_text("# Doc 2")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KIDKAZZ_INBOX_PATH": str(temp_inbox),
+                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
+            },
+        ):
+            result = runner.invoke(app, ["inbox", "list", "--output"])
+
+        assert result.exit_code == 0
+        assert "Total: 2" in result.stdout
+        assert "Pending: 2" in result.stdout
 
     def test_list_default_shows_inbox_pdfs(self, temp_inbox, temp_output):
         """Test list without --output shows inbox PDFs (default behavior)."""

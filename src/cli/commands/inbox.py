@@ -7,8 +7,9 @@ This module provides commands for:
 """
 
 import json
+import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
@@ -31,6 +32,38 @@ console = Console()
 
 VALID_POST_ACTIONS = {"delete", "move", "keep"}
 VALID_STATUSES = {"pending", "processing", "completed", "failed"}
+
+
+def _get_markdown_quality(file_path: Path) -> dict[str, Any]:
+    """Extract quality metrics from a markdown file."""
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except Exception:
+        return {"words": 0, "headers": 0, "tables": 0, "code_blocks": 0}
+
+    words = len(content.split())
+    headers = len(re.findall(r"^#{1,6}\s", content, re.MULTILINE))
+    tables = content.count("|---") + content.count("| ---")
+    code_blocks = content.count("```")
+
+    return {
+        "words": words,
+        "headers": headers,
+        "tables": tables,
+        "code_blocks": code_blocks // 2,  # Each code block has opening and closing
+    }
+
+
+def _get_ingested_doc_ids() -> set[str]:
+    """Get set of document IDs that have been ingested to database."""
+    try:
+        from src.cli.commands.docs import get_store
+        config = CLIConfig.load()
+        store = get_store(config)
+        docs = store.list_documents()
+        return {d.get("doc_id", "") for d in docs}
+    except Exception:
+        return set()
 
 
 def get_inbox_manager() -> PDFInboxManager:
@@ -128,26 +161,55 @@ def list_pdfs(
                     console.print("[dim]No markdown files found[/dim]")
                 return
 
+            # Get ingested document IDs for status check
+            ingested_ids = _get_ingested_doc_ids()
+
             if json_output:
-                data = [
-                    {
+                data = []
+                for f in sorted(md_files, key=lambda x: x.name):
+                    doc_id = f.stem
+                    quality = _get_markdown_quality(f)
+                    data.append({
                         "name": f.name,
                         "path": str(f),
                         "size": f.stat().st_size,
-                    }
-                    for f in sorted(md_files, key=lambda x: x.name)
-                ]
+                        "status": "ingested" if doc_id in ingested_ids else "pending",
+                        "quality": quality,
+                    })
                 console.print(json.dumps(data, indent=2))
             else:
                 table = Table(title="Parsed Markdown Files")
-                table.add_column("Name", style="cyan")
+                table.add_column("Name", style="cyan", max_width=50)
                 table.add_column("Size", justify="right")
+                table.add_column("Status", justify="center")
+                table.add_column("Words", justify="right")
+                table.add_column("Headers", justify="right")
+                table.add_column("Tables", justify="right")
 
                 for md_file in sorted(md_files, key=lambda x: x.name):
+                    doc_id = md_file.stem
                     size_str = _format_size(md_file.stat().st_size)
-                    table.add_row(md_file.name, size_str)
+                    quality = _get_markdown_quality(md_file)
+
+                    is_ingested = doc_id in ingested_ids
+                    status_str = "[green]ingested[/green]" if is_ingested else "[yellow]pending[/yellow]"
+
+                    table.add_row(
+                        md_file.name,
+                        size_str,
+                        status_str,
+                        f"{quality['words']:,}",
+                        str(quality['headers']),
+                        str(quality['tables']),
+                    )
 
                 console.print(table)
+
+                # Summary
+                total = len(md_files)
+                ingested = sum(1 for f in md_files if f.stem in ingested_ids)
+                pending = total - ingested
+                console.print(f"\n[dim]Total: {total} | Ingested: {ingested} | Pending: {pending}[/dim]")
             return
 
         # Default: list inbox PDFs (all are pending - parsed PDFs are moved out)
