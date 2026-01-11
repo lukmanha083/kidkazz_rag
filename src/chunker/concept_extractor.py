@@ -160,6 +160,9 @@ class ConceptExtractor:
         section_path: list[str],
         document_title: str,
         existing_concepts: Optional[list[str]] = None,
+        header_text: Optional[str] = None,
+        header_level: Optional[int] = None,
+        semantic_type: Optional[str] = None,
     ) -> ChunkExtraction:
         """
         Extract concepts and relationships from a single chunk.
@@ -169,11 +172,25 @@ class ConceptExtractor:
             section_path: Breadcrumb path ["Chapter 5", "Inventory", "COGS Methods"]
             document_title: Source document name for context
             existing_concepts: Known concepts to reference (avoid duplicates)
+            header_text: Header text from chunk metadata (if any)
+            header_level: Header level 1-6 (h1-h6) from chunk metadata
+            semantic_type: Semantic type from metadata (definition, example, etc.)
 
         Returns:
             ChunkExtraction with defined concepts, mentioned concepts, relationships
         """
-        context = f"Document: {document_title}\nSection: {' > '.join(section_path)}"
+        # Build context with header information
+        context_parts = [f"Document: {document_title}"]
+        context_parts.append(f"Section: {' > '.join(section_path)}")
+
+        if header_text:
+            header_indicator = f"h{header_level}" if header_level else "header"
+            context_parts.append(f"Current Header ({header_indicator}): {header_text}")
+
+        if semantic_type:
+            context_parts.append(f"Content Type: {semantic_type}")
+
+        context = "\n".join(context_parts)
         existing = existing_concepts or []
 
         system_prompt = (
@@ -206,6 +223,7 @@ class ConceptExtractor:
         self,
         chunks: list[dict],  # [{content, section_path, ...}]
         document_title: str,
+        metadata_list: Optional[list] = None,
     ) -> tuple[list[ExtractedConcept], list[ConceptRelation]]:
         """
         Extract all concepts from a document's chunks.
@@ -213,6 +231,7 @@ class ConceptExtractor:
         Args:
             chunks: List of chunk dicts with 'content' and 'section_path' keys
             document_title: Document title for context
+            metadata_list: Optional list of ChunkMetadata objects with header info
 
         Returns:
             Tuple of (deduplicated concepts, all relationships)
@@ -227,11 +246,25 @@ class ConceptExtractor:
         for i, chunk in enumerate(chunks):
             logger.info(f"Extracting concepts from chunk {i + 1}/{len(chunks)}")
 
+            # Get metadata for this chunk if available
+            header_text = None
+            header_level = None
+            semantic_type = None
+
+            if metadata_list and i < len(metadata_list):
+                meta = metadata_list[i]
+                header_text = getattr(meta, "header_text", None)
+                header_level = getattr(meta, "header_level", None)
+                semantic_type = getattr(meta, "semantic_type", None)
+
             extraction = self.extract_from_chunk(
                 content=chunk["content"],
                 section_path=chunk.get("section_path", []),
                 document_title=document_title,
                 existing_concepts=known_names,
+                header_text=header_text,
+                header_level=header_level,
+                semantic_type=semantic_type,
             )
 
             # Deduplicate concepts by lowercase name
@@ -251,3 +284,120 @@ class ConceptExtractor:
             all_relations.extend(extraction.relationships)
 
         return list(all_concepts.values()), all_relations
+
+
+# ============================================================================
+# Semantic Type Filtering
+# ============================================================================
+
+
+def filter_chunks_by_semantic_type(
+    chunks: list[dict],
+    metadata_list: list,
+    semantic_types: Optional[list[str]] = None,
+) -> tuple[list[dict], list]:
+    """
+    Filter chunks by semantic type for prioritized extraction.
+
+    Args:
+        chunks: List of chunk dicts
+        metadata_list: List of ChunkMetadata objects
+        semantic_types: List of semantic types to include (e.g., ["definition", "theorem"])
+                       If None or empty, returns all chunks.
+
+    Returns:
+        Tuple of (filtered_chunks, filtered_metadata)
+    """
+    if not semantic_types:
+        return chunks, metadata_list
+
+    filtered_chunks = []
+    filtered_metadata = []
+
+    for chunk, meta in zip(chunks, metadata_list):
+        if getattr(meta, "semantic_type", None) in semantic_types:
+            filtered_chunks.append(chunk)
+            filtered_metadata.append(meta)
+
+    return filtered_chunks, filtered_metadata
+
+
+# ============================================================================
+# Header Hierarchy Relationship Inference
+# ============================================================================
+
+
+def infer_relationships_from_headers(
+    concepts: list[ExtractedConcept],
+    metadata_list: list,
+    concept_chunk_map: dict[str, str],
+) -> list[ConceptRelation]:
+    """
+    Infer parent-child relationships between concepts based on header hierarchy.
+
+    When a concept is extracted from an h2 section that follows an h1 section
+    containing another concept, we infer a parent-child relationship.
+
+    Args:
+        concepts: List of extracted concepts
+        metadata_list: List of ChunkMetadata objects with header info
+        concept_chunk_map: Mapping of concept name -> chunk_id
+
+    Returns:
+        List of inferred ConceptRelation objects
+    """
+    if not concepts or not metadata_list or not concept_chunk_map:
+        return []
+
+    # Build chunk_id -> metadata mapping
+    chunk_metadata: dict[str, tuple] = {}
+    for meta in metadata_list:
+        chunk_id = getattr(meta, "chunk_id", None)
+        if chunk_id:
+            header_level = getattr(meta, "header_level", None)
+            header_text = getattr(meta, "header_text", None)
+            chunk_metadata[chunk_id] = (header_level, header_text)
+
+    # Build concept -> (chunk_id, header_level) mapping
+    concept_levels: dict[str, tuple[str, Optional[int]]] = {}
+    for concept in concepts:
+        chunk_id = concept_chunk_map.get(concept.name)
+        if chunk_id and chunk_id in chunk_metadata:
+            header_level, _ = chunk_metadata[chunk_id]
+            concept_levels[concept.name] = (chunk_id, header_level)
+
+    # Find parent relationships based on header hierarchy
+    relations = []
+
+    # Track header stack for hierarchy
+    header_stack: list[tuple[str, int]] = []  # [(concept_name, header_level)]
+
+    # Sort concepts by their chunk position (assuming chunk_ids are ordered)
+    sorted_concepts = sorted(
+        [(c.name, concept_levels.get(c.name, (None, None))) for c in concepts],
+        key=lambda x: x[1][0] if x[1][0] else "",
+    )
+
+    for concept_name, (chunk_id, level) in sorted_concepts:
+        if level is None:
+            continue
+
+        # Pop concepts with same or higher level (lower number = higher in hierarchy)
+        while header_stack and header_stack[-1][1] >= level:
+            header_stack.pop()
+
+        # If there's a parent concept in the stack, create relationship
+        if header_stack:
+            parent_name = header_stack[-1][0]
+            relations.append(
+                ConceptRelation(
+                    from_concept=parent_name,
+                    to_concept=concept_name,
+                    relation_type="parent_of",
+                )
+            )
+
+        # Push current concept to stack
+        header_stack.append((concept_name, level))
+
+    return relations
