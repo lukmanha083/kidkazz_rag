@@ -94,7 +94,9 @@ kidkazz ingest markdown file.md --extract-tables  # Process tables during ingest
   - `MockChunkStore`: In-memory for testing
   - `HelixChunkStore`: Production vector + graph DB
 
-- **`src/mcp_server/`** - FastMCP server exposing 10 search tools and 4 resource endpoints for Claude Code integration
+- **`src/mcp_server/`** - FastMCP server exposing 14 search tools and 4 resource endpoints for Claude Code integration:
+  - Chunk tools: `search_semantic`, `search_keyword`, `get_chunk`, `get_context_window`, `get_parent`, `get_children`, `get_siblings`, `list_documents`, `get_document_chunks`, `get_document_stats`
+  - Table tools: `search_tables`, `get_table`, `get_tables_for_concept`, `list_tables`
 
 - **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`, `concepts`, `tables`
 

@@ -14,6 +14,9 @@ from .formatters import (
     format_document_stats,
     format_optional_chunk,
     format_search_results,
+    format_table,
+    format_table_list,
+    format_table_search_results,
 )
 
 logger = logging.getLogger(__name__)
@@ -598,3 +601,110 @@ def register_tools(mcp: Any, state: ServerState) -> None:
 
         title = f"Concepts from {doc_id}" if doc_id else "Knowledge Graph"
         return concepts_to_dot(concepts, relations, title)
+
+    # ========== TABLE TOOLS ==========
+
+    @mcp.tool()
+    def search_tables(
+        query: str,
+        top_k: int = 5,
+        doc_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Search tables by semantic similarity to query.
+
+        Searches table summaries to find relevant tables. Returns table
+        metadata and raw markdown for LLM synthesis.
+
+        Args:
+            query: Natural language search query
+            top_k: Number of results to return (default: 5)
+            doc_id: Filter to tables from a specific document (optional)
+
+        Returns:
+            List of matching tables with summary, columns, and raw markdown
+        """
+        logger.info(f"search_tables: query='{query[:50]}...', top_k={top_k}, doc_id={doc_id}")
+
+        if state.table_store is None:
+            logger.warning("search_tables: table store not available")
+            return []
+
+        results = state.table_store.search_tables(query, top_k=top_k, doc_id=doc_id)
+
+        logger.info(f"search_tables: found {len(results)} results")
+        return format_table_search_results(results)
+
+    @mcp.tool()
+    def get_table(table_id: str) -> Optional[dict[str, Any]]:
+        """Get a specific table by its ID with full metadata.
+
+        Returns complete table information including structure, data,
+        and raw markdown for LLM processing.
+
+        Args:
+            table_id: Table identifier (e.g., "table_chunk_001")
+
+        Returns:
+            Table with columns, rows, types, and raw markdown, or null if not found
+        """
+        logger.info(f"get_table: table_id={table_id}")
+
+        if state.table_store is None:
+            logger.warning("get_table: table store not available")
+            return None
+
+        table = state.table_store.get_table(table_id)
+
+        if table is None:
+            logger.info(f"get_table: table '{table_id}' not found")
+            return None
+
+        return format_table(table)
+
+    @mcp.tool()
+    def get_tables_for_concept(concept_name: str) -> list[dict[str, Any]]:
+        """Get all tables related to a concept.
+
+        Uses graph relationships to find tables that are linked to
+        a specific concept. Useful for finding data that supports
+        or illustrates a concept.
+
+        Args:
+            concept_name: Name of the concept to find tables for
+
+        Returns:
+            List of tables related to the concept
+        """
+        logger.info(f"get_tables_for_concept: concept_name='{concept_name}'")
+
+        if state.table_store is None:
+            logger.warning("get_tables_for_concept: table store not available")
+            return []
+
+        tables = state.table_store.get_tables_for_concept(concept_name)
+
+        logger.info(f"get_tables_for_concept: found {len(tables)} tables")
+        return format_table_list(tables)
+
+    @mcp.tool()
+    def list_tables(
+        doc_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """List all tables in the knowledge base.
+
+        Args:
+            doc_id: Filter to tables from a specific document (optional)
+
+        Returns:
+            List of tables with basic metadata (id, columns, row_count)
+        """
+        logger.info(f"list_tables: doc_id={doc_id}")
+
+        if state.table_store is None:
+            logger.warning("list_tables: table store not available")
+            return []
+
+        tables = state.table_store.list_tables(doc_id=doc_id)
+
+        logger.info(f"list_tables: found {len(tables)} tables")
+        return tables

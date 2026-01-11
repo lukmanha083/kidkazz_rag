@@ -215,3 +215,70 @@ def format_concept_with_context(
         "citations": formatted_chunks,
         "related_concepts": format_concept_list(related_concepts),
     }
+
+
+# ============================================================================
+# Table Formatters
+# ============================================================================
+
+
+def format_table(table) -> dict[str, Any]:
+    """Format a ParsedTable for MCP output.
+
+    Args:
+        table: ParsedTable instance
+
+    Returns:
+        Formatted table dictionary
+    """
+    return {
+        "table_id": f"table_{table.source_chunk_id}",
+        "columns": table.column_names,
+        "column_types": table.column_types,
+        "rows": table.rows,
+        "row_count": table.row_count,
+        "column_count": table.column_count,
+        "raw_markdown": table.raw_markdown,
+        "context": table.surrounding_context,
+    }
+
+
+def format_table_search_result(table, score: float) -> dict[str, Any]:
+    """Format a table search result with similarity score.
+
+    Args:
+        table: ParsedTable from search results
+        score: Similarity score (0.0 to 1.0)
+
+    Returns:
+        Dictionary with table data and similarity score
+    """
+    result = format_table(table)
+    result["score"] = round(score, 4)
+    return result
+
+
+def format_table_list(tables: list) -> list[dict[str, Any]]:
+    """Format a list of tables for MCP response.
+
+    Args:
+        tables: List of ParsedTable instances
+
+    Returns:
+        List of formatted table dictionaries
+    """
+    return [format_table(t) for t in tables]
+
+
+def format_table_search_results(
+    results: list[tuple],
+) -> list[dict[str, Any]]:
+    """Format table search results for MCP response.
+
+    Args:
+        results: List of (ParsedTable, score) tuples
+
+    Returns:
+        List of formatted search result dictionaries
+    """
+    return [format_table_search_result(table, score) for table, score in results]
