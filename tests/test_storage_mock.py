@@ -629,3 +629,265 @@ class TestDocumentTags:
 
         # Empty strings and whitespace should be filtered out
         assert mock_store._documents["doc1"]["tags"] == ["inventory", "accounting"]
+
+    def test_search_similar_filters_by_has_table(
+        self, mock_store, mock_embedder
+    ):
+        """Should filter search results by has_table flag."""
+        # Create chunk with table
+        chunk_with_table = Chunk(
+            id="chunk_table",
+            content="Table content here",
+            level=2,
+            token_count=10,
+        )
+        meta_with_table = ChunkMetadata(
+            chunk_id="chunk_table",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=0,
+            sibling_ids=[],
+            has_table=True,
+        )
+
+        # Create chunk without table
+        chunk_no_table = Chunk(
+            id="chunk_no_table",
+            content="Text content here",
+            level=2,
+            token_count=10,
+        )
+        meta_no_table = ChunkMetadata(
+            chunk_id="chunk_no_table",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=1,
+            sibling_ids=[],
+            has_table=False,
+        )
+
+        embedded = mock_embedder.embed_chunks([chunk_with_table, chunk_no_table])
+        mock_store.store_document(
+            "doc1", "Title", embedded, [meta_with_table, meta_no_table]
+        )
+
+        query = mock_embedder.embed_text("test query")
+
+        # Filter for chunks with tables (use threshold=-1 to accept negative similarity)
+        results_table = mock_store.search_similar(
+            query, top_k=10, has_table=True, threshold=-1.0
+        )
+        assert len(results_table) == 1
+        assert results_table[0][0].chunk.id == "chunk_table"
+
+        # Filter for chunks without tables
+        results_no_table = mock_store.search_similar(
+            query, top_k=10, has_table=False, threshold=-1.0
+        )
+        assert len(results_no_table) == 1
+        assert results_no_table[0][0].chunk.id == "chunk_no_table"
+
+    def test_search_similar_filters_by_has_code(
+        self, mock_store, mock_embedder
+    ):
+        """Should filter search results by has_code flag."""
+        chunk_with_code = Chunk(
+            id="chunk_code",
+            content="Code block here",
+            level=2,
+            token_count=10,
+        )
+        meta_with_code = ChunkMetadata(
+            chunk_id="chunk_code",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=0,
+            sibling_ids=[],
+            has_code=True,
+        )
+
+        chunk_no_code = Chunk(
+            id="chunk_no_code",
+            content="Text content here",
+            level=2,
+            token_count=10,
+        )
+        meta_no_code = ChunkMetadata(
+            chunk_id="chunk_no_code",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=1,
+            sibling_ids=[],
+            has_code=False,
+        )
+
+        embedded = mock_embedder.embed_chunks([chunk_with_code, chunk_no_code])
+        mock_store.store_document(
+            "doc1", "Title", embedded, [meta_with_code, meta_no_code]
+        )
+
+        query = mock_embedder.embed_text("test query")
+
+        # Filter for chunks with code (use threshold=-1 to accept negative similarity)
+        results_code = mock_store.search_similar(
+            query, top_k=10, has_code=True, threshold=-1.0
+        )
+        assert len(results_code) == 1
+        assert results_code[0][0].chunk.id == "chunk_code"
+
+    def test_search_similar_filters_by_has_math(
+        self, mock_store, mock_embedder
+    ):
+        """Should filter search results by has_math flag."""
+        chunk_with_math = Chunk(
+            id="chunk_math",
+            content="Math equations here",
+            level=2,
+            token_count=10,
+        )
+        meta_with_math = ChunkMetadata(
+            chunk_id="chunk_math",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=0,
+            sibling_ids=[],
+            has_math=True,
+        )
+
+        chunk_no_math = Chunk(
+            id="chunk_no_math",
+            content="Text content here",
+            level=2,
+            token_count=10,
+        )
+        meta_no_math = ChunkMetadata(
+            chunk_id="chunk_no_math",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=1,
+            sibling_ids=[],
+            has_math=False,
+        )
+
+        embedded = mock_embedder.embed_chunks([chunk_with_math, chunk_no_math])
+        mock_store.store_document(
+            "doc1", "Title", embedded, [meta_with_math, meta_no_math]
+        )
+
+        query = mock_embedder.embed_text("test query")
+
+        # Filter for chunks with math (use threshold=-1 to accept negative similarity)
+        results_math = mock_store.search_similar(
+            query, top_k=10, has_math=True, threshold=-1.0
+        )
+        assert len(results_math) == 1
+        assert results_math[0][0].chunk.id == "chunk_math"
+
+    def test_search_similar_filters_by_header_level(
+        self, mock_store, mock_embedder
+    ):
+        """Should filter search results by header_level."""
+        chunk_h1 = Chunk(
+            id="chunk_h1",
+            content="H1 header content",
+            level=2,
+            token_count=10,
+        )
+        meta_h1 = ChunkMetadata(
+            chunk_id="chunk_h1",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=0,
+            sibling_ids=[],
+            header_level=1,
+            header_text="Main Title",
+        )
+
+        chunk_h2 = Chunk(
+            id="chunk_h2",
+            content="H2 header content",
+            level=2,
+            token_count=10,
+        )
+        meta_h2 = ChunkMetadata(
+            chunk_id="chunk_h2",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=1,
+            sibling_ids=[],
+            header_level=2,
+            header_text="Subtitle",
+        )
+
+        embedded = mock_embedder.embed_chunks([chunk_h1, chunk_h2])
+        mock_store.store_document(
+            "doc1", "Title", embedded, [meta_h1, meta_h2]
+        )
+
+        query = mock_embedder.embed_text("test query")
+
+        # Filter for header level 1 (use threshold=-1 to accept negative similarity)
+        results_h1 = mock_store.search_similar(
+            query, top_k=10, header_level=1, threshold=-1.0
+        )
+        assert len(results_h1) == 1
+        assert results_h1[0][0].chunk.id == "chunk_h1"
+
+        # Filter for header level 2
+        results_h2 = mock_store.search_similar(
+            query, top_k=10, header_level=2, threshold=-1.0
+        )
+        assert len(results_h2) == 1
+        assert results_h2[0][0].chunk.id == "chunk_h2"
+
+    def test_search_similar_combines_multiple_filters(
+        self, mock_store, mock_embedder
+    ):
+        """Should combine multiple content filters correctly."""
+        # Chunk with table AND code
+        chunk_table_code = Chunk(
+            id="chunk_table_code",
+            content="Table and code content",
+            level=2,
+            token_count=10,
+        )
+        meta_table_code = ChunkMetadata(
+            chunk_id="chunk_table_code",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=0,
+            sibling_ids=[],
+            has_table=True,
+            has_code=True,
+        )
+
+        # Chunk with table only
+        chunk_table_only = Chunk(
+            id="chunk_table_only",
+            content="Table only content",
+            level=2,
+            token_count=10,
+        )
+        meta_table_only = ChunkMetadata(
+            chunk_id="chunk_table_only",
+            document_id="doc1",
+            semantic_type="narrative",
+            sequence_position=1,
+            sibling_ids=[],
+            has_table=True,
+            has_code=False,
+        )
+
+        embedded = mock_embedder.embed_chunks([chunk_table_code, chunk_table_only])
+        mock_store.store_document(
+            "doc1", "Title", embedded, [meta_table_code, meta_table_only]
+        )
+
+        query = mock_embedder.embed_text("test query")
+
+        # Filter for chunks with both table AND code (use threshold=-1)
+        results = mock_store.search_similar(
+            query, top_k=10, has_table=True, has_code=True, threshold=-1.0
+        )
+        assert len(results) == 1
+        assert results[0][0].chunk.id == "chunk_table_code"

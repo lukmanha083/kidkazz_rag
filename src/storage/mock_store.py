@@ -218,6 +218,10 @@ class MockChunkStore:
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
         tags: Optional[list[str]] = None,
+        has_table: Optional[bool] = None,
+        has_code: Optional[bool] = None,
+        has_math: Optional[bool] = None,
+        header_level: Optional[int] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
         Find chunks similar to query embedding.
@@ -230,6 +234,10 @@ class MockChunkStore:
             semantic_type: Filter by semantic type (optional)
             threshold: Minimum similarity score (default: 0.0)
             tags: Filter by document tags (optional, AND logic)
+            has_table: Filter to chunks containing tables (optional)
+            has_code: Filter to chunks containing code (optional)
+            has_math: Filter to chunks containing math (optional)
+            header_level: Filter by header level 1-6 (optional)
 
         Returns:
             List of (EmbeddedChunk, similarity_score) tuples, sorted by score
@@ -256,6 +264,16 @@ class MockChunkStore:
                 continue
             # Filter by document tags
             if matching_doc_ids is not None and data.get("document_id") not in matching_doc_ids:
+                continue
+            # Filter by content flags
+            if has_table is not None and data.get("has_table", False) != has_table:
+                continue
+            if has_code is not None and data.get("has_code", False) != has_code:
+                continue
+            if has_math is not None and data.get("has_math", False) != has_math:
+                continue
+            # Filter by header level
+            if header_level is not None and data.get("header_level") != header_level:
                 continue
 
             # Calculate similarity

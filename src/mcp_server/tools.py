@@ -39,6 +39,10 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
         tags: Optional[list[str]] = None,
+        has_table: Optional[bool] = None,
+        has_code: Optional[bool] = None,
+        has_math: Optional[bool] = None,
+        header_level: Optional[int] = None,
     ) -> list[dict[str, Any]]:
         """Search for document chunks semantically similar to the query.
 
@@ -50,6 +54,10 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             semantic_type: Filter by type - definition, example, procedure, theorem, narrative (optional)
             threshold: Minimum similarity score 0.0-1.0 (default: 0.0)
             tags: Filter by document tags - documents must have ALL specified tags (optional)
+            has_table: Filter to chunks containing tables (optional)
+            has_code: Filter to chunks containing code blocks (optional)
+            has_math: Filter to chunks containing math equations (optional)
+            header_level: Filter to chunks with specific header level 1-6 (optional)
 
         Returns:
             List of matching chunks with content, metadata, and similarity scores
@@ -69,6 +77,10 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             semantic_type=semantic_type,
             threshold=threshold,
             tags=tags,
+            has_table=has_table,
+            has_code=has_code,
+            has_math=has_math,
+            header_level=header_level,
         )
 
         logger.info(f"search_semantic: found {len(results)} results")
