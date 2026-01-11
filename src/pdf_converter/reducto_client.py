@@ -12,6 +12,23 @@ from typing import Callable, Optional
 
 from dotenv import load_dotenv
 
+# Lazy imports for Reducto SDK (only when actually used)
+Reducto = None
+Retrieval = None
+Chunking = None
+
+
+def _ensure_reducto_imports():
+    """Lazily import Reducto SDK components."""
+    global Reducto, Retrieval, Chunking
+    if Reducto is None:
+        from reducto import Reducto as _Reducto
+        from reducto.types import Retrieval as _Retrieval
+        from reducto.types.shared import Chunking as _Chunking
+        Reducto = _Reducto
+        Retrieval = _Retrieval
+        Chunking = _Chunking
+
 
 def _slugify_filename(filename: str) -> str:
     """Convert filename to CLI-friendly format (no spaces/special chars)."""
@@ -128,8 +145,7 @@ class ReductoClient:
     def client(self):
         """Lazy-load the Reducto SDK client."""
         if self._client is None:
-            from reducto import Reducto
-
+            _ensure_reducto_imports()
             self._client = Reducto(api_key=self.config.api_key)
         return self._client
 
@@ -150,6 +166,8 @@ class ReductoClient:
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
         try:
+            _ensure_reducto_imports()
+
             # Upload local file first, then parse using the file_id
             upload_response = self.client.upload(file=pdf_path)
 
@@ -161,9 +179,9 @@ class ReductoClient:
 
             # Add chunking options if not disabled
             if self.config.chunk_mode != "disabled":
-                parse_kwargs["options"] = {
-                    "chunking": {"chunk_mode": self.config.chunk_mode}
-                }
+                parse_kwargs["retrieval"] = Retrieval(
+                    chunking=Chunking(chunk_mode=self.config.chunk_mode)
+                )
 
             response = self.client.parse.run(**parse_kwargs)
             return self._response_to_markdown(response)

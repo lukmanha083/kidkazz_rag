@@ -7,6 +7,36 @@ Tests are written BEFORE implementation following TDD principles.
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import src.pdf_converter.reducto_client as reducto_module
+
+
+@pytest.fixture
+def mock_reducto_sdk():
+    """Fixture to mock Reducto SDK components."""
+    mock_reducto_class = MagicMock()
+    mock_retrieval_class = MagicMock()
+    mock_chunking_class = MagicMock()
+
+    # Store original values
+    original_reducto = reducto_module.Reducto
+    original_retrieval = reducto_module.Retrieval
+    original_chunking = reducto_module.Chunking
+
+    # Set mock values
+    reducto_module.Reducto = mock_reducto_class
+    reducto_module.Retrieval = mock_retrieval_class
+    reducto_module.Chunking = mock_chunking_class
+
+    yield {
+        "Reducto": mock_reducto_class,
+        "Retrieval": mock_retrieval_class,
+        "Chunking": mock_chunking_class,
+    }
+
+    # Restore original values
+    reducto_module.Reducto = original_reducto
+    reducto_module.Retrieval = original_retrieval
+    reducto_module.Chunking = original_chunking
 
 
 class TestReductoConfig:
@@ -97,8 +127,7 @@ class TestReductoClient:
         # Client should not be initialized yet
         assert client._client is None
 
-    @patch("reducto.Reducto")
-    def test_client_initializes_on_access(self, mock_reducto):
+    def test_client_initializes_on_access(self, mock_reducto_sdk):
         """Test SDK client initializes when accessed."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
@@ -108,10 +137,9 @@ class TestReductoClient:
         # Access the client property
         _ = client.client
 
-        mock_reducto.assert_called_once_with(api_key="test_key")
+        mock_reducto_sdk["Reducto"].assert_called_once_with(api_key="test_key")
 
-    @patch("reducto.Reducto")
-    def test_parse_pdf_success(self, mock_reducto, tmp_path):
+    def test_parse_pdf_success(self, mock_reducto_sdk, tmp_path):
         """Test successful PDF parsing."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
@@ -124,7 +152,10 @@ class TestReductoClient:
         mock_response = MagicMock()
         mock_response.result.chunks = [mock_chunk1, mock_chunk2]
 
-        mock_reducto.return_value.parse.run.return_value = mock_response
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.return_value = mock_response
 
         # Create test PDF
         pdf_path = tmp_path / "test.pdf"
@@ -138,38 +169,19 @@ class TestReductoClient:
         assert "# Document Title" in result
         assert "This is the content of the document." in result
 
-    @patch("reducto.Reducto")
-    def test_parse_pdf_with_agentic_mode(self, mock_reducto, tmp_path):
-        """Test PDF parsing with agentic mode enabled."""
+    def test_parse_pdf_with_custom_chunk_mode(self, mock_reducto_sdk, tmp_path):
+        """Test PDF parsing with custom chunk mode uses Retrieval and Chunking."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
         mock_chunk = MagicMock()
         mock_chunk.content = "Content"
         mock_response = MagicMock()
         mock_response.result.chunks = [mock_chunk]
-        mock_reducto.return_value.parse.run.return_value = mock_response
 
-        pdf_path = tmp_path / "test.pdf"
-        pdf_path.write_bytes(b"%PDF-1.4 fake pdf")
-
-        config = ReductoConfig(api_key="test_key", agentic=True)
-        client = ReductoClient(config)
-        client.parse_pdf(pdf_path)
-
-        # Verify agentic was passed to API
-        call_kwargs = mock_reducto.return_value.parse.run.call_args[1]
-        assert call_kwargs["enhance"]["agentic"] is True
-
-    @patch("reducto.Reducto")
-    def test_parse_pdf_with_custom_chunk_mode(self, mock_reducto, tmp_path):
-        """Test PDF parsing with custom chunk mode."""
-        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
-
-        mock_chunk = MagicMock()
-        mock_chunk.content = "Content"
-        mock_response = MagicMock()
-        mock_response.result.chunks = [mock_chunk]
-        mock_reducto.return_value.parse.run.return_value = mock_response
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.return_value = mock_response
 
         pdf_path = tmp_path / "test.pdf"
         pdf_path.write_bytes(b"%PDF-1.4 fake pdf")
@@ -178,12 +190,41 @@ class TestReductoClient:
         client = ReductoClient(config)
         client.parse_pdf(pdf_path)
 
-        # Verify chunk_mode was passed to API
-        call_kwargs = mock_reducto.return_value.parse.run.call_args[1]
-        assert call_kwargs["retrieval"]["chunking"]["chunk_mode"] == "section"
+        # Verify Chunking was called with correct chunk_mode
+        mock_reducto_sdk["Chunking"].assert_called_once_with(chunk_mode="section")
+        # Verify Retrieval was called with Chunking result
+        mock_reducto_sdk["Retrieval"].assert_called_once()
 
-    @patch("reducto.Reducto")
-    def test_parse_pdf_api_error(self, mock_reducto, tmp_path):
+    def test_parse_pdf_disabled_chunk_mode(self, mock_reducto_sdk, tmp_path):
+        """Test PDF parsing with disabled chunk mode skips retrieval."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Content"
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.return_value = mock_response
+
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 fake pdf")
+
+        config = ReductoConfig(api_key="test_key", chunk_mode="disabled")
+        client = ReductoClient(config)
+        client.parse_pdf(pdf_path)
+
+        # Verify Chunking and Retrieval were NOT called when disabled
+        mock_reducto_sdk["Chunking"].assert_not_called()
+        mock_reducto_sdk["Retrieval"].assert_not_called()
+
+        # Verify parse.run was called without retrieval param
+        call_kwargs = mock_reducto_sdk["Reducto"].return_value.parse.run.call_args[1]
+        assert "retrieval" not in call_kwargs
+
+    def test_parse_pdf_api_error(self, mock_reducto_sdk, tmp_path):
         """Test handling of API errors."""
         from src.pdf_converter.reducto_client import (
             ReductoClient,
@@ -191,7 +232,10 @@ class TestReductoClient:
             ReductoAPIError,
         )
 
-        mock_reducto.return_value.parse.run.side_effect = Exception("API Error")
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.side_effect = Exception("API Error")
 
         pdf_path = tmp_path / "test.pdf"
         pdf_path.write_bytes(b"%PDF-1.4 fake pdf")
@@ -216,8 +260,7 @@ class TestReductoClient:
 class TestReductoClientBatch:
     """Tests for batch processing functionality."""
 
-    @patch("reducto.Reducto")
-    def test_parse_directory(self, mock_reducto, tmp_path):
+    def test_parse_directory(self, mock_reducto_sdk, tmp_path):
         """Test parsing all PDFs in a directory."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
@@ -226,7 +269,11 @@ class TestReductoClientBatch:
         mock_chunk.content = "Parsed content"
         mock_response = MagicMock()
         mock_response.result.chunks = [mock_chunk]
-        mock_reducto.return_value.parse.run.return_value = mock_response
+
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.return_value = mock_response
 
         # Create test PDFs
         (tmp_path / "doc1.pdf").write_bytes(b"%PDF-1.4 doc1")
@@ -253,8 +300,7 @@ class TestReductoClientBatch:
 
         assert results == []
 
-    @patch("reducto.Reducto")
-    def test_parse_directory_with_callback(self, mock_reducto, tmp_path):
+    def test_parse_directory_with_callback(self, mock_reducto_sdk, tmp_path):
         """Test parsing with progress callback."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
@@ -262,7 +308,11 @@ class TestReductoClientBatch:
         mock_chunk.content = "Content"
         mock_response = MagicMock()
         mock_response.result.chunks = [mock_chunk]
-        mock_reducto.return_value.parse.run.return_value = mock_response
+
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.return_value = mock_response
 
         (tmp_path / "doc1.pdf").write_bytes(b"%PDF-1.4 doc1")
         (tmp_path / "doc2.pdf").write_bytes(b"%PDF-1.4 doc2")
@@ -281,8 +331,7 @@ class TestReductoClientBatch:
         assert progress_calls[0][1] == 1
         assert progress_calls[0][2] == 2
 
-    @patch("reducto.Reducto")
-    def test_parse_directory_recursive(self, mock_reducto, tmp_path):
+    def test_parse_directory_recursive(self, mock_reducto_sdk, tmp_path):
         """Test parsing PDFs recursively in subdirectories."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
@@ -290,7 +339,11 @@ class TestReductoClientBatch:
         mock_chunk.content = "Content"
         mock_response = MagicMock()
         mock_response.result.chunks = [mock_chunk]
-        mock_reducto.return_value.parse.run.return_value = mock_response
+
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.return_value = mock_response
 
         # Create test PDFs in subdirectories
         (tmp_path / "doc1.pdf").write_bytes(b"%PDF-1.4 doc1")
@@ -309,8 +362,7 @@ class TestReductoClientBatch:
         results_recursive = client.parse_directory(tmp_path, recursive=True)
         assert len(results_recursive) == 2
 
-    @patch("reducto.Reducto")
-    def test_parse_files(self, mock_reducto, tmp_path):
+    def test_parse_files(self, mock_reducto_sdk, tmp_path):
         """Test parsing a list of PDF files."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
@@ -318,7 +370,11 @@ class TestReductoClientBatch:
         mock_chunk.content = "Parsed content"
         mock_response = MagicMock()
         mock_response.result.chunks = [mock_chunk]
-        mock_reducto.return_value.parse.run.return_value = mock_response
+
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.return_value = mock_response
 
         # Create test PDFs
         pdf1 = tmp_path / "doc1.pdf"
@@ -336,8 +392,7 @@ class TestReductoClientBatch:
         assert results[0][0] == pdf1
         assert results[1][0] == pdf2
 
-    @patch("reducto.Reducto")
-    def test_parse_files_with_callback(self, mock_reducto, tmp_path):
+    def test_parse_files_with_callback(self, mock_reducto_sdk, tmp_path):
         """Test parse_files with progress callback."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
 
@@ -345,7 +400,11 @@ class TestReductoClientBatch:
         mock_chunk.content = "Content"
         mock_response = MagicMock()
         mock_response.result.chunks = [mock_chunk]
-        mock_reducto.return_value.parse.run.return_value = mock_response
+
+        mock_upload = MagicMock()
+        mock_upload.file_id = "test_file_id"
+        mock_reducto_sdk["Reducto"].return_value.upload.return_value = mock_upload
+        mock_reducto_sdk["Reducto"].return_value.parse.run.return_value = mock_response
 
         pdf1 = tmp_path / "doc1.pdf"
         pdf2 = tmp_path / "doc2.pdf"
