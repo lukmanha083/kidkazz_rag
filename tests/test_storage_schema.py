@@ -274,3 +274,61 @@ class TestValidateDocumentNode:
         errors = validate_document_node(node)
 
         assert any("chunk_count" in e for e in errors)
+
+
+class TestHeaderSchemaFields:
+    """Tests for header-related schema fields (TDD)."""
+
+    def test_chunk_schema_has_header_text_field(self):
+        """Chunk schema should have header_text field."""
+        assert "header_text" in CHUNK_NODE_SCHEMA
+        assert CHUNK_NODE_SCHEMA["header_text"] == "String"
+
+    def test_chunk_schema_has_header_level_field(self):
+        """Chunk schema should have header_level field."""
+        assert "header_level" in CHUNK_NODE_SCHEMA
+        assert CHUNK_NODE_SCHEMA["header_level"] == "U32"
+
+    def test_chunk_schema_has_block_type_field(self):
+        """Chunk schema should have block_type field."""
+        assert "block_type" in CHUNK_NODE_SCHEMA
+        assert CHUNK_NODE_SCHEMA["block_type"] == "String"
+
+    def test_validate_chunk_with_header_fields(self):
+        """Should validate chunk with header fields."""
+        node = {
+            "chunk_id": "test_1",
+            "content": "Test content",
+            "level": 2,
+            "token_count": 10,
+            "header_text": "Introduction",
+            "header_level": 1,
+            "block_type": "Header",
+        }
+        errors = validate_chunk_node(node)
+        assert errors == []
+
+    def test_validate_chunk_with_invalid_header_level(self):
+        """Should return error for invalid header_level value."""
+        node = {
+            "chunk_id": "test_1",
+            "content": "Test content",
+            "level": 2,
+            "token_count": 10,
+            "header_level": 7,  # Should be 0-6
+        }
+        errors = validate_chunk_node(node)
+        assert any("header_level" in e for e in errors)
+
+    def test_validate_chunk_with_valid_header_levels(self):
+        """Should accept valid header levels 0-6 (0 means no header)."""
+        for level in range(0, 7):  # 0-6 are valid
+            node = {
+                "chunk_id": "test_1",
+                "content": "Test content",
+                "level": 2,
+                "token_count": 10,
+                "header_level": level,
+            }
+            errors = validate_chunk_node(node)
+            assert errors == [], f"Failed for header_level: {level}"

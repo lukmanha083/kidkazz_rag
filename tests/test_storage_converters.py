@@ -355,3 +355,104 @@ class TestRoundTrip:
         assert reconstructed.chunk.id == original.chunk.id
         assert reconstructed.embedding == original.embedding
         assert reconstructed.model_name == original.model_name
+
+
+class TestHeaderFieldConverters:
+    """Tests for header-related field conversion (TDD)."""
+
+    def test_chunk_to_helix_includes_header_metadata(self):
+        """Should include header fields when metadata has them."""
+        chunk = Chunk(id="test_1", content="Test", level=2, token_count=5)
+        metadata = ChunkMetadata(
+            chunk_id="test_1",
+            document_id="doc_1",
+            semantic_type="narrative",
+            header_text="Introduction",
+            header_level=2,
+            block_type="Header",
+        )
+
+        result = chunk_to_helix_node(chunk, metadata)
+
+        assert result["header_text"] == "Introduction"
+        assert result["header_level"] == 2
+        assert result["block_type"] == "Header"
+
+    def test_chunk_to_helix_handles_none_header_fields(self):
+        """Should handle None values for header fields."""
+        chunk = Chunk(id="test_1", content="Test", level=2, token_count=5)
+        metadata = ChunkMetadata(
+            chunk_id="test_1",
+            document_id="doc_1",
+            semantic_type="narrative",
+            # header_text, header_level, block_type all default to None
+        )
+
+        result = chunk_to_helix_node(chunk, metadata)
+
+        assert result["header_text"] == ""
+        assert result["header_level"] == 0
+        assert result["block_type"] == ""
+
+    def test_helix_node_to_metadata_reconstructs_header_fields(self):
+        """Should reconstruct header fields from node."""
+        node = {
+            "chunk_id": "test_1",
+            "document_id": "doc_1",
+            "semantic_type": "narrative",
+            "header_text": "Chapter 1",
+            "header_level": 1,
+            "block_type": "Header",
+        }
+
+        result = helix_node_to_metadata(node)
+
+        assert result.header_text == "Chapter 1"
+        assert result.header_level == 1
+        assert result.block_type == "Header"
+
+    def test_helix_node_to_metadata_defaults_header_fields(self):
+        """Should default header fields to None when not present."""
+        node = {
+            "chunk_id": "test_1",
+        }
+
+        result = helix_node_to_metadata(node)
+
+        assert result.header_text is None
+        assert result.header_level is None
+        assert result.block_type is None
+
+    def test_helix_node_to_metadata_handles_empty_header_fields(self):
+        """Should convert empty strings back to None."""
+        node = {
+            "chunk_id": "test_1",
+            "header_text": "",
+            "header_level": 0,
+            "block_type": "",
+        }
+
+        result = helix_node_to_metadata(node)
+
+        assert result.header_text is None
+        assert result.header_level is None
+        assert result.block_type is None
+
+    def test_metadata_roundtrip_with_header_fields(self):
+        """Should preserve header fields through conversion."""
+        chunk = Chunk(id="test_1", content="Test", level=2, token_count=5)
+        original_metadata = ChunkMetadata(
+            chunk_id="test_1",
+            document_id="doc_1",
+            semantic_type="narrative",
+            header_text="Section 2.1",
+            header_level=3,
+            block_type="Header",
+        )
+
+        helix_node = chunk_to_helix_node(chunk, original_metadata)
+        reconstructed = helix_node_to_metadata(helix_node)
+
+        assert reconstructed.header_text == original_metadata.header_text
+        assert reconstructed.header_level == original_metadata.header_level
+        assert reconstructed.block_type == original_metadata.block_type

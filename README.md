@@ -1,7 +1,7 @@
 # Kidkazz RAG
 
 [![CodeRabbit Review](https://img.shields.io/badge/CodeRabbit-Reviewed-green?logo=github)](https://coderabbit.ai)
-[![Tests](https://img.shields.io/badge/tests-788%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1106%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
@@ -67,6 +67,7 @@ Markdown Document
      |                           ├── Multi-level chunks (doc→section→leaf)
      |                           ├── Graph relationships (parent/child/sibling)
      |                           ├── Semantic type detection
+     |                           ├── Header metadata extraction (h1-h6)
      |                           └── Optional: LLM concept extraction
      v
 [Embeddings] ─────────────────── Two Options:
@@ -909,6 +910,18 @@ Chunks are classified automatically:
 | `theorem` | "Theorem:", "Proof:", "Lemma:" |
 | `narrative` | Default for general content |
 
+### Header Metadata Extraction
+
+When using Reducto.ai with block/chunk mode, headers are automatically reconstructed from block metadata. During ingestion, the pipeline extracts header information from markdown content:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `header_text` | String | Header text without `#` prefix |
+| `header_level` | U32 | 1-6 for h1-h6, 0 if not a header |
+| `block_type` | String | Reducto block type: "Header", "Text", "Table", etc. |
+
+**Note**: To leverage header detection on existing documents, you must re-parse PDFs with Reducto.ai (not just re-ingest), as the markdown files need proper header syntax reconstructed from block metadata.
+
 ### Atomic Block Preservation
 
 The chunker never splits:
@@ -925,7 +938,7 @@ The storage layer uses a three-node graph structure:
 | Node Type | Purpose | Key Fields |
 |-----------|---------|------------|
 | Document | Container | doc_id, title, tags, chunk_count |
-| Chunk | Content + metadata | chunk_id, content, level, semantic_type |
+| Chunk | Content + metadata | chunk_id, content, level, semantic_type, header_text, header_level, block_type |
 | ChunkVector | Embedding | embedding (384 dims) |
 
 ### Edge Relationships
@@ -1643,7 +1656,7 @@ python -m pytest tests/test_mcp_*.py -v                             # Phase 4
 python -m pytest tests/test_cli_*.py -v                             # Phase 5
 ```
 
-**Current Coverage:** 788 tests passing
+**Current Coverage:** 1106 tests passing
 
 ## Troubleshooting
 

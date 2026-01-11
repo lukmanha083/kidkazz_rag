@@ -47,6 +47,10 @@ def chunk_to_helix_node(
             "has_code": int(metadata.has_code),
             "has_math": int(metadata.has_math),
             "has_list": int(metadata.has_list),
+            # Header/block metadata (convert None to empty/0 for Helix-DB)
+            "header_text": metadata.header_text or "",
+            "header_level": metadata.header_level or 0,
+            "block_type": metadata.block_type or "",
         })
 
     return node
@@ -110,6 +114,16 @@ def helix_node_to_metadata(node: dict[str, Any]) -> ChunkMetadata:
     child_ids = json.loads(node.get("child_ids", "[]"))
     section_path = json.loads(node.get("section_path", "[]"))
 
+    # Handle header fields (convert empty/0 back to None)
+    header_text = node.get("header_text")
+    header_text = header_text if header_text else None
+
+    header_level = node.get("header_level")
+    header_level = header_level if header_level else None
+
+    block_type = node.get("block_type")
+    block_type = block_type if block_type else None
+
     return ChunkMetadata(
         chunk_id=node["chunk_id"],
         document_id=node.get("document_id", ""),
@@ -129,6 +143,9 @@ def helix_node_to_metadata(node: dict[str, Any]) -> ChunkMetadata:
         has_code=node.get("has_code", False),
         has_math=node.get("has_math", False),
         has_list=node.get("has_list", False),
+        header_text=header_text,
+        header_level=header_level,
+        block_type=block_type,
     )
 
 

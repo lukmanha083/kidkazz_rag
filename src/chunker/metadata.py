@@ -81,6 +81,11 @@ class ChunkMetadata:
     has_math: bool = False
     has_list: bool = False
 
+    # Header/block metadata (from Reducto block mode)
+    header_text: Optional[str] = None  # The actual header text if this is a header block
+    header_level: Optional[int] = None  # 1-6 for header level (h1-h6)
+    block_type: Optional[str] = None  # Block type from Reducto: "Header", "Text", "Table", etc.
+
     def to_dict(self) -> dict:
         """Convert to dictionary for storage."""
         return {
@@ -102,6 +107,9 @@ class ChunkMetadata:
             "has_code": self.has_code,
             "has_math": self.has_math,
             "has_list": self.has_list,
+            "header_text": self.header_text,
+            "header_level": self.header_level,
+            "block_type": self.block_type,
         }
 
 
@@ -209,6 +217,40 @@ def detect_content_features(content: str) -> dict[str, bool]:
     }
 
 
+# Pattern for markdown headers (h1-h6)
+HEADER_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
+
+
+def extract_header_info(content: str) -> dict:
+    """
+    Extract header metadata from chunk content if it starts with a markdown header.
+
+    Args:
+        content: Chunk text content
+
+    Returns:
+        Dictionary with header_text, header_level, block_type if header found,
+        empty dict otherwise.
+    """
+    if not content:
+        return {}
+
+    # Only check the first line
+    first_line = content.split("\n", 1)[0]
+    match = HEADER_PATTERN.match(first_line)
+
+    if match:
+        header_hashes = match.group(1)
+        header_text = match.group(2).strip()
+        return {
+            "header_text": header_text,
+            "header_level": len(header_hashes),
+            "block_type": "Header",
+        }
+
+    return {}
+
+
 def enrich_chunk_metadata(
     chunk: Chunk,
     document_id: str,
@@ -228,6 +270,7 @@ def enrich_chunk_metadata(
         ChunkMetadata with all fields populated
     """
     content_features = detect_content_features(chunk.content)
+    header_info = extract_header_info(chunk.content)
 
     return ChunkMetadata(
         chunk_id=chunk.id,
@@ -248,6 +291,9 @@ def enrich_chunk_metadata(
         has_code=content_features["has_code"],
         has_math=content_features["has_math"],
         has_list=content_features["has_list"],
+        header_text=header_info.get("header_text"),
+        header_level=header_info.get("header_level"),
+        block_type=header_info.get("block_type"),
     )
 
 

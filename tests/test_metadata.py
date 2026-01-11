@@ -353,3 +353,264 @@ class TestFilterChunksByTopic:
         metadata = enrich_all_chunks(chunks, "doc")
         result = filter_chunks_by_topic(chunks, metadata, "nonexistent")
         assert result == []
+
+
+class TestExtractHeaderInfo:
+    """Tests for extracting header info from chunk content (TDD)."""
+
+    def test_extract_header_info_h1(self):
+        """Should extract h1 header info."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "# Introduction\n\nThis is the introduction."
+        result = extract_header_info(content)
+
+        assert result["header_text"] == "Introduction"
+        assert result["header_level"] == 1
+        assert result["block_type"] == "Header"
+
+    def test_extract_header_info_h2(self):
+        """Should extract h2 header info."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "## Getting Started\n\nLet's begin."
+        result = extract_header_info(content)
+
+        assert result["header_text"] == "Getting Started"
+        assert result["header_level"] == 2
+        assert result["block_type"] == "Header"
+
+    def test_extract_header_info_h3(self):
+        """Should extract h3 header info."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "### Installation Steps\n\nFollow these steps."
+        result = extract_header_info(content)
+
+        assert result["header_text"] == "Installation Steps"
+        assert result["header_level"] == 3
+        assert result["block_type"] == "Header"
+
+    def test_extract_header_info_h6(self):
+        """Should extract h6 header info."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "###### Deep Nested Section\n\nContent here."
+        result = extract_header_info(content)
+
+        assert result["header_text"] == "Deep Nested Section"
+        assert result["header_level"] == 6
+        assert result["block_type"] == "Header"
+
+    def test_extract_header_info_no_header(self):
+        """Should return empty dict for content without header."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "This is just plain text.\n\nNo header here."
+        result = extract_header_info(content)
+
+        assert result == {}
+
+    def test_extract_header_info_empty_content(self):
+        """Should return empty dict for empty content."""
+        from src.chunker.metadata import extract_header_info
+
+        result = extract_header_info("")
+        assert result == {}
+
+    def test_extract_header_info_header_only(self):
+        """Should extract header even if content is header only."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "# Title Only"
+        result = extract_header_info(content)
+
+        assert result["header_text"] == "Title Only"
+        assert result["header_level"] == 1
+
+    def test_extract_header_info_strips_whitespace(self):
+        """Should strip whitespace from header text."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "##   Spaced Title   \n\nContent"
+        result = extract_header_info(content)
+
+        assert result["header_text"] == "Spaced Title"
+
+    def test_extract_header_info_ignores_non_first_line_headers(self):
+        """Should only detect headers on the first line."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "Some intro text\n\n## This header is not first"
+        result = extract_header_info(content)
+
+        assert result == {}
+
+    def test_extract_header_info_invalid_header_no_space(self):
+        """Should not match headers without space after #."""
+        from src.chunker.metadata import extract_header_info
+
+        content = "#NoSpaceHeader\n\nContent"
+        result = extract_header_info(content)
+
+        assert result == {}
+
+
+class TestEnrichChunkMetadataWithHeaders:
+    """Tests for header metadata in enrichment pipeline (TDD)."""
+
+    def test_enrich_chunk_metadata_extracts_header(self):
+        """Should extract header info during enrichment."""
+        chunk = Chunk(
+            id="test_1",
+            content="# Chapter 1: Introduction\n\nThis is the chapter content.",
+            level=1,
+            token_count=15,
+        )
+        result = enrich_chunk_metadata(chunk, "doc_1", 0)
+
+        assert result.header_text == "Chapter 1: Introduction"
+        assert result.header_level == 1
+        assert result.block_type == "Header"
+
+    def test_enrich_chunk_metadata_no_header(self):
+        """Should leave header fields None when no header present."""
+        chunk = Chunk(
+            id="test_1",
+            content="Just some plain text without any header.",
+            level=2,
+            token_count=10,
+        )
+        result = enrich_chunk_metadata(chunk, "doc_1", 0)
+
+        assert result.header_text is None
+        assert result.header_level is None
+        assert result.block_type is None
+
+    def test_enrich_all_chunks_preserves_headers(self):
+        """Should preserve header info across all chunks."""
+        chunks = [
+            Chunk(
+                id="c1",
+                content="# Main Title\n\nIntro text.",
+                level=1,
+                token_count=10,
+            ),
+            Chunk(
+                id="c2",
+                content="## Section One\n\nSection content.",
+                level=2,
+                token_count=10,
+            ),
+            Chunk(
+                id="c3",
+                content="Plain paragraph content.",
+                level=2,
+                token_count=5,
+            ),
+        ]
+
+        metadata_list = enrich_all_chunks(chunks, "doc_1")
+
+        # First chunk has h1
+        assert metadata_list[0].header_text == "Main Title"
+        assert metadata_list[0].header_level == 1
+
+        # Second chunk has h2
+        assert metadata_list[1].header_text == "Section One"
+        assert metadata_list[1].header_level == 2
+
+        # Third chunk has no header
+        assert metadata_list[2].header_text is None
+        assert metadata_list[2].header_level is None
+
+
+class TestHeaderMetadataFields:
+    """Tests for header-related metadata fields (TDD)."""
+
+    def test_chunk_metadata_has_header_text_field(self):
+        """ChunkMetadata should have header_text field."""
+        meta = ChunkMetadata(
+            chunk_id="test",
+            document_id="doc",
+            semantic_type="narrative",
+            header_text="Introduction",
+        )
+        assert meta.header_text == "Introduction"
+
+    def test_chunk_metadata_header_text_defaults_to_none(self):
+        """header_text should default to None."""
+        meta = ChunkMetadata(
+            chunk_id="test",
+            document_id="doc",
+            semantic_type="narrative",
+        )
+        assert meta.header_text is None
+
+    def test_chunk_metadata_has_header_level_field(self):
+        """ChunkMetadata should have header_level field."""
+        meta = ChunkMetadata(
+            chunk_id="test",
+            document_id="doc",
+            semantic_type="narrative",
+            header_level=2,
+        )
+        assert meta.header_level == 2
+
+    def test_chunk_metadata_header_level_defaults_to_none(self):
+        """header_level should default to None."""
+        meta = ChunkMetadata(
+            chunk_id="test",
+            document_id="doc",
+            semantic_type="narrative",
+        )
+        assert meta.header_level is None
+
+    def test_chunk_metadata_has_block_type_field(self):
+        """ChunkMetadata should have block_type field."""
+        meta = ChunkMetadata(
+            chunk_id="test",
+            document_id="doc",
+            semantic_type="narrative",
+            block_type="Header",
+        )
+        assert meta.block_type == "Header"
+
+    def test_chunk_metadata_block_type_defaults_to_none(self):
+        """block_type should default to None."""
+        meta = ChunkMetadata(
+            chunk_id="test",
+            document_id="doc",
+            semantic_type="narrative",
+        )
+        assert meta.block_type is None
+
+    def test_to_dict_includes_header_fields(self):
+        """to_dict should include header fields."""
+        meta = ChunkMetadata(
+            chunk_id="test",
+            document_id="doc",
+            semantic_type="narrative",
+            header_text="Chapter 1",
+            header_level=1,
+            block_type="Header",
+        )
+        d = meta.to_dict()
+        assert d["header_text"] == "Chapter 1"
+        assert d["header_level"] == 1
+        assert d["block_type"] == "Header"
+
+    def test_to_dict_includes_none_header_fields(self):
+        """to_dict should include None values for unset header fields."""
+        meta = ChunkMetadata(
+            chunk_id="test",
+            document_id="doc",
+            semantic_type="narrative",
+        )
+        d = meta.to_dict()
+        assert "header_text" in d
+        assert "header_level" in d
+        assert "block_type" in d
+        assert d["header_text"] is None
+        assert d["header_level"] is None
+        assert d["block_type"] is None
