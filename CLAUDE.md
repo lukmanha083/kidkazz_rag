@@ -50,6 +50,10 @@ kidkazz inbox list --output         # List parsed markdown (status + quality)
 kidkazz inbox sync --dry-run        # Preview cloud sync
 kidkazz inbox parse                 # Parse PDFs with Reducto.ai
 kidkazz config show
+kidkazz tables list                 # List all tables
+kidkazz tables search "query"       # Semantic search tables
+kidkazz tables show <table_id>      # Show table details
+kidkazz ingest markdown file.md --extract-tables  # Process tables during ingestion
 ```
 
 ## Architecture
@@ -65,6 +69,22 @@ kidkazz config show
   - Semantic type filtering via `filter_chunks_by_semantic_type()`
   - Header hierarchy relationship inference via `infer_relationships_from_headers()`
 
+- **`src/chunker/table_parser.py`** - Markdown table parsing into structured form:
+  - `ParsedTable` dataclass with columns, rows, types, context
+  - `parse_markdown_table()` for extracting tables from chunks
+  - `to_markdown_kv()` for LLM-friendly format (60.7% accuracy)
+  - `infer_column_types()` for detecting text/numeric/date columns
+
+- **`src/chunker/table_summarizer.py`** - LLM-powered table summarization:
+  - `TableSummary` dataclass for storing summaries with embeddings
+  - `TableSummarizer` class with Anthropic/OpenAI support
+  - Key column/value extraction for retrieval hints
+
+- **`src/storage/table_store.py`** - Multi-vector table storage:
+  - Embed summaries for retrieval, store raw markdown for synthesis
+  - `search_tables()` with cosine similarity ranking
+  - `link_table_to_concept()` for graph-based retrieval
+
 - **`src/chunker/embedder.py`** - Three embedder implementations:
   - `ChunkEmbedder` (FastEmbed): Local CPU, ONNX Runtime, 384/768/1024 dims
   - `OpenAIEmbedder`: API-based, 1536/3072 dims
@@ -76,7 +96,7 @@ kidkazz config show
 
 - **`src/mcp_server/`** - FastMCP server exposing 10 search tools and 4 resource endpoints for Claude Code integration
 
-- **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`
+- **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`, `concepts`, `tables`
 
 - **`src/pdf_inbox/`** - PDF lifecycle management with Reducto.ai integration and optional rclone cloud sync
 
