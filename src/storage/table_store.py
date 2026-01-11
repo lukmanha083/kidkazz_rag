@@ -67,6 +67,9 @@ class TableStore:
     ) -> str:
         """Store table with summary embedding for retrieval.
 
+        This method is idempotent - calling it multiple times with the same
+        table will update the existing entry rather than creating duplicates.
+
         Args:
             table: Parsed table to store
             summary: LLM-generated summary
@@ -77,10 +80,20 @@ class TableStore:
         """
         table_id = f"table_{table.source_chunk_id}"
 
+        # Check if table already exists with different document_id
+        if table_id in self._tables:
+            old_doc_id = self._tables[table_id].get("document_id")
+            if old_doc_id and old_doc_id != document_id:
+                # Remove from old document mapping
+                if old_doc_id in self._doc_tables:
+                    self._doc_tables[old_doc_id] = [
+                        tid for tid in self._doc_tables[old_doc_id] if tid != table_id
+                    ]
+
         # Embed the summary for retrieval
         embedding = self.embedder.embed_text(summary.summary_text)
 
-        # Store table data
+        # Store table data (overwrites if exists)
         self._tables[table_id] = {
             "table_id": table_id,
             "raw_markdown": table.raw_markdown,
@@ -101,10 +114,11 @@ class TableStore:
         self._embeddings[table_id] = embedding
         self._summaries[table_id] = summary.summary_text
 
-        # Track document -> tables relationship
+        # Track document -> tables relationship (avoid duplicates)
         if document_id not in self._doc_tables:
             self._doc_tables[document_id] = []
-        self._doc_tables[document_id].append(table_id)
+        if table_id not in self._doc_tables[document_id]:
+            self._doc_tables[document_id].append(table_id)
 
         logger.info(f"Stored table {table_id} with {table.row_count} rows")
         return table_id

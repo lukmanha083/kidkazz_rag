@@ -18,7 +18,7 @@ class ParsedTable:
     rows: list[list[str]]
     row_count: int
     column_count: int
-    column_types: list[str]  # "text", "numeric", "date", "mixed"
+    column_types: list[str]  # "text", "numeric", or "date"
     has_header_row: bool
     surrounding_context: str  # Text before table
     source_chunk_id: str

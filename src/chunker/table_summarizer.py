@@ -105,14 +105,24 @@ class TableSummarizer:
         prompt = table.to_summary_prompt()
 
         try:
-            response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=300,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.content[0].text
-        except Exception as e:
-            logger.warning(f"LLM summarization failed: {e}")
+            if self.provider == "openai":
+                # OpenAI Chat Completions API
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    max_tokens=300,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.choices[0].message.content
+            else:
+                # Anthropic Messages API (default)
+                response = self.client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=300,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.content[0].text
+        except Exception as err:
+            logger.warning(f"LLM summarization failed: {err}")
             return self._generate_fallback_summary(table)
 
     def _generate_fallback_summary(self, table: ParsedTable) -> str:

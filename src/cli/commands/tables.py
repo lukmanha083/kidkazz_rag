@@ -11,7 +11,12 @@ app = typer.Typer(help="Table management commands")
 
 # Lazy imports to avoid circular dependencies
 def _get_table_store():
-    """Get table store instance."""
+    """Get table store instance.
+
+    Note: Currently returns a new in-memory TableStore instance per call.
+    Tables stored during ingestion are not persisted across CLI invocations.
+    For persistent storage, use the Helix-DB integration when available.
+    """
     try:
         from src.storage.table_store import TableStore
         from src.cli.utils import get_embedder
@@ -22,7 +27,7 @@ def _get_table_store():
         return TableStore(embedder=embedder)
     except Exception as e:
         print_error(f"Failed to initialize table store: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("list")
