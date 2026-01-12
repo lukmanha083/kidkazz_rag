@@ -344,3 +344,134 @@ def format_table_metadata_list(tables: list[dict[str, Any]]) -> list[dict[str, A
         List of formatted metadata dictionaries
     """
     return [format_table_metadata(t) for t in tables]
+
+
+# ============================================================================
+# Summary Formatters (Document Summarization Feature)
+# ============================================================================
+
+
+def format_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Format a summary dictionary for MCP response.
+
+    Args:
+        summary: Summary dictionary from storage
+
+    Returns:
+        Formatted summary dictionary
+    """
+    import json
+
+    key_points_raw = summary.get("key_points", "[]")
+    try:
+        key_points = json.loads(key_points_raw) if isinstance(key_points_raw, str) else key_points_raw
+    except json.JSONDecodeError:
+        key_points = []
+
+    return {
+        "summary_id": summary.get("summary_id", ""),
+        "content": summary.get("content", ""),
+        "level": summary.get("level", ""),
+        "source_id": summary.get("source_id", ""),
+        "document_id": summary.get("document_id", ""),
+        "parent_summary_id": summary.get("parent_summary_id"),
+        "key_points": key_points,
+        "word_count": summary.get("word_count", 0),
+        "created_at": summary.get("created_at", 0),
+    }
+
+
+def format_summary_list(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Format a list of summaries for MCP response.
+
+    Args:
+        summaries: List of summary dictionaries
+
+    Returns:
+        List of formatted summary dictionaries
+    """
+    return [format_summary(s) for s in summaries]
+
+
+def format_summary_search_result(
+    summary: dict[str, Any],
+    score: float,
+) -> dict[str, Any]:
+    """Format a summary search result for MCP response.
+
+    Args:
+        summary: Summary dictionary
+        score: Similarity score
+
+    Returns:
+        Formatted search result dictionary
+    """
+    formatted = format_summary(summary)
+    formatted["score"] = score
+    return formatted
+
+
+def format_summary_search_results(
+    results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Format summary search results for MCP response.
+
+    Args:
+        results: List of summary dicts with scores
+
+    Returns:
+        List of formatted search result dictionaries
+    """
+    return [
+        format_summary_search_result(r, r.get("score", 0.0))
+        for r in results
+    ]
+
+
+def format_summary_hierarchy(
+    summaries: list[dict[str, Any]],
+    document_id: str,
+) -> dict[str, Any]:
+    """Format summary hierarchy as a tree structure.
+
+    Args:
+        summaries: List of summary dictionaries
+        document_id: Document ID
+
+    Returns:
+        Hierarchical structure with document, chapters, sections
+    """
+    # Find document-level summary
+    doc_summary = next(
+        (s for s in summaries if s.get("level") == "document"),
+        None
+    )
+
+    # Group by parent
+    by_parent: dict[str, list[dict]] = {}
+    for s in summaries:
+        parent_id = s.get("parent_summary_id") or "root"
+        if parent_id not in by_parent:
+            by_parent[parent_id] = []
+        by_parent[parent_id].append(s)
+
+    def build_node(summary: dict[str, Any]) -> dict[str, Any]:
+        """Recursively build hierarchy node."""
+        node = format_summary(summary)
+        summary_id = summary.get("summary_id", "")
+        children = by_parent.get(summary_id, [])
+        if children:
+            node["children"] = [build_node(c) for c in children]
+        return node
+
+    if doc_summary:
+        return {
+            "document_id": document_id,
+            "hierarchy": build_node(doc_summary),
+        }
+
+    return {
+        "document_id": document_id,
+        "hierarchy": None,
+        "summaries": format_summary_list(summaries),
+    }

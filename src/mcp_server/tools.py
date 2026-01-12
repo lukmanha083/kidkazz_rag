@@ -14,6 +14,10 @@ from .formatters import (
     format_document_stats,
     format_optional_chunk,
     format_search_results,
+    format_summary,
+    format_summary_hierarchy,
+    format_summary_list,
+    format_summary_search_results,
     format_table,
     format_table_list,
     format_table_metadata_list,
@@ -765,3 +769,154 @@ def register_tools(mcp: Any, state: ServerState) -> None:
 
         logger.info(f"list_tables: found {len(tables)} tables")
         return format_table_metadata_list(tables)
+
+    # =========================================================================
+    # Summary Tools (Document Summarization Feature)
+    # =========================================================================
+
+    @mcp.tool()
+    def get_document_summary(doc_id: str) -> Optional[dict[str, Any]]:
+        """Get the document-level summary for a document.
+
+        Returns the top-level summary that describes the entire document's
+        scope, purpose, and main themes. This is the highest level in the
+        summary hierarchy.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            Document summary with content and key points, or null if not found
+        """
+        logger.info(f"get_document_summary: doc_id={doc_id}")
+
+        summaries = state.store.get_document_summaries(doc_id, level="document")
+
+        if not summaries:
+            logger.info(f"get_document_summary: no summary found for '{doc_id}'")
+            return None
+
+        return format_summary(summaries[0])
+
+    @mcp.tool()
+    def get_chapter_summaries(doc_id: str) -> list[dict[str, Any]]:
+        """Get all chapter-level summaries for a document.
+
+        Returns summaries for each major section (L1 chunks) of the document.
+        Chapter summaries aggregate section summaries and describe the main
+        themes and learning objectives of each chapter.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            List of chapter summaries with content and key points
+        """
+        logger.info(f"get_chapter_summaries: doc_id={doc_id}")
+
+        summaries = state.store.get_document_summaries(doc_id, level="chapter")
+
+        logger.info(f"get_chapter_summaries: found {len(summaries)} chapters")
+        return format_summary_list(summaries)
+
+    @mcp.tool()
+    def get_section_summaries(doc_id: str) -> list[dict[str, Any]]:
+        """Get all section-level summaries for a document.
+
+        Returns summaries for each section (L2 chunks) of the document.
+        Section summaries are the most granular level, describing specific
+        topics and concepts within each section.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            List of section summaries with content and key points
+        """
+        logger.info(f"get_section_summaries: doc_id={doc_id}")
+
+        summaries = state.store.get_document_summaries(doc_id, level="section")
+
+        logger.info(f"get_section_summaries: found {len(summaries)} sections")
+        return format_summary_list(summaries)
+
+    @mcp.tool()
+    def search_summaries(
+        query: str,
+        top_k: int = 5,
+        level: Optional[str] = None,
+        doc_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Search summaries semantically to find relevant document sections.
+
+        Use this to quickly find which parts of documents are relevant to a
+        topic. More efficient than searching full chunks when you need an
+        overview rather than specific details.
+
+        Args:
+            query: Natural language search query
+            top_k: Number of results to return (default: 5)
+            level: Filter by summary level: "document", "chapter", "section" (optional)
+            doc_id: Filter to summaries from a specific document (optional)
+
+        Returns:
+            List of matching summaries with content, key points, and similarity scores
+        """
+        displayed_query = query[:50] + "..." if len(query) > 50 else query
+        logger.info(f"search_summaries: query='{displayed_query}', top_k={top_k}, level={level}, doc_id={doc_id}")
+
+        # Embed query for vector search
+        query_embedding = state.embedder.embed_text(query)
+
+        results = state.store.search_summaries(
+            query_embedding=query_embedding,
+            limit=top_k,
+            level=level,
+            document_id=doc_id,
+        )
+
+        logger.info(f"search_summaries: found {len(results)} results")
+        return format_summary_search_results(results)
+
+    @mcp.tool()
+    def get_summary_hierarchy(doc_id: str) -> dict[str, Any]:
+        """Get the complete summary hierarchy for a document as a tree.
+
+        Returns a hierarchical structure showing how document, chapter, and
+        section summaries relate to each other. Useful for understanding
+        document structure and navigating to specific sections.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            Hierarchical tree with document summary at root, chapters as children,
+            and sections as grandchildren. Each node includes content and key_points.
+        """
+        logger.info(f"get_summary_hierarchy: doc_id={doc_id}")
+
+        summaries = state.store.get_document_summaries(doc_id)
+
+        if not summaries:
+            logger.info(f"get_summary_hierarchy: no summaries found for '{doc_id}'")
+            return {"document_id": doc_id, "hierarchy": None}
+
+        logger.info(f"get_summary_hierarchy: building tree from {len(summaries)} summaries")
+        return format_summary_hierarchy(summaries, doc_id)
+
+    @mcp.tool()
+    def list_summarized_documents() -> list[dict[str, Any]]:
+        """List all documents that have summaries generated.
+
+        Use this to discover which documents have been summarized and are
+        available for summary-based search and navigation.
+
+        Returns:
+            List of documents with their summary counts
+        """
+        logger.info("list_summarized_documents: fetching list")
+
+        docs = state.store.list_summarized_documents()
+
+        logger.info(f"list_summarized_documents: found {len(docs)} documents")
+        return docs
