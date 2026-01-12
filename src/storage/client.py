@@ -132,6 +132,10 @@ class ChunkStoreProtocol(Protocol):
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
         tags: Optional[list[str]] = None,
+        has_table: Optional[bool] = None,
+        has_code: Optional[bool] = None,
+        has_math: Optional[bool] = None,
+        header_level: Optional[int] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """Find similar chunks by vector search."""
         ...
