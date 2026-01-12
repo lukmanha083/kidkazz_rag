@@ -1925,7 +1925,7 @@ class GetSummary(_get_query_base_class()):
 class GetDocumentSummaries(_get_query_base_class()):
     """Get all summaries for a document.
 
-    Maps to HelixQL GetDocumentSummaries query.
+    Maps to HelixQL GetDocumentSummaries or GetDocumentSummariesByLevel query.
     """
 
     def __init__(self, document_id: str, level: Optional[str] = None) -> None:
@@ -1936,7 +1936,9 @@ class GetDocumentSummaries(_get_query_base_class()):
             document_id: Document identifier
             level: Optional filter by level ("document", "chapter", "section")
         """
-        super().__init__(endpoint="GetDocumentSummaries")
+        # Use different endpoint based on whether level filter is provided
+        endpoint = "GetDocumentSummariesByLevel" if level else "GetDocumentSummaries"
+        super().__init__(endpoint=endpoint)
         self.document_id = document_id
         self.level = level
 
@@ -2143,6 +2145,7 @@ class SearchSimilarSummaries(_get_query_base_class()):
     """Search for similar summaries using vector similarity.
 
     Maps to HelixQL SearchSimilarSummaries query.
+    Note: Level and document_id filtering done in post-processing by client.
     """
 
     def __init__(
@@ -2158,8 +2161,8 @@ class SearchSimilarSummaries(_get_query_base_class()):
         Args:
             query_embedding: Query vector
             limit: Maximum number of results
-            level: Optional filter by level
-            document_id: Optional filter by document
+            level: Optional filter by level (post-processing)
+            document_id: Optional filter by document (post-processing)
         """
         super().__init__(endpoint="SearchSimilarSummaries")
         self.query_embedding = query_embedding
@@ -2168,16 +2171,14 @@ class SearchSimilarSummaries(_get_query_base_class()):
         self.document_id = document_id
 
     def query(self) -> list[dict[str, Any]]:
-        """Return parameters for HelixQL SearchSimilarSummaries query."""
-        params: dict[str, Any] = {
-            "query_embedding": self.query_embedding,
-            "limit": self.limit,
-        }
-        if self.level:
-            params["level"] = self.level
-        if self.document_id:
-            params["document_id"] = self.document_id
-        return [params]
+        """Return parameters for HelixQL SearchSimilarSummaries query.
+
+        HelixQL expects query_vec and top_k parameters.
+        """
+        return [{
+            "query_vec": self.query_embedding,
+            "top_k": self.limit,
+        }]
 
     def response(self, response: Any) -> QueryResult:
         """Process response - expects list of summary nodes with scores."""

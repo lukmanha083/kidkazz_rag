@@ -348,9 +348,11 @@ class TestSummaryStorageQueries:
         )
         params = query.query()
 
-        assert params[0]["query_embedding"] == embedding
-        assert params[0]["limit"] == 5
-        assert params[0]["level"] == "document"
+        # HelixQL uses query_vec and top_k parameter names
+        assert params[0]["query_vec"] == embedding
+        assert params[0]["top_k"] == 5
+        # level is used for post-processing, not in HelixQL query
+        assert query.level == "document"
 
     def test_delete_document_summaries_query(self):
         """DeleteDocumentSummaries query should format parameters correctly."""

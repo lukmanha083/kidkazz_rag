@@ -552,3 +552,157 @@ QUERY DropTable(table_id: ID) =>
 QUERY DropTableEmbeddingEdge(table_id: ID) =>
     DROP N<Table>(table_id)::OutE<TableHasEmbedding>
     RETURN "Removed table embedding edge"
+
+
+// ========== SUMMARY MUTATIONS ==========
+
+// Add a new summary
+QUERY AddSummary(
+    summary_id: String,
+    content: String,
+    level: String,
+    source_id: String,
+    document_id: String,
+    parent_summary_id: String,
+    key_points: String,
+    word_count: U32,
+    created_at: I64
+) =>
+    summary <- AddN<Summary>({
+        summary_id: summary_id,
+        content: content,
+        level: level,
+        source_id: source_id,
+        document_id: document_id,
+        parent_summary_id: parent_summary_id,
+        key_points: key_points,
+        word_count: word_count,
+        created_at: created_at
+    })
+    RETURN summary
+
+// Add vector embedding for a summary
+QUERY AddSummaryVector(embedding: [F64], model_name: String, embedding_dim: U32) =>
+    vec <- AddV<SummaryVector>(embedding, {
+        model_name: model_name,
+        embedding_dim: embedding_dim
+    })
+    RETURN vec
+
+// Link document to summary
+QUERY LinkDocumentSummary(doc_id: ID, summary_id: ID) =>
+    doc <- N<Document>(doc_id)
+    summary <- N<Summary>(summary_id)
+    AddE<DocumentHasSummary>::From(doc)::To(summary)
+    RETURN doc
+
+// Link chunk to summary
+QUERY LinkChunkSummary(chunk_id: ID, summary_id: ID) =>
+    chunk <- N<Chunk>(chunk_id)
+    summary <- N<Summary>(summary_id)
+    AddE<ChunkHasSummary>::From(chunk)::To(summary)
+    RETURN chunk
+
+// Link parent summary to child summary
+QUERY LinkSummaryParent(parent_id: ID, child_id: ID) =>
+    parent <- N<Summary>(parent_id)
+    child <- N<Summary>(child_id)
+    AddE<SummaryHasChild>::From(parent)::To(child)
+    RETURN parent
+
+// Link summary to its embedding
+QUERY LinkSummaryVector(summary_id: ID, vector_id: ID) =>
+    summary <- N<Summary>(summary_id)
+    vec <- V<SummaryVector>(vector_id)
+    AddE<SummaryHasEmbedding>::From(summary)::To(vec)
+    RETURN summary
+
+// ========== SUMMARY QUERIES ==========
+
+// Get summary by summary_id string (maps to Python GetSummary)
+QUERY GetSummary(summary_id: String) =>
+    summaries <- N<Summary>::WHERE(_::{summary_id}::EQ(summary_id))
+    RETURN summaries
+
+// Get summaries by document_id (maps to Python GetDocumentSummaries)
+QUERY GetDocumentSummaries(document_id: String) =>
+    summaries <- N<Summary>::WHERE(_::{document_id}::EQ(document_id))
+    RETURN summaries
+
+// Get summaries by document_id and level (maps to Python GetDocumentSummaries with level filter)
+QUERY GetDocumentSummariesByLevel(document_id: String, level: String) =>
+    summaries <- N<Summary>::WHERE(
+        AND(
+            _::{document_id}::EQ(document_id),
+            _::{level}::EQ(level)
+        )
+    )
+    RETURN summaries
+
+// Get summaries by source_id (chunk or document)
+QUERY GetSummariesBySourceId(source_id: String) =>
+    summaries <- N<Summary>::WHERE(_::{source_id}::EQ(source_id))
+    RETURN summaries
+
+// Get summaries by level only
+QUERY GetSummariesByLevel(level: String) =>
+    summaries <- N<Summary>::WHERE(_::{level}::EQ(level))
+    RETURN summaries
+
+// List all summaries
+QUERY ListSummaries() =>
+    summaries <- N<Summary>
+    RETURN summaries
+
+// List summarized documents (returns unique document IDs with summaries)
+QUERY ListSummarizedDocuments() =>
+    summaries <- N<Summary>
+    RETURN summaries
+
+// ========== SUMMARY TRAVERSALS ==========
+
+// Get summaries from document via edge
+QUERY GetDocumentSummaries(doc_id: ID) =>
+    summaries <- N<Document>(doc_id)::Out<DocumentHasSummary>
+    RETURN summaries
+
+// Get summary from chunk via edge
+QUERY GetChunkSummary(chunk_id: ID) =>
+    summaries <- N<Chunk>(chunk_id)::Out<ChunkHasSummary>
+    RETURN summaries
+
+// Get child summaries via edge
+QUERY GetSummaryChildren(summary_id: ID) =>
+    children <- N<Summary>(summary_id)::Out<SummaryHasChild>
+    RETURN children
+
+// Get parent summary via edge (reverse)
+QUERY GetSummaryParent(summary_id: ID) =>
+    parent <- N<Summary>(summary_id)::In<SummaryHasChild>
+    RETURN parent
+
+// ========== SUMMARY VECTOR SEARCH ==========
+
+// Vector similarity search on summaries
+QUERY SearchSimilarSummaries(query_vec: [F64], top_k: U32) =>
+    results <- SearchV<SummaryVector>(query_vec, top_k)
+    RETURN results
+
+// ========== SUMMARY DELETION ==========
+
+// Delete a summary (cascades to connected edges) - maps to Python DeleteSummary
+QUERY DeleteSummary(summary_id: ID) =>
+    DROP N<Summary>(summary_id)
+    RETURN "Removed summary"
+
+// Delete summary embedding edge
+QUERY DropSummaryEmbeddingEdge(summary_id: ID) =>
+    DROP N<Summary>(summary_id)::OutE<SummaryHasEmbedding>
+    RETURN "Removed summary embedding edge"
+
+// Delete all summaries for a document - maps to Python DeleteDocumentSummaries
+// Note: This returns summaries for client to drop individually since HelixQL
+// doesn't support DELETE WHERE in a single query
+QUERY DeleteDocumentSummaries(document_id: String) =>
+    summaries <- N<Summary>::WHERE(_::{document_id}::EQ(document_id))
+    RETURN summaries

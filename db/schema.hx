@@ -189,3 +189,49 @@ E::TableHasEmbedding {
     From: Table,
     To: TableVector,
 }
+
+
+// ========== DOCUMENT SUMMARIZATION ==========
+
+// Summary node: Hierarchical document summaries
+N::Summary {
+    INDEX summary_id: String,      // "summary_{source_id}_{level}"
+    content: String,               // Summary text
+    INDEX level: String,           // "document", "chapter", "section"
+    INDEX source_id: String,       // doc_id or chunk_id
+    INDEX document_id: String,     // For document filtering
+    parent_summary_id: String,     // Hierarchy navigation (empty if top-level)
+    key_points: String,            // JSON array of key takeaways
+    word_count: U32,
+    created_at: I64,
+}
+
+// SummaryVector: Embedding for summary semantic search
+V::SummaryVector {
+    model_name: String,
+    embedding_dim: U32,
+}
+
+// Document has summary (document-level)
+E::DocumentHasSummary {
+    From: Document,
+    To: Summary,
+}
+
+// Chunk has summary (chapter/section level)
+E::ChunkHasSummary {
+    From: Chunk,
+    To: Summary,
+}
+
+// Summary hierarchy (document -> chapter -> section)
+E::SummaryHasChild {
+    From: Summary,
+    To: Summary,
+}
+
+// Summary has embedding
+E::SummaryHasEmbedding {
+    From: Summary,
+    To: SummaryVector,
+}
