@@ -1,5 +1,8 @@
 """Main CLI entry point for KidKazz RAG."""
 
+import logging
+import os
+import sys
 from typing import Optional
 
 import typer
@@ -45,6 +48,21 @@ def main_callback(
 
     Use --help on any command for more information.
     """
+    # Configure logging based on verbose flag or KIDKAZZ_LOG_LEVEL env var
+    env_log_level = os.getenv("KIDKAZZ_LOG_LEVEL", "").upper()
+    if verbose:
+        log_level = logging.DEBUG
+    elif env_log_level:
+        log_level = getattr(logging, env_log_level, logging.WARNING)
+    else:
+        log_level = logging.WARNING  # Default: only show warnings and errors
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        stream=sys.stderr,
+    )
+
     # Store options in context for subcommands
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose

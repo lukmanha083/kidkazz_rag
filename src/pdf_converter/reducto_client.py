@@ -4,11 +4,14 @@ This module provides a client for the Reducto.ai API to convert
 PDF documents to markdown format.
 """
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 
@@ -165,14 +168,23 @@ class ReductoClient:
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
+        logger.info(
+            "Parsing PDF: %s (chunk_mode=%s, agentic=%s)",
+            pdf_path.name,
+            self.config.chunk_mode,
+            self.config.agentic,
+        )
+
         try:
             _ensure_reducto_imports()
 
             # Upload local file first, then parse using the file_id
+            logger.debug("Uploading PDF to Reducto API...")
             upload_response = self.client.upload(file=pdf_path)
 
             # Extract file_id from upload response
             file_id = upload_response.file_id
+            logger.debug("Upload complete: file_id=%s", file_id)
 
             # Build parse kwargs
             parse_kwargs: dict = {"input": file_id}
@@ -183,9 +195,13 @@ class ReductoClient:
                     chunking=Chunking(chunk_mode=self.config.chunk_mode)
                 )
 
+            logger.debug("Calling Reducto parse API...")
             response = self.client.parse.run(**parse_kwargs)
+            logger.debug("Parse API call complete")
+
             return self._response_to_markdown(response)
         except Exception as e:
+            logger.error("Reducto API error: %s", str(e))
             raise ReductoAPIError(str(e)) from e
 
     def _response_to_markdown(self, response) -> str:
@@ -201,6 +217,9 @@ class ReductoClient:
 
         # Handle different response formats
         if hasattr(result, "chunks") and result.chunks:
+            # Log response structure for debugging
+            self._log_response_structure(result.chunks)
+
             if self.config.raw_output:
                 # Join chunks into continuous readable markdown
                 return self._chunks_to_markdown(result.chunks)
@@ -230,6 +249,58 @@ class ReductoClient:
                     return str(getattr(result, attr))
             # Last resort - convert to string
             return str(result)
+
+    def _log_response_structure(self, chunks) -> None:
+        """Log Reducto API response structure for debugging.
+
+        Args:
+            chunks: List of chunk objects from Reducto API response.
+        """
+        chunk_count = len(chunks)
+        total_blocks = 0
+        block_types: dict[str, int] = {}
+        header_count = 0
+
+        for chunk in chunks:
+            blocks = getattr(chunk, "blocks", None) or []
+            total_blocks += len(blocks)
+
+            for block in blocks:
+                # Handle both dict and object blocks
+                if isinstance(block, dict):
+                    block_type = block.get("type", "Unknown")
+                else:
+                    block_type = getattr(block, "type", "Unknown")
+
+                block_types[block_type] = block_types.get(block_type, 0) + 1
+                if block_type and block_type.lower() == "header":
+                    header_count += 1
+
+        # INFO level: summary stats
+        logger.info(
+            "Reducto API response: chunks=%d, blocks=%d, headers=%d",
+            chunk_count,
+            total_blocks,
+            header_count,
+        )
+
+        # DEBUG level: detailed block type breakdown
+        if block_types:
+            logger.debug("Block types: %s", block_types)
+
+        # DEBUG level: sample first chunk structure
+        if chunks and logger.isEnabledFor(logging.DEBUG):
+            first_chunk = chunks[0]
+            first_blocks = getattr(first_chunk, "blocks", None) or []
+            if first_blocks:
+                sample_block = first_blocks[0]
+                if isinstance(sample_block, dict):
+                    logger.debug("Sample block (dict): keys=%s", list(sample_block.keys()))
+                else:
+                    logger.debug(
+                        "Sample block (object): attrs=%s",
+                        [a for a in dir(sample_block) if not a.startswith("_")],
+                    )
 
     def _chunks_to_markdown(self, chunks) -> str:
         """Convert chunks to continuous readable markdown.
