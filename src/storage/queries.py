@@ -1763,3 +1763,89 @@ class DropTable(_get_query_base_class()):
     def response(self, response: Any) -> QueryResult:
         """Process response."""
         return QueryResult(success=True)
+
+
+# ============================================================================
+# Table Graph Traversal Queries
+# ============================================================================
+
+
+class GetChunkTable(_get_query_base_class()):
+    """Get table from a chunk via ChunkHasTable edge.
+
+    Maps to HelixQL GetChunkTable query.
+    """
+
+    def __init__(self, chunk_id: str) -> None:
+        """
+        Initialize GetChunkTable query.
+
+        Args:
+            chunk_id: Internal chunk node ID
+        """
+        super().__init__(endpoint="GetChunkTable")
+        self.chunk_id = chunk_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetChunkTable query."""
+        return [{"chunk_id": self.chunk_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of table nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[response] if response else [])
+
+
+class GetDocumentTables(_get_query_base_class()):
+    """Get tables from a document via HasTable edge.
+
+    Maps to HelixQL GetDocumentTables query.
+    """
+
+    def __init__(self, doc_id: str) -> None:
+        """
+        Initialize GetDocumentTables query.
+
+        Args:
+            doc_id: Internal document node ID
+        """
+        super().__init__(endpoint="GetDocumentTables")
+        self.doc_id = doc_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetDocumentTables query."""
+        return [{"doc_id": self.doc_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of table nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[response] if response else [])
+
+
+class GetTableConcepts(_get_query_base_class()):
+    """Get concepts related to a table via TableRelatedToConcept edge.
+
+    Maps to HelixQL GetTableConcepts query.
+    """
+
+    def __init__(self, table_id: str) -> None:
+        """
+        Initialize GetTableConcepts query.
+
+        Args:
+            table_id: Internal table node ID
+        """
+        super().__init__(endpoint="GetTableConcepts")
+        self.table_id = table_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetTableConcepts query."""
+        return [{"table_id": self.table_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of concept nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[response] if response else [])

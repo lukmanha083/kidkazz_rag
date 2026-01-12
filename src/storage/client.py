@@ -54,15 +54,18 @@ from .queries import (
     DropTable,
     GetChunk,
     GetChunksByParentId,
+    GetChunkTable,
     GetChunkWithContext,
     GetConceptById,
     GetConceptByName,
     GetConceptDefinitionChunks,
     GetDocumentByDocId,
     GetDocumentChunks,
+    GetDocumentTables,
     GetRelatedConcepts,
     GetConceptDependents,
     GetTableById,
+    GetTableConcepts,
     GetTablesByDocumentId,
     GetTablesForConcept,
     LinkChunkDefinesConcept,
@@ -1805,3 +1808,119 @@ class HelixChunkStore:
         drop_result = self._execute_query(drop_query)
 
         return drop_result.success
+
+    def get_table_for_chunk(self, chunk_id: str) -> Optional[ParsedTable]:
+        """
+        Get table contained in a chunk via ChunkHasTable edge.
+
+        Args:
+            chunk_id: Chunk identifier (user-facing ID like "doc_l2_1")
+
+        Returns:
+            ParsedTable if chunk contains a table, None otherwise
+        """
+        self._ensure_connected()
+
+        # First get the chunk to find its internal ID
+        chunk_query = GetChunk(chunk_id)
+        chunk_result = self._execute_query(chunk_query)
+
+        if not chunk_result.success or not chunk_result.data:
+            return None
+
+        chunk_node = chunk_result.data.get("node", chunk_result.data)
+        internal_id = self._extract_node_id(chunk_result.data) or (chunk_node.get("id") if chunk_node else None)
+
+        if not internal_id:
+            return None
+
+        # Traverse ChunkHasTable edge
+        query = GetChunkTable(internal_id)
+        result = self._execute_query(query)
+
+        if not result.success or not result.data:
+            return None
+
+        # Return first table (chunk should have at most one table)
+        tables = result.data if isinstance(result.data, list) else [result.data]
+        if tables:
+            node = tables[0].get("node", tables[0]) if isinstance(tables[0], dict) else tables[0]
+            return helix_node_to_parsed_table(node)
+
+        return None
+
+    def get_tables_via_document_edge(self, doc_id: str) -> list[ParsedTable]:
+        """
+        Get tables from a document via HasTable edge traversal.
+
+        This uses graph traversal instead of field filtering.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            List of ParsedTables linked to the document
+        """
+        self._ensure_connected()
+
+        # First get the document to find its internal ID
+        doc_query = GetDocumentByDocId(doc_id)
+        doc_result = self._execute_query(doc_query)
+
+        if not doc_result.success or not doc_result.data:
+            return []
+
+        doc_node = doc_result.data.get("node", doc_result.data)
+        internal_id = self._extract_node_id(doc_result.data) or (doc_node.get("id") if doc_node else None)
+
+        if not internal_id:
+            return []
+
+        # Traverse HasTable edge
+        query = GetDocumentTables(internal_id)
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        results: list[ParsedTable] = []
+        for item in result.data or []:
+            node = item.get("node", item) if isinstance(item, dict) else item
+            table = helix_node_to_parsed_table(node)
+            results.append(table)
+
+        return results
+
+    def get_concepts_for_table(self, table_id: str) -> list[dict[str, Any]]:
+        """
+        Get concepts related to a table via TableRelatedToConcept edge.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            List of concept dictionaries
+        """
+        self._ensure_connected()
+
+        # First get the table to find its internal ID
+        table_query = GetTableById(table_id)
+        table_result = self._execute_query(table_query)
+
+        if not table_result.success or not table_result.data:
+            return []
+
+        table_node = table_result.data.get("node", table_result.data)
+        internal_id = self._extract_node_id(table_result.data) or (table_node.get("id") if table_node else None)
+
+        if not internal_id:
+            return []
+
+        # Traverse TableRelatedToConcept edge
+        query = GetTableConcepts(internal_id)
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        return result.data or []

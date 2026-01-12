@@ -901,3 +901,53 @@ class MockChunkStore:
             key_values=data.get("key_values", []),
             embedding=embedding,
         )
+
+    def get_table_for_chunk(self, chunk_id: str) -> Optional[ParsedTable]:
+        """
+        Get table contained in a chunk via source_chunk_id lookup.
+
+        Args:
+            chunk_id: Chunk identifier
+
+        Returns:
+            ParsedTable if chunk contains a table, None otherwise
+        """
+        # Find table with matching source_chunk_id
+        for table_id, data in self._tables.items():
+            if data.get("source_chunk_id") == chunk_id:
+                return self._reconstruct_parsed_table(table_id)
+
+        return None
+
+    def get_tables_via_document_edge(self, doc_id: str) -> list[ParsedTable]:
+        """
+        Get tables from a document via document_id lookup.
+
+        This mimics graph traversal by filtering on document_id.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            List of ParsedTables linked to the document
+        """
+        # Same as get_tables_for_document - uses document_id field
+        return self.get_tables_for_document(doc_id)
+
+    def get_concepts_for_table(self, table_id: str) -> list[dict[str, Any]]:
+        """
+        Get concepts related to a table via reverse lookup of concept links.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            List of concept dictionaries (concept_id only for mock)
+        """
+        if table_id not in self._tables:
+            return []
+
+        concept_ids = self._table_concept_links.get(table_id, set())
+
+        # Return minimal concept info (mock doesn't have full concept data)
+        return [{"concept_id": cid} for cid in concept_ids]
