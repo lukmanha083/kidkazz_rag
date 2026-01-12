@@ -264,8 +264,15 @@ class ReductoClient:
         # Process blocks to reconstruct markdown
         processed_parts = []
         for block in blocks:
-            block_type = getattr(block, "type", None)
-            block_content = getattr(block, "content", "")
+            # Blocks can be dicts (from Reducto API) or objects (from mocks)
+            if isinstance(block, dict):
+                block_type = block.get("type")
+                block_content = block.get("content", "")
+                block_level = block.get("level")
+            else:
+                block_type = getattr(block, "type", None)
+                block_content = getattr(block, "content", "")
+                block_level = getattr(block, "level", None)
 
             if not block_content:
                 continue
@@ -277,11 +284,10 @@ class ReductoClient:
             # Reconstruct markdown headers from Header blocks
             if block_type and block_type.lower() == "header":
                 # Try to get header level if available, default to h2
-                level = getattr(block, "level", None)
-                if level is None:
+                if block_level is None:
                     # Infer level from content characteristics
-                    level = self._infer_header_level(block_content)
-                prefix = "#" * level
+                    block_level = self._infer_header_level(block_content)
+                prefix = "#" * block_level
                 processed_parts.append(f"{prefix} {block_content}")
             else:
                 # Non-header content - use as-is
@@ -341,10 +347,16 @@ class ReductoClient:
                 "block_type": None,
             }
 
+        # Helper to get block attributes (blocks can be dicts or objects)
+        def get_block_attr(blk, attr, default=None):
+            if isinstance(blk, dict):
+                return blk.get(attr, default)
+            return getattr(blk, attr, default)
+
         # Find the first non-empty block to determine primary block type
         first_block = None
         for block in blocks:
-            block_content = getattr(block, "content", "")
+            block_content = get_block_attr(block, "content", "")
             if block_content and block_content.strip():
                 first_block = block
                 break
@@ -356,12 +368,12 @@ class ReductoClient:
                 "block_type": None,
             }
 
-        block_type = getattr(first_block, "type", None)
-        block_content = getattr(first_block, "content", "").strip()
+        block_type = get_block_attr(first_block, "type")
+        block_content = get_block_attr(first_block, "content", "").strip()
 
         # Check if this is a header block
         if block_type and block_type.lower() == "header":
-            level = getattr(first_block, "level", None)
+            level = get_block_attr(first_block, "level")
             if level is None:
                 level = self._infer_header_level(block_content)
             return {

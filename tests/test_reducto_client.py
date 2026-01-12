@@ -1024,6 +1024,30 @@ class TestResponseToMarkdownHeaderExtraction:
         # Chunks should be separated by ---
         assert "---" in result
 
+    def test_blocks_as_dictionaries(self):
+        """Verify header extraction works when blocks are dictionaries (real Reducto API format)."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key", chunk_mode="block", raw_output=False)
+        client = ReductoClient(config)
+
+        # Simulate real Reducto API response where blocks are dictionaries
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Chapter 1\n\nSome content here."
+        mock_chunk.blocks = [
+            {"type": "Header", "content": "Chapter 1", "level": 1},
+            {"type": "Text", "content": "Some content here."},
+        ]
+
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+
+        result = client._response_to_markdown(mock_response)
+
+        # Should extract header from dictionary block
+        assert "# Chapter 1" in result
+        assert "Some content here." in result
+
     def test_raw_output_true_uses_continuous_markdown(self):
         """Verify raw_output=True uses _chunks_to_markdown without dividers."""
         from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
