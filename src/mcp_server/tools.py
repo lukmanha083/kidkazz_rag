@@ -719,4 +719,4 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         tables = state.table_store.list_tables(doc_id=doc_id)
 
         logger.info(f"list_tables: found {len(tables)} tables")
-        return tables
+        return format_table_list(tables)
