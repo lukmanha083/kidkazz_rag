@@ -635,7 +635,8 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         Returns:
             List of matching tables with summary, columns, and raw markdown
         """
-        logger.info(f"search_tables: query='{query[:50]}...', top_k={top_k}, doc_id={doc_id}")
+        displayed_query = query[:50] + "..." if len(query) > 50 else query
+        logger.info(f"search_tables: query='{displayed_query}', top_k={top_k}, doc_id={doc_id}")
 
         if state.table_store is None:
             logger.warning("search_tables: table store not available")
@@ -687,13 +688,46 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         Returns:
             List of tables related to the concept
         """
+        import json
+
         logger.info(f"get_tables_for_concept: concept_name='{concept_name}'")
 
         if state.table_store is None:
             logger.warning("get_tables_for_concept: table store not available")
             return []
 
-        tables = state.table_store.get_tables_for_concept(concept_name)
+        # Resolve concept using three-step resolution (same as get_concept)
+        # 1. Try exact name match
+        concept = state.store.get_concept_by_name(concept_name)
+
+        # 2. Try slug match
+        if not concept:
+            from src.chunker.concept_extractor import slugify
+            concept = state.store.get_concept(slugify(concept_name))
+
+        # 3. Try alias match
+        if not concept:
+            all_concepts = state.store.list_concepts()
+            name_lower = concept_name.lower()
+            for c in all_concepts:
+                aliases_raw = c.get("aliases", "[]")
+                try:
+                    aliases = json.loads(aliases_raw) if isinstance(aliases_raw, str) else aliases_raw
+                except json.JSONDecodeError:
+                    aliases = []
+                if name_lower in [a.lower() for a in aliases]:
+                    concept = c
+                    break
+
+        # Use resolved concept_id if found, otherwise fall back to normalized name
+        if concept:
+            resolved_id = concept.get("concept_id", concept_name)
+            logger.info(f"get_tables_for_concept: resolved to concept_id='{resolved_id}'")
+        else:
+            resolved_id = concept_name
+            logger.info(f"get_tables_for_concept: concept not found, using original name")
+
+        tables = state.table_store.get_tables_for_concept(resolved_id)
 
         logger.info(f"get_tables_for_concept: found {len(tables)} tables")
         return format_table_list(tables)
