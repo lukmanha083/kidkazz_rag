@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from .commands import concepts, config_cmd, db, docs, inbox, ingest, search, tables
+from .commands import concepts, config_cmd, db, docs, inbox, ingest, search, summarize, tables
 
 # Create main app
 app = typer.Typer(
@@ -26,6 +26,7 @@ app.add_typer(config_cmd.app, name="config", help="Configuration management")
 app.add_typer(inbox.app, name="inbox", help="Manage PDF inbox")
 app.add_typer(concepts.app, name="concepts", help="Concept extraction and management")
 app.add_typer(tables.app, name="tables", help="Table management and search")
+app.add_typer(summarize.app, name="summarize", help="Document summarization")
 
 
 @app.callback()

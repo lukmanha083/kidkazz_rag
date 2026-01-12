@@ -99,6 +99,26 @@ TABLE_VECTOR_SCHEMA: dict[str, str] = {
     "embedding_dim": "U32",
 }
 
+# Summary node schema (Document Summarization feature)
+SUMMARY_NODE_SCHEMA: dict[str, str] = {
+    "summary_id": "String",  # "summary_{source_id}_{level}"
+    "content": "String",  # Summary text
+    "level": "String",  # "document", "chapter", "section"
+    "source_id": "String",  # doc_id or chunk_id
+    "document_id": "String",  # For document filtering
+    "parent_summary_id": "String",  # Hierarchy navigation (empty if top-level)
+    "key_points": "String",  # JSON array of key takeaways
+    "word_count": "U32",
+    "created_at": "I64",
+}
+
+# Summary vector schema for semantic search
+SUMMARY_VECTOR_SCHEMA: dict[str, str] = {
+    "embedding": "Vec32",  # Summary embedding for retrieval
+    "model_name": "String",
+    "embedding_dim": "U32",
+}
+
 # Edge type definitions
 EDGE_TYPES: dict[str, tuple[str, str]] = {
     "HasChunk": ("Document", "Chunk"),
@@ -111,6 +131,11 @@ EDGE_TYPES: dict[str, tuple[str, str]] = {
     "HasTable": ("Document", "Table"),
     "ChunkContainsTable": ("Chunk", "Table"),
     "HasTableEmbedding": ("Table", "TableVector"),
+    # Summary edges (Document Summarization feature)
+    "DocumentHasSummary": ("Document", "Summary"),
+    "ChunkHasSummary": ("Chunk", "Summary"),
+    "SummaryHasChild": ("Summary", "Summary"),
+    "SummaryHasEmbedding": ("Summary", "SummaryVector"),
     # Note: TableRelatedToConcept edge will be added when Concept node is defined
 }
 
@@ -129,6 +154,8 @@ def get_schema_definition() -> dict[str, Any]:
             "ChunkVector": VECTOR_NODE_SCHEMA,
             "Table": TABLE_NODE_SCHEMA,
             "TableVector": TABLE_VECTOR_SCHEMA,
+            "Summary": SUMMARY_NODE_SCHEMA,
+            "SummaryVector": SUMMARY_VECTOR_SCHEMA,
         },
         "edges": EDGE_TYPES,
     }
@@ -179,6 +206,17 @@ def create_kidkazz_schema(config: Optional[SchemaConfig] = None) -> Any:
             "embedding_dim": "U32",
         }
         schema.create_vector("TableVector", table_vector_schema)
+
+        # Create Summary node (Document Summarization feature)
+        schema.create_node("Summary", SUMMARY_NODE_SCHEMA)
+
+        # Create SummaryVector for semantic search
+        summary_vector_schema = {
+            "embedding": config.vector_type,
+            "model_name": "String",
+            "embedding_dim": "U32",
+        }
+        schema.create_vector("SummaryVector", summary_vector_schema)
 
         # Create edges
         for edge_name, (from_node, to_node) in EDGE_TYPES.items():

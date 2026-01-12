@@ -1930,3 +1930,217 @@ class HelixChunkStore:
             return []
 
         return result.data or []
+
+    # =========================================================================
+    # Summary Methods (Document Summarization Feature)
+    # =========================================================================
+
+    def store_summary(self, summary: Any) -> Optional[str]:
+        """
+        Store a summary and return its internal ID.
+
+        Args:
+            summary: Summary dataclass with summary_id, content, level, etc.
+
+        Returns:
+            Internal summary node ID, or None if storage fails
+        """
+        from src.storage.queries import (
+            AddSummary,
+            AddSummaryVector,
+            LinkSummaryVector,
+            LinkDocumentSummary,
+            LinkChunkSummary,
+            LinkSummaryParent,
+            GetDocument,
+            GetChunk,
+        )
+
+        self._ensure_connected()
+
+        try:
+            # Prepare summary properties
+            summary_props = {
+                "summary_id": summary.summary_id,
+                "content": summary.content,
+                "level": summary.level,
+                "source_id": summary.source_id,
+                "document_id": summary.document_id,
+                "parent_summary_id": summary.parent_summary_id or "",
+                "key_points": json.dumps(summary.key_points),
+                "word_count": summary.word_count,
+                "created_at": summary.created_at,
+            }
+
+            # Add summary node
+            add_query = AddSummary(summary_props)
+            response = self._client.query(add_query)
+            summary_internal_id = self._extract_node_id(response)
+
+            if not summary_internal_id:
+                logger.warning(f"Failed to get internal ID for summary {summary.summary_id}")
+                return None
+
+            # Add embedding if present
+            if summary.embedding:
+                vector_query = AddSummaryVector(
+                    embedding=summary.embedding,
+                    model_name="unknown",
+                    embedding_dim=len(summary.embedding),
+                )
+                vector_response = self._client.query(vector_query)
+                vector_id = self._extract_node_id(vector_response)
+
+                if vector_id:
+                    link_query = LinkSummaryVector(summary_internal_id, vector_id)
+                    self._client.query(link_query)
+
+            # Link to document
+            if summary.level == "document":
+                doc_query = GetDocument(summary.document_id)
+                doc_result = self._execute_query(doc_query)
+                if doc_result.success and doc_result.data:
+                    doc_node = doc_result.data.get("node", doc_result.data)
+                    doc_internal_id = self._extract_node_id(doc_result.data) or (doc_node.get("id") if doc_node else None)
+                    if doc_internal_id:
+                        link_query = LinkDocumentSummary(doc_internal_id, summary_internal_id)
+                        self._client.query(link_query)
+
+            # Link to chunk for chapter/section summaries
+            elif summary.level in ("chapter", "section"):
+                chunk_query = GetChunk(summary.source_id)
+                chunk_result = self._execute_query(chunk_query)
+                if chunk_result.success and chunk_result.data:
+                    chunk_node = chunk_result.data.get("node", chunk_result.data)
+                    chunk_internal_id = self._extract_node_id(chunk_result.data) or (chunk_node.get("id") if chunk_node else None)
+                    if chunk_internal_id:
+                        link_query = LinkChunkSummary(chunk_internal_id, summary_internal_id)
+                        self._client.query(link_query)
+
+            return summary_internal_id
+
+        except Exception as e:
+            logger.exception(f"Error storing summary {summary.summary_id}: {e}")
+            return None
+
+    def get_summary(self, summary_id: str) -> Optional[dict[str, Any]]:
+        """
+        Get a summary by summary_id.
+
+        Args:
+            summary_id: Summary identifier
+
+        Returns:
+            Summary dictionary if found, None otherwise
+        """
+        from src.storage.queries import GetSummary
+
+        self._ensure_connected()
+
+        query = GetSummary(summary_id)
+        result = self._execute_query(query)
+
+        if result.success and result.data:
+            return result.data.get("node")
+        return None
+
+    def get_document_summaries(
+        self,
+        document_id: str,
+        level: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get all summaries for a document.
+
+        Args:
+            document_id: Document identifier
+            level: Optional filter by level ("document", "chapter", "section")
+
+        Returns:
+            List of summary dictionaries
+        """
+        from src.storage.queries import GetDocumentSummaries
+
+        self._ensure_connected()
+
+        query = GetDocumentSummaries(document_id, level=level)
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        return result.data or []
+
+    def search_summaries(
+        self,
+        query_embedding: list[float],
+        limit: int = 10,
+        level: Optional[str] = None,
+        document_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Search summaries using vector similarity.
+
+        Args:
+            query_embedding: Query vector
+            limit: Maximum number of results
+            level: Optional filter by level
+            document_id: Optional filter by document
+
+        Returns:
+            List of summary dictionaries with scores
+        """
+        from src.storage.queries import SearchSimilarSummaries
+
+        self._ensure_connected()
+
+        query = SearchSimilarSummaries(
+            query_embedding=query_embedding,
+            limit=limit,
+            level=level,
+            document_id=document_id,
+        )
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        return result.data or []
+
+    def delete_document_summaries(self, document_id: str) -> bool:
+        """
+        Delete all summaries for a document.
+
+        Args:
+            document_id: Document identifier
+
+        Returns:
+            True if deletion succeeded
+        """
+        from src.storage.queries import DeleteDocumentSummaries
+
+        self._ensure_connected()
+
+        query = DeleteDocumentSummaries(document_id)
+        result = self._execute_query(query)
+
+        return result.success
+
+    def list_summarized_documents(self) -> list[dict[str, Any]]:
+        """
+        List all documents that have summaries.
+
+        Returns:
+            List of document info dictionaries with summary counts
+        """
+        from src.storage.queries import ListSummarizedDocuments
+
+        self._ensure_connected()
+
+        query = ListSummarizedDocuments()
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        return result.data or []
