@@ -642,7 +642,13 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             logger.warning("search_tables: table store not available")
             return []
 
-        results = state.table_store.search_tables(query, top_k=top_k, doc_id=doc_id)
+        # Embed query for vector search
+        query_embedding = state.embedder.embed_text(query)
+        results = state.table_store.search_tables(
+            query_embedding=query_embedding,
+            top_k=top_k,
+            doc_id=doc_id,
+        )
 
         logger.info(f"search_tables: found {len(results)} results")
         return format_table_search_results(results)
@@ -753,4 +759,5 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         tables = state.table_store.list_tables(doc_id=doc_id)
 
         logger.info(f"list_tables: found {len(tables)} tables")
-        return format_table_list(tables)
+        # list_tables returns dicts directly, not ParsedTable objects
+        return tables
