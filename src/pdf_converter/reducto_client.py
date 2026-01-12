@@ -238,10 +238,52 @@ class ReductoClient:
         elif hasattr(result, "text"):
             return result.text
         elif hasattr(result, "url"):
-            # Result is a URL - fetch the content
+            # Result is a URL - fetch the JSON content from S3
             import httpx
-            resp = httpx.get(result.url)
-            return resp.text
+
+            url = result.url
+            logger.debug("Fetching result from URL: %s", url[:100] if url else "None")
+
+            try:
+                # Add timeout to prevent hanging
+                resp = httpx.get(url, timeout=60.0)
+                resp.raise_for_status()  # Raise exception for 4xx/5xx status codes
+            except httpx.HTTPStatusError as e:
+                logger.error("HTTP error fetching URL: %s", e)
+                raise ReductoAPIError(f"Failed to fetch result from URL: {e}") from e
+            except httpx.RequestError as e:
+                logger.error("Request error fetching URL: %s", e)
+                raise ReductoAPIError(f"Failed to fetch result from URL: {e}") from e
+
+            # Parse the JSON response which contains chunks
+            try:
+                data = resp.json()
+                logger.debug("URL response keys: %s", list(data.keys()) if isinstance(data, dict) else type(data))
+
+                # Extract chunks from the JSON response
+                if isinstance(data, dict) and "chunks" in data:
+                    chunks = data["chunks"]
+                    logger.info("Fetched %d chunks from URL", len(chunks))
+
+                    # Log and process chunks (they're dicts, not objects)
+                    self._log_response_structure_from_dicts(chunks)
+
+                    if self.config.raw_output:
+                        return self._chunks_to_markdown_from_dicts(chunks)
+                    else:
+                        processed = [
+                            self._process_chunk_with_headers_from_dict(chunk)
+                            for chunk in chunks
+                        ]
+                        return "\n\n---\n\n".join(p for p in processed if p)
+                else:
+                    # Fallback to raw text if no chunks found
+                    logger.warning("URL response has no chunks, using raw text")
+                    return resp.text
+            except ValueError as e:
+                # JSON parsing failed
+                logger.warning("Failed to parse URL response as JSON: %s", e)
+                return resp.text
         else:
             # Try to get any text-like attribute
             for attr in ["output", "data", "body"]:
@@ -301,6 +343,77 @@ class ReductoClient:
                         "Sample block (object): attrs=%s",
                         [a for a in dir(sample_block) if not a.startswith("_")],
                     )
+
+    def _log_response_structure_from_dicts(self, chunks: list[dict]) -> None:
+        """Log response structure when chunks are dictionaries (from URL response)."""
+        chunk_count = len(chunks)
+        total_blocks = 0
+        block_types: dict[str, int] = {}
+        header_count = 0
+
+        for chunk in chunks:
+            blocks = chunk.get("blocks", []) or []
+            total_blocks += len(blocks)
+
+            for block in blocks:
+                block_type = block.get("type", "Unknown")
+                block_types[block_type] = block_types.get(block_type, 0) + 1
+                if block_type and block_type.lower() == "header":
+                    header_count += 1
+
+        logger.info(
+            "Reducto API response: chunks=%d, blocks=%d, headers=%d",
+            chunk_count,
+            total_blocks,
+            header_count,
+        )
+
+        if block_types:
+            logger.debug("Block types: %s", block_types)
+
+    def _chunks_to_markdown_from_dicts(self, chunks: list[dict]) -> str:
+        """Convert dict chunks to continuous readable markdown."""
+        parts = []
+        for chunk in chunks:
+            chunk_content = self._process_chunk_with_headers_from_dict(chunk)
+            if chunk_content:
+                parts.append(chunk_content)
+        return "\n\n".join(parts)
+
+    def _process_chunk_with_headers_from_dict(self, chunk: dict) -> str:
+        """Process a dict chunk, reconstructing markdown headers from block metadata."""
+        blocks = chunk.get("blocks", []) or []
+
+        if not blocks:
+            content = chunk.get("content", "")
+            return content.strip() if content else ""
+
+        processed_parts = []
+        for block in blocks:
+            block_type = block.get("type")
+            block_content = block.get("content", "")
+
+            if not block_content:
+                continue
+
+            block_content = block_content.strip()
+            if not block_content:
+                continue
+
+            if block_type and block_type.lower() == "header":
+                block_level = block.get("level")
+                if block_level is None:
+                    block_level = self._infer_header_level(block_content)
+                prefix = "#" * block_level
+                processed_parts.append(f"{prefix} {block_content}")
+            else:
+                processed_parts.append(block_content)
+
+        if processed_parts:
+            return "\n\n".join(processed_parts)
+
+        content = chunk.get("content", "")
+        return content.strip() if content else ""
 
     def _chunks_to_markdown(self, chunks) -> str:
         """Convert chunks to continuous readable markdown.
