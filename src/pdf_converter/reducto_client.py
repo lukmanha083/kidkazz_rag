@@ -206,7 +206,12 @@ class ReductoClient:
                 return self._chunks_to_markdown(result.chunks)
             else:
                 # Keep chunked format for embedding pipeline
-                return "\n\n---\n\n".join(chunk.content for chunk in result.chunks)
+                # Still process headers from block metadata
+                processed = [
+                    self._process_chunk_with_headers(chunk)
+                    for chunk in result.chunks
+                ]
+                return "\n\n---\n\n".join(p for p in processed if p)
         elif hasattr(result, "content"):
             return result.content
         elif hasattr(result, "markdown"):
