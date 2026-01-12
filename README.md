@@ -20,6 +20,7 @@ This project provides tools to:
 7. Manage PDF inbox with auto-delete after conversion
 8. Tag documents by topic for filtered search (e.g., "inventory", "accounting")
 9. Extract concepts and build cross-document knowledge graphs (LLM-powered)
+10. Parse and search tables with multi-vector retrieval (summaries for search, raw data for synthesis)
 
 ## Current Status
 
@@ -34,6 +35,7 @@ This project provides tools to:
 | 7 | Document Tagging | ✅ Complete |
 | 8 | Quality Checker | ✅ Complete |
 | 9 | Concept Extraction & Knowledge Graph | ✅ Complete |
+| 10 | Table Processing & MCP Tools | ✅ Complete |
 
 ## Architecture
 
@@ -87,8 +89,9 @@ Markdown Document
 [MCP Server] ────────────────── Claude Code Integration  [CLI Tool] ── Command Line
      |                           ├── 10 search/retrieval tools  |        ├── kidkazz ingest
      |                           ├── 5 concept graph tools      |        ├── kidkazz search
-     |                           └── 4 resource endpoints       |        ├── kidkazz docs
-     v                                                         v        ├── kidkazz concepts
+     |                           ├── 4 table tools              |        ├── kidkazz docs
+     |                           └── 4 resource endpoints       |        ├── kidkazz concepts
+     v                                                         v        ├── kidkazz tables
 Chat with your documents                               Terminal access  ├── kidkazz inbox
                                                                         └── kidkazz config
 ```
@@ -1205,7 +1208,7 @@ You don't need to manually start the server - Claude Code does it automatically 
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `search_semantic` | Vector similarity search | query, top_k, doc_id, level, semantic_type, threshold, tags |
+| `search_semantic` | Vector similarity search | query, top_k, doc_id, level, semantic_type, threshold, tags, has_table, has_code, has_math, header_level |
 | `search_keyword` | Full-text keyword search | keyword, doc_id, case_sensitive |
 | `get_chunk` | Get chunk by ID | chunk_id |
 | `get_context_window` | Get chunk with neighbors | chunk_id, window_size |
@@ -1220,6 +1223,10 @@ You don't need to manually start the server - Claude Code does it automatically 
 | `get_related_concepts` | Get related concepts | concept_name, include_reverse |
 | `get_concept_chunks` | Get chunks defining/mentioning concept | concept_name, include_mentions |
 | `explain_concept_with_context` | Get concept with cross-document context | concept_name |
+| `search_tables` | Search tables by semantic similarity | query, top_k, doc_id |
+| `get_table` | Get table by ID with full metadata | table_id |
+| `get_tables_for_concept` | Get tables related to a concept | concept_name |
+| `list_tables` | List all tables | doc_id |
 
 ### Available Resources
 
@@ -1354,7 +1361,7 @@ Claude: [Calls get_document_chunks tool, explores structure]
 ┌─────────────────────────────────────────────────────────────┐
 │                     MCP Server                               │
 │   python -m src.mcp_server                                  │
-│   ├── 10 Tools (search_semantic, get_chunk, etc.)          │
+│   ├── 19 Tools (search, concepts, tables, graph traversal) │
 │   └── 4 Resources (schema, documents, etc.)                │
 └──────────────────────────┬──────────────────────────────────┘
                            │
@@ -1730,6 +1737,8 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [x] Phase 6: PDF inbox management with auto-delete
 - [x] Phase 7: Document tagging for topic-based filtering
 - [x] Phase 8: Quality checker for parsed output validation
+- [x] Phase 9: Concept extraction & knowledge graph (LLM-powered)
+- [x] Phase 10: Table processing & MCP tools (multi-vector retrieval)
 
 ## Documentation
 

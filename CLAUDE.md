@@ -94,8 +94,9 @@ kidkazz ingest markdown file.md --extract-tables  # Process tables during ingest
   - `MockChunkStore`: In-memory for testing
   - `HelixChunkStore`: Production vector + graph DB
 
-- **`src/mcp_server/`** - FastMCP server exposing 14 search tools and 4 resource endpoints for Claude Code integration:
-  - Chunk tools: `search_semantic`, `search_keyword`, `get_chunk`, `get_context_window`, `get_parent`, `get_children`, `get_siblings`, `list_documents`, `get_document_chunks`, `get_document_stats`
+- **`src/mcp_server/`** - FastMCP server exposing 19 search tools and 4 resource endpoints for Claude Code integration:
+  - Chunk tools: `search_semantic` (with filters: has_table, has_code, has_math, header_level), `search_keyword`, `get_chunk`, `get_context_window`, `get_parent`, `get_children`, `get_siblings`, `list_documents`, `get_document_chunks`, `get_document_stats`
+  - Concept tools: `search_concepts`, `get_concept`, `get_related_concepts`, `get_concept_chunks`, `explain_concept_with_context`
   - Table tools: `search_tables`, `get_table`, `get_tables_for_concept`, `list_tables`
 
 - **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`, `concepts`, `tables`
@@ -126,6 +127,20 @@ When using Reducto.ai with block/chunk mode, header information is extracted fro
 - `block_type`: Block type from Reducto (e.g., "Header", "Text", "Table")
 
 **Re-parsing required**: To leverage header detection, existing PDFs must be re-parsed (not just re-ingested) since the markdown files need proper header syntax.
+
+### Content Flag Filters
+The `search_semantic` MCP tool supports filtering by content flags:
+- `has_table: bool` - Only chunks containing tables
+- `has_code: bool` - Only chunks containing code blocks
+- `has_math: bool` - Only chunks containing math expressions
+- `header_level: int` - Only chunks at specific header level (1-6)
+
+### Table Storage
+Tables use in-memory multi-vector storage (`TableStore`):
+- Summaries are embedded for semantic search
+- Raw markdown is stored for LLM synthesis
+- Concept-table relationships are tracked for graph traversal
+- **Note**: Table storage is currently in-memory only, not persisted to Helix-DB
 
 ## Configuration Files
 
