@@ -314,7 +314,7 @@ class HelixChunkStore:
         embedded_chunks: list[EmbeddedChunk],
         metadata_list: list[ChunkMetadata],
         tags: Optional[list[str]] = None,
-    ) -> None:
+    ) -> dict[str, str]:
         """
         Store a complete document with all chunks, embeddings, and relationships.
 
@@ -324,6 +324,10 @@ class HelixChunkStore:
             embedded_chunks: List of chunks with embeddings
             metadata_list: Corresponding metadata for each chunk
             tags: Optional list of document tags (e.g., ["inventory", "accounting"])
+
+        Returns:
+            Dictionary mapping chunk string IDs to internal database IDs.
+            Useful for creating concept links after ingestion.
 
         Raises:
             ImportError: If helix-py is not installed
@@ -389,6 +393,8 @@ class HelixChunkStore:
                 if chunk_internal and next_internal:
                     edge_query = AddNextSibling(chunk_internal, next_internal)
                     self._client.query(edge_query)
+
+        return chunk_id_map
 
     def get_chunk(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """

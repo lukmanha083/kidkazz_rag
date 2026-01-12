@@ -285,6 +285,79 @@ class ConceptExtractor:
 
         return list(all_concepts.values()), all_relations
 
+    def extract_from_chunks_with_mapping(
+        self,
+        chunks: list[dict],  # [{content, section_path, chunk_id, ...}]
+        document_title: str,
+        metadata_list: Optional[list] = None,
+    ) -> tuple[list[ExtractedConcept], list[ConceptRelation], dict[int, ChunkExtraction]]:
+        """
+        Extract concepts from chunks while preserving per-chunk mapping.
+
+        Args:
+            chunks: List of chunk dicts with 'content', 'section_path', 'chunk_id' keys
+            document_title: Document title for context
+            metadata_list: Optional list of ChunkMetadata objects with header info
+
+        Returns:
+            Tuple of:
+            - deduplicated concepts (list)
+            - all relationships (list)
+            - chunk_index -> ChunkExtraction mapping (for creating DefinesConcept/MentionsConcept edges)
+        """
+        if not chunks:
+            return [], [], {}
+
+        all_concepts: dict[str, ExtractedConcept] = {}  # lowercase name -> concept
+        all_relations: list[ConceptRelation] = []
+        chunk_extractions: dict[int, ChunkExtraction] = {}  # chunk_index -> extraction
+        known_names: list[str] = []
+
+        for i, chunk in enumerate(chunks):
+            logger.info(f"Extracting concepts from chunk {i + 1}/{len(chunks)}")
+
+            # Get metadata for this chunk if available
+            header_text = None
+            header_level = None
+            semantic_type = None
+
+            if metadata_list and i < len(metadata_list):
+                meta = metadata_list[i]
+                header_text = getattr(meta, "header_text", None)
+                header_level = getattr(meta, "header_level", None)
+                semantic_type = getattr(meta, "semantic_type", None)
+
+            extraction = self.extract_from_chunk(
+                content=chunk["content"],
+                section_path=chunk.get("section_path", []),
+                document_title=document_title,
+                existing_concepts=known_names,
+                header_text=header_text,
+                header_level=header_level,
+                semantic_type=semantic_type,
+            )
+
+            # Store per-chunk extraction for linking
+            chunk_extractions[i] = extraction
+
+            # Deduplicate concepts by lowercase name
+            for concept in extraction.defined_concepts:
+                name_lower = concept.name.lower()
+                if name_lower not in all_concepts:
+                    all_concepts[name_lower] = concept
+                    known_names.append(concept.name)
+                else:
+                    # Merge aliases from duplicate
+                    existing = all_concepts[name_lower]
+                    for alias in concept.aliases:
+                        if alias not in existing.aliases:
+                            existing.aliases.append(alias)
+
+            # Collect all relationships
+            all_relations.extend(extraction.relationships)
+
+        return list(all_concepts.values()), all_relations, chunk_extractions
+
 
 # ============================================================================
 # Semantic Type Filtering
