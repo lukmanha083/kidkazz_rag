@@ -26,12 +26,18 @@ from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
 from src.chunker import ChunkMetadata, EmbeddedChunk
+from src.chunker.table_parser import ParsedTable
+from src.chunker.table_summarizer import TableSummary
 
 from .converters import (
     chunk_to_helix_node,
     document_to_helix_node,
     embedded_chunk_to_helix_vector,
     helix_to_embedded_chunk,
+    helix_node_to_parsed_table,
+    helix_node_to_table_summary,
+    parsed_table_to_helix_node,
+    table_summary_to_helix_vector,
 )
 from .queries import (
     AddChunk,
@@ -40,9 +46,12 @@ from .queries import (
     AddDocument,
     AddNextSibling,
     AddParentChild,
+    AddTable,
+    AddTableVector,
     DeleteDocument,
     DropChunk,
     DropDocument,
+    DropTable,
     GetChunk,
     GetChunksByParentId,
     GetChunkWithContext,
@@ -53,17 +62,26 @@ from .queries import (
     GetDocumentChunks,
     GetRelatedConcepts,
     GetConceptDependents,
+    GetTableById,
+    GetTablesByDocumentId,
+    GetTablesForConcept,
     LinkChunkDefinesConcept,
     LinkChunkMentionsConcept,
+    LinkChunkTable,
     LinkChunkVector,
     LinkConceptRelatesTo,
     LinkDocumentChunk,
+    LinkDocumentTable,
+    LinkTableConcept,
+    LinkTableVector,
     ListConcepts,
     ListDocumentConcepts,
     ListDocuments,
+    ListTables,
     QueryResult,
     SearchKeyword,
     SearchSimilarChunks,
+    SearchSimilarTables,
     UpdateChunkContent,
     UpdateConcept,
     TYPED_CONCEPT_QUERIES_FORWARD,
@@ -1424,3 +1442,366 @@ class HelixChunkStore:
         if result.success:
             return result.data or []
         return []
+
+    # ========================================================================
+    # Table Storage Methods
+    # ========================================================================
+
+    def store_table(
+        self,
+        table: ParsedTable,
+        summary: TableSummary,
+        doc_id: str,
+        model_name: str = "unknown",
+    ) -> Optional[str]:
+        """
+        Store a parsed table with its summary and embedding.
+
+        Args:
+            table: Parsed table dataclass
+            summary: Table summary with embedding
+            doc_id: Document ID for document filtering
+            model_name: Name of embedding model used
+
+        Returns:
+            Internal table node ID, or None if storage fails
+        """
+        self._ensure_connected()
+
+        try:
+            # Convert table and summary to Helix node properties
+            table_props = parsed_table_to_helix_node(table, summary, doc_id)
+
+            # Add table node
+            table_query = AddTable(table_props)
+            table_response = self._client.query(table_query)
+            table_internal_id = self._extract_node_id(table_response)
+
+            if not table_internal_id:
+                logger.error(f"Failed to get internal ID for table '{summary.table_id}'")
+                return None
+
+            # Store vector embedding if summary has one
+            if summary.embedding:
+                vec_data = table_summary_to_helix_vector(summary, model_name)
+                vec_query = AddTableVector(
+                    embedding=vec_data["embedding"],
+                    model_name=vec_data["model_name"],
+                    embedding_dim=vec_data["embedding_dim"],
+                )
+                vec_response = self._client.query(vec_query)
+                vec_internal_id = self._extract_node_id(vec_response)
+
+                # Link table to its embedding vector
+                if vec_internal_id:
+                    link_vec_query = LinkTableVector(table_internal_id, vec_internal_id)
+                    self._client.query(link_vec_query)
+
+            # Link document to table
+            doc_query = GetDocumentByDocId(doc_id)
+            doc_result = self._execute_query(doc_query)
+            if doc_result.success and doc_result.data:
+                doc_node = doc_result.data.get("node", doc_result.data)
+                doc_internal_id = self._extract_node_id(doc_result.data) or (doc_node.get("id") if doc_node else None)
+                if doc_internal_id:
+                    link_doc_query = LinkDocumentTable(doc_internal_id, table_internal_id)
+                    self._client.query(link_doc_query)
+
+            # Link source chunk to table
+            if table.source_chunk_id:
+                chunk_query = GetChunk(table.source_chunk_id)
+                chunk_result = self._execute_query(chunk_query)
+                if chunk_result.success and chunk_result.data:
+                    chunk_node = chunk_result.data.get("node", chunk_result.data)
+                    chunk_internal_id = self._extract_node_id(chunk_result.data) or (chunk_node.get("id") if chunk_node else None)
+                    if chunk_internal_id:
+                        link_chunk_query = LinkChunkTable(chunk_internal_id, table_internal_id)
+                        self._client.query(link_chunk_query)
+
+            return table_internal_id
+
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error(f"Network error storing table '{summary.table_id}': {e}")
+            return None
+        except Exception as e:
+            logger.exception(f"Unexpected error storing table '{summary.table_id}': {e}")
+            raise
+
+    def get_table(self, table_id: str) -> Optional[ParsedTable]:
+        """
+        Get a table by ID.
+
+        Args:
+            table_id: Table identifier (e.g., "table_chunk_123")
+
+        Returns:
+            ParsedTable if found, None otherwise
+        """
+        self._ensure_connected()
+
+        query = GetTableById(table_id)
+        result = self._execute_query(query)
+
+        if not result.success or not result.data:
+            return None
+
+        # Handle response format
+        node = result.data.get("node") if isinstance(result.data, dict) else result.data
+        if not node:
+            return None
+
+        return helix_node_to_parsed_table(node)
+
+    def get_table_with_summary(self, table_id: str) -> Optional[tuple[ParsedTable, TableSummary]]:
+        """
+        Get a table with its summary by ID.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            Tuple of (ParsedTable, TableSummary) if found, None otherwise
+        """
+        self._ensure_connected()
+
+        query = GetTableById(table_id)
+        result = self._execute_query(query)
+
+        if not result.success or not result.data:
+            return None
+
+        # Handle response format
+        node = result.data.get("node") if isinstance(result.data, dict) else result.data
+        if not node:
+            return None
+
+        table = helix_node_to_parsed_table(node)
+        summary = helix_node_to_table_summary(node)
+
+        return (table, summary)
+
+    def search_tables(
+        self,
+        query_embedding: list[float],
+        top_k: int = 5,
+        doc_id: Optional[str] = None,
+        threshold: float = 0.0,
+    ) -> list[tuple[ParsedTable, float]]:
+        """
+        Find tables similar to query embedding with post-filtering.
+
+        Args:
+            query_embedding: Query vector
+            top_k: Number of results
+            doc_id: Filter by document (post-filtered)
+            threshold: Minimum similarity score (post-filtered)
+
+        Returns:
+            List of (ParsedTable, similarity_score) tuples, sorted by score
+        """
+        self._ensure_connected()
+
+        query = SearchSimilarTables(
+            query_embedding=query_embedding,
+            top_k=top_k * 2 if doc_id else top_k,  # Over-fetch for filtering
+        )
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        results: list[tuple[ParsedTable, float]] = []
+        for item in result.data or []:
+            # Extract node and score from response
+            node = item.get("node", item) if isinstance(item, dict) else item
+            score = item.get("score", 0.0) if isinstance(item, dict) else 0.0
+
+            # Apply threshold filter
+            if threshold > 0 and score < threshold:
+                continue
+
+            # Apply doc_id filter
+            if doc_id and node.get("document_id") != doc_id:
+                continue
+
+            table = helix_node_to_parsed_table(node)
+            results.append((table, score))
+
+            # Stop once we have enough results
+            if len(results) >= top_k:
+                break
+
+        return results
+
+    def get_tables_for_document(self, doc_id: str) -> list[ParsedTable]:
+        """
+        Get all tables for a document.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            List of ParsedTables for the document
+        """
+        self._ensure_connected()
+
+        query = GetTablesByDocumentId(doc_id)
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        results: list[ParsedTable] = []
+        for item in result.data or []:
+            node = item.get("node", item) if isinstance(item, dict) else item
+            table = helix_node_to_parsed_table(node)
+            results.append(table)
+
+        return results
+
+    def get_tables_for_concept(self, concept_id: str) -> list[ParsedTable]:
+        """
+        Get tables related to a concept via graph traversal.
+
+        Args:
+            concept_id: Slugified concept identifier
+
+        Returns:
+            List of ParsedTables related to the concept
+        """
+        self._ensure_connected()
+
+        # First get the concept to find its internal ID
+        concept = self.get_concept(concept_id)
+        if not concept:
+            return []
+
+        internal_id = self._extract_node_id(concept) or concept.get("id")
+        if not internal_id:
+            return []
+
+        query = GetTablesForConcept(internal_id)
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        results: list[ParsedTable] = []
+        for item in result.data or []:
+            node = item.get("node", item) if isinstance(item, dict) else item
+            table = helix_node_to_parsed_table(node)
+            results.append(table)
+
+        return results
+
+    def list_tables(self, doc_id: Optional[str] = None) -> list[dict[str, Any]]:
+        """
+        List all tables with metadata.
+
+        Args:
+            doc_id: Filter by document (optional)
+
+        Returns:
+            List of table metadata dictionaries
+        """
+        self._ensure_connected()
+
+        if doc_id:
+            query = GetTablesByDocumentId(doc_id)
+        else:
+            query = ListTables()
+
+        result = self._execute_query(query)
+
+        if not result.success:
+            return []
+
+        tables: list[dict[str, Any]] = []
+        for item in result.data or []:
+            node = item.get("node", item) if isinstance(item, dict) else item
+            if node:
+                tables.append({
+                    "table_id": node.get("table_id", ""),
+                    "document_id": node.get("document_id", ""),
+                    "source_chunk_id": node.get("source_chunk_id", ""),
+                    "summary_text": node.get("summary_text", ""),
+                    "row_count": node.get("row_count", 0),
+                    "column_count": node.get("column_count", 0),
+                })
+
+        return tables
+
+    def link_table_to_concept(
+        self,
+        table_id: str,
+        concept_id: str,
+    ) -> bool:
+        """
+        Create TableRelatedToConcept edge between table and concept.
+
+        Args:
+            table_id: Table identifier
+            concept_id: Concept identifier
+
+        Returns:
+            True if link created successfully
+        """
+        self._ensure_connected()
+
+        # Get table internal ID
+        table_query = GetTableById(table_id)
+        table_result = self._execute_query(table_query)
+        if not table_result.success or not table_result.data:
+            return False
+
+        table_node = table_result.data.get("node", table_result.data)
+        table_internal_id = self._extract_node_id(table_result.data) or (table_node.get("id") if table_node else None)
+
+        if not table_internal_id:
+            return False
+
+        # Get concept internal ID
+        concept = self.get_concept(concept_id)
+        if not concept:
+            return False
+
+        concept_internal_id = self._extract_node_id(concept) or concept.get("id")
+        if not concept_internal_id:
+            return False
+
+        # Create the link
+        link_query = LinkTableConcept(table_internal_id, concept_internal_id)
+        result = self._execute_query(link_query)
+        return result.success
+
+    def delete_table(self, table_id: str) -> bool:
+        """
+        Delete a table and its relationships.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            True if deleted, False if not found
+        """
+        self._ensure_connected()
+
+        # First get the table to retrieve its internal ID
+        table_query = GetTableById(table_id)
+        table_result = self._execute_query(table_query)
+
+        if not table_result.success or not table_result.data:
+            return False
+
+        # Extract internal ID from response
+        table_node = table_result.data.get("node") if isinstance(table_result.data, dict) else table_result.data
+        internal_id = self._extract_node_id(table_result.data) or (table_node.get("id") if table_node else None)
+
+        if not internal_id:
+            return False
+
+        # Drop the table using internal ID
+        drop_query = DropTable(internal_id)
+        drop_result = self._execute_query(drop_query)
+
+        return drop_result.success

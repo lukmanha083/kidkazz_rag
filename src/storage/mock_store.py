@@ -15,6 +15,8 @@ from typing import Any, Optional
 
 from src.chunker import ChunkMetadata, EmbeddedChunk
 from src.chunker.embedder import cosine_similarity
+from src.chunker.table_parser import ParsedTable
+from src.chunker.table_summarizer import TableSummary
 
 
 class MockChunkStore:
@@ -28,6 +30,8 @@ class MockChunkStore:
         _documents: Document metadata storage
         _chunks: Chunk data storage (chunk_id -> data)
         _embeddings: Embedding storage (chunk_id -> embedding)
+        _tables: Table data storage (table_id -> data)
+        _table_embeddings: Table embedding storage (table_id -> embedding)
     """
 
     def __init__(self) -> None:
@@ -36,6 +40,11 @@ class MockChunkStore:
         self._chunks: dict[str, dict[str, Any]] = {}
         self._embeddings: dict[str, list[float]] = {}
         self._model_names: dict[str, str] = {}
+        # Table storage
+        self._tables: dict[str, dict[str, Any]] = {}
+        self._table_embeddings: dict[str, list[float]] = {}
+        self._table_model_names: dict[str, str] = {}
+        self._table_concept_links: dict[str, set[str]] = {}  # table_id -> set of concept_ids
 
     def store_document(
         self,
@@ -530,6 +539,11 @@ class MockChunkStore:
         self._chunks.clear()
         self._embeddings.clear()
         self._model_names.clear()
+        # Clear table data
+        self._tables.clear()
+        self._table_embeddings.clear()
+        self._table_model_names.clear()
+        self._table_concept_links.clear()
 
     def _reconstruct_embedded_chunk(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """
@@ -584,4 +598,306 @@ class MockChunkStore:
             chunk=chunk,
             embedding=embedding,
             model_name=model_name,
+        )
+
+    # ========================================================================
+    # Table Storage Methods
+    # ========================================================================
+
+    def store_table(
+        self,
+        table: ParsedTable,
+        summary: TableSummary,
+        doc_id: str,
+        model_name: str = "unknown",
+    ) -> Optional[str]:
+        """
+        Store a parsed table with its summary and embedding.
+
+        Args:
+            table: Parsed table dataclass
+            summary: Table summary with embedding
+            doc_id: Document ID for document filtering
+            model_name: Name of embedding model used
+
+        Returns:
+            Table ID (simulated internal ID), or None if storage fails
+        """
+        table_id = summary.table_id
+
+        # Store table data
+        self._tables[table_id] = {
+            "table_id": table_id,
+            "raw_markdown": table.raw_markdown,
+            "summary_text": summary.summary_text,
+            "column_names": table.column_names,
+            "column_types": table.column_types,
+            "row_count": table.row_count,
+            "column_count": table.column_count,
+            "rows": table.rows,
+            "has_header_row": table.has_header_row,
+            "surrounding_context": table.surrounding_context or "",
+            "source_chunk_id": table.source_chunk_id,
+            "document_id": doc_id,
+            "key_columns": summary.key_columns,
+            "key_values": summary.key_values,
+        }
+
+        # Store embedding if available
+        if summary.embedding:
+            self._table_embeddings[table_id] = summary.embedding
+            self._table_model_names[table_id] = model_name
+
+        return table_id
+
+    def get_table(self, table_id: str) -> Optional[ParsedTable]:
+        """
+        Get a table by ID.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            ParsedTable if found, None otherwise
+        """
+        if table_id not in self._tables:
+            return None
+
+        return self._reconstruct_parsed_table(table_id)
+
+    def get_table_with_summary(
+        self,
+        table_id: str,
+    ) -> Optional[tuple[ParsedTable, TableSummary]]:
+        """
+        Get a table with its summary by ID.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            Tuple of (ParsedTable, TableSummary) if found, None otherwise
+        """
+        if table_id not in self._tables:
+            return None
+
+        table = self._reconstruct_parsed_table(table_id)
+        summary = self._reconstruct_table_summary(table_id)
+
+        if table is None or summary is None:
+            return None
+
+        return (table, summary)
+
+    def search_tables(
+        self,
+        query_embedding: list[float],
+        top_k: int = 5,
+        doc_id: Optional[str] = None,
+        threshold: float = 0.0,
+    ) -> list[tuple[ParsedTable, float]]:
+        """
+        Find tables similar to query embedding.
+
+        Args:
+            query_embedding: Query vector
+            top_k: Number of results
+            doc_id: Filter by document (optional)
+            threshold: Minimum similarity score (default: 0.0)
+
+        Returns:
+            List of (ParsedTable, similarity_score) tuples, sorted by score
+        """
+        results: list[tuple[str, float]] = []
+
+        for table_id, data in self._tables.items():
+            # Apply doc_id filter
+            if doc_id and data.get("document_id") != doc_id:
+                continue
+
+            # Calculate similarity
+            embedding = self._table_embeddings.get(table_id)
+            if embedding:
+                similarity = cosine_similarity(query_embedding, embedding)
+                if similarity >= threshold:
+                    results.append((table_id, similarity))
+
+        # Sort by similarity (descending) and take top_k
+        results.sort(key=lambda x: x[1], reverse=True)
+        results = results[:top_k]
+
+        # Reconstruct ParsedTables
+        output: list[tuple[ParsedTable, float]] = []
+        for table_id, score in results:
+            table = self._reconstruct_parsed_table(table_id)
+            if table is not None:
+                output.append((table, score))
+        return output
+
+    def get_tables_for_document(self, doc_id: str) -> list[ParsedTable]:
+        """
+        Get all tables for a document.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            List of ParsedTables for the document
+        """
+        results: list[ParsedTable] = []
+
+        for table_id, data in self._tables.items():
+            if data.get("document_id") == doc_id:
+                table = self._reconstruct_parsed_table(table_id)
+                if table:
+                    results.append(table)
+
+        return results
+
+    def get_tables_for_concept(self, concept_id: str) -> list[ParsedTable]:
+        """
+        Get tables related to a concept.
+
+        Args:
+            concept_id: Concept identifier
+
+        Returns:
+            List of ParsedTables related to the concept
+        """
+        results: list[ParsedTable] = []
+
+        for table_id, concept_ids in self._table_concept_links.items():
+            if concept_id in concept_ids:
+                table = self._reconstruct_parsed_table(table_id)
+                if table:
+                    results.append(table)
+
+        return results
+
+    def list_tables(self, doc_id: Optional[str] = None) -> list[dict[str, Any]]:
+        """
+        List all tables with metadata.
+
+        Args:
+            doc_id: Filter by document (optional)
+
+        Returns:
+            List of table metadata dictionaries
+        """
+        tables: list[dict[str, Any]] = []
+
+        for table_id, data in self._tables.items():
+            if doc_id and data.get("document_id") != doc_id:
+                continue
+
+            tables.append({
+                "table_id": data.get("table_id", ""),
+                "document_id": data.get("document_id", ""),
+                "source_chunk_id": data.get("source_chunk_id", ""),
+                "summary_text": data.get("summary_text", ""),
+                "row_count": data.get("row_count", 0),
+                "column_count": data.get("column_count", 0),
+            })
+
+        return tables
+
+    def link_table_to_concept(
+        self,
+        table_id: str,
+        concept_id: str,
+    ) -> bool:
+        """
+        Create TableRelatedToConcept link between table and concept.
+
+        Args:
+            table_id: Table identifier
+            concept_id: Concept identifier
+
+        Returns:
+            True if link created successfully
+        """
+        if table_id not in self._tables:
+            return False
+
+        if table_id not in self._table_concept_links:
+            self._table_concept_links[table_id] = set()
+
+        self._table_concept_links[table_id].add(concept_id)
+        return True
+
+    def delete_table(self, table_id: str) -> bool:
+        """
+        Delete a table and its relationships.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            True if deleted, False if not found
+        """
+        if table_id not in self._tables:
+            return False
+
+        del self._tables[table_id]
+
+        if table_id in self._table_embeddings:
+            del self._table_embeddings[table_id]
+
+        if table_id in self._table_model_names:
+            del self._table_model_names[table_id]
+
+        if table_id in self._table_concept_links:
+            del self._table_concept_links[table_id]
+
+        return True
+
+    def _reconstruct_parsed_table(self, table_id: str) -> Optional[ParsedTable]:
+        """
+        Reconstruct a ParsedTable from stored data.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            ParsedTable if found, None otherwise
+        """
+        if table_id not in self._tables:
+            return None
+
+        data = self._tables[table_id]
+
+        return ParsedTable(
+            raw_markdown=data.get("raw_markdown", ""),
+            column_names=data.get("column_names", []),
+            rows=data.get("rows", []),
+            row_count=data.get("row_count", 0),
+            column_count=data.get("column_count", 0),
+            column_types=data.get("column_types", []),
+            has_header_row=data.get("has_header_row", False),
+            surrounding_context=data.get("surrounding_context", ""),
+            source_chunk_id=data.get("source_chunk_id", ""),
+        )
+
+    def _reconstruct_table_summary(self, table_id: str) -> Optional[TableSummary]:
+        """
+        Reconstruct a TableSummary from stored data.
+
+        Args:
+            table_id: Table identifier
+
+        Returns:
+            TableSummary if found, None otherwise
+        """
+        if table_id not in self._tables:
+            return None
+
+        data = self._tables[table_id]
+        embedding = self._table_embeddings.get(table_id)
+
+        return TableSummary(
+            table_id=data.get("table_id", ""),
+            summary_text=data.get("summary_text", ""),
+            key_columns=data.get("key_columns", []),
+            key_values=data.get("key_values", []),
+            embedding=embedding,
         )
