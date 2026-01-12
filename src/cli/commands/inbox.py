@@ -150,7 +150,14 @@ def list_pdfs(
         # List output directory (markdown files)
         if show_output:
             output_path = Path(config.output_path).expanduser()
-            output_path.mkdir(parents=True, exist_ok=True)
+
+            # Don't create directory for read-only listing
+            if not output_path.exists():
+                if json_output:
+                    console.print("[]")
+                else:
+                    console.print("[dim]No markdown files found (output directory does not exist)[/dim]")
+                return
 
             md_files = list(output_path.glob("*.md"))
 

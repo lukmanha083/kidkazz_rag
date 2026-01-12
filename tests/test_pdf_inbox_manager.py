@@ -67,8 +67,12 @@ class TestPDFInboxManagerInit:
         assert manager.inbox_path == temp_inbox
         assert manager.output_path == temp_output
 
-    def test_init_creates_inbox_directory(self, temp_output):
-        """Test manager creates inbox directory if it doesn't exist."""
+    def test_init_does_not_create_inbox_directory(self, temp_output):
+        """Test manager does NOT create inbox directory automatically.
+
+        Directory creation is deferred to commands that actually need it
+        (like parse), not read-only commands (like status, list).
+        """
         from src.pdf_inbox.manager import PDFInboxManager
 
         new_inbox = Path(tempfile.mkdtemp()) / "new_inbox"
@@ -78,7 +82,8 @@ class TestPDFInboxManagerInit:
                 inbox_path=new_inbox,
                 output_path=temp_output,
             )
-            assert new_inbox.exists()
+            # Directory should NOT be created by init
+            assert not new_inbox.exists()
         finally:
             shutil.rmtree(new_inbox.parent, ignore_errors=True)
 

@@ -4,7 +4,7 @@ helix_port = 6969
 helix_local = true
 
 [embeddings]
-embedder_type = "openai"
+embedder_type = "mock"
 model_name = "text-embedding-3-small"
 
 [chunking]
@@ -17,7 +17,7 @@ format = "human"
 color = true
 
 [inbox]
-path = "~/.kidkazz/inbox"
+path = "/tmp/kidkazz_inbox_f0owzi47"
 output_path = "~/.kidkazz/output"
 post_action = "move"
 recursive = false

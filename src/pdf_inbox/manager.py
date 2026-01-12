@@ -60,9 +60,6 @@ class PDFInboxManager:
             else self.inbox_path / "processed"
         )
 
-        # Create inbox directory if it doesn't exist
-        self.inbox_path.mkdir(parents=True, exist_ok=True)
-
         # Internal tracking of scanned files
         self._files: dict[Path, PDFFile] = {}
 
