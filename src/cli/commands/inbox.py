@@ -864,7 +864,14 @@ def parse(
             console.print("Valid options: strict, normal, lenient")
             raise typer.Exit(1)
 
-        checker = ReductoQualityChecker(threshold_map[quality_threshold]) if quality_check else None
+        # Use block_mode thresholds for chunked output (higher empty line tolerance)
+        if chunk_mode != "disabled" and quality_threshold == "normal":
+            thresholds = QualityThresholds.block_mode()
+            console.print("[dim]Using block mode quality thresholds[/dim]")
+        else:
+            thresholds = threshold_map[quality_threshold]
+
+        checker = ReductoQualityChecker(thresholds) if quality_check else None
 
         # Ensure directories exist
         inbox_path.mkdir(parents=True, exist_ok=True)

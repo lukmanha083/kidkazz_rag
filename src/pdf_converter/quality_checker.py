@@ -189,6 +189,35 @@ class QualityThresholds:
             empty_chunk_ratio_error=0.25,
         )
 
+    @classmethod
+    def block_mode(cls) -> "QualityThresholds":
+        """Create thresholds optimized for block/chunk mode output.
+
+        Block mode uses '\\n\\n---\\n\\n' separators between chunks,
+        which naturally creates a high empty line ratio. These thresholds
+        are adjusted to account for the expected formatting.
+        """
+        return cls(
+            # Standard OCR thresholds
+            ocr_confidence_warning=0.8,
+            ocr_confidence_error=0.6,
+            low_confidence_word_ratio_warning=0.10,
+            low_confidence_word_ratio_error=0.25,
+            # Standard content thresholds
+            words_per_page_warning=100,
+            words_per_page_error=50,
+            special_char_ratio_warning=0.10,
+            special_char_ratio_error=0.20,
+            # Relaxed empty line ratio for block separators
+            empty_line_ratio_warning=0.50,
+            empty_line_ratio_error=0.65,
+            # Standard structure thresholds
+            broken_table_warning=1,
+            broken_table_error=3,
+            empty_chunk_ratio_warning=0.05,
+            empty_chunk_ratio_error=0.15,
+        )
+
 
 class ReductoQualityChecker:
     """Quality checker for Reducto.ai parsed output."""
