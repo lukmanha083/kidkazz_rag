@@ -420,3 +420,135 @@ QUERY UpdateConceptWithDefinition(concept_id: String, source_documents: String, 
 QUERY DropConcept(concept_id: ID) =>
     DROP N<Concept>(concept_id)
     RETURN "Removed concept"
+
+
+// ========== TABLE MUTATIONS ==========
+
+// Add a new table
+QUERY AddTable(
+    table_id: String,
+    raw_markdown: String,
+    summary_text: String,
+    column_names: String,
+    column_types: String,
+    row_count: U32,
+    column_count: U32,
+    rows: String,
+    has_header_row: U32,
+    surrounding_context: String,
+    source_chunk_id: String,
+    document_id: String,
+    key_columns: String,
+    key_values: String
+) =>
+    table <- AddN<Table>({
+        table_id: table_id,
+        raw_markdown: raw_markdown,
+        summary_text: summary_text,
+        column_names: column_names,
+        column_types: column_types,
+        row_count: row_count,
+        column_count: column_count,
+        rows: rows,
+        has_header_row: has_header_row,
+        surrounding_context: surrounding_context,
+        source_chunk_id: source_chunk_id,
+        document_id: document_id,
+        key_columns: key_columns,
+        key_values: key_values
+    })
+    RETURN table
+
+// Add vector embedding for a table summary
+QUERY AddTableVector(embedding: [F64], model_name: String, embedding_dim: U32) =>
+    vec <- AddV<TableVector>(embedding, {
+        model_name: model_name,
+        embedding_dim: embedding_dim
+    })
+    RETURN vec
+
+// Link document to table
+QUERY LinkDocumentTable(doc_id: ID, table_id: ID) =>
+    doc <- N<Document>(doc_id)
+    table <- N<Table>(table_id)
+    AddE<HasTable>::From(doc)::To(table)
+    RETURN doc
+
+// Link chunk to table
+QUERY LinkChunkTable(chunk_id: ID, table_id: ID) =>
+    chunk <- N<Chunk>(chunk_id)
+    table <- N<Table>(table_id)
+    AddE<ChunkHasTable>::From(chunk)::To(table)
+    RETURN chunk
+
+// Link table to concept
+QUERY LinkTableConcept(table_id: ID, concept_id: ID) =>
+    table <- N<Table>(table_id)
+    concept <- N<Concept>(concept_id)
+    AddE<TableRelatedToConcept>::From(table)::To(concept)
+    RETURN table
+
+// Link table to its embedding
+QUERY LinkTableVector(table_id: ID, vector_id: ID) =>
+    table <- N<Table>(table_id)
+    vec <- V<TableVector>(vector_id)
+    AddE<TableHasEmbedding>::From(table)::To(vec)
+    RETURN table
+
+// ========== TABLE QUERIES ==========
+
+// Get table by table_id string
+QUERY GetTableById(table_id: String) =>
+    tables <- N<Table>::WHERE(_::{table_id}::EQ(table_id))
+    RETURN tables
+
+// Get tables by document_id
+QUERY GetTablesByDocumentId(document_id: String) =>
+    tables <- N<Table>::WHERE(_::{document_id}::EQ(document_id))
+    RETURN tables
+
+// List all tables
+QUERY ListTables() =>
+    tables <- N<Table>
+    RETURN tables
+
+// ========== TABLE TRAVERSALS ==========
+
+// Get tables from document via edge
+QUERY GetDocumentTables(doc_id: ID) =>
+    tables <- N<Document>(doc_id)::Out<HasTable>
+    RETURN tables
+
+// Get table from chunk via edge
+QUERY GetChunkTable(chunk_id: ID) =>
+    tables <- N<Chunk>(chunk_id)::Out<ChunkHasTable>
+    RETURN tables
+
+// Get tables for concept via edge (reverse)
+QUERY GetTablesForConcept(concept_id: ID) =>
+    tables <- N<Concept>(concept_id)::In<TableRelatedToConcept>
+    RETURN tables
+
+// Get concepts related to table via edge
+QUERY GetTableConcepts(table_id: ID) =>
+    concepts <- N<Table>(table_id)::Out<TableRelatedToConcept>
+    RETURN concepts
+
+// ========== TABLE VECTOR SEARCH ==========
+
+// Vector similarity search on table summaries
+QUERY SearchSimilarTables(query_vec: [F64], top_k: U32) =>
+    results <- SearchV<TableVector>(query_vec, top_k)
+    RETURN results
+
+// ========== TABLE DELETION ==========
+
+// Delete a table (cascades to connected edges)
+QUERY DropTable(table_id: ID) =>
+    DROP N<Table>(table_id)
+    RETURN "Removed table"
+
+// Delete table embedding edge
+QUERY DropTableEmbeddingEdge(table_id: ID) =>
+    DROP N<Table>(table_id)::OutE<TableHasEmbedding>
+    RETURN "Removed table embedding edge"

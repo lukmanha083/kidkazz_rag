@@ -138,3 +138,54 @@ E::Supersedes {
     From: Concept,
     To: Concept,
 }
+
+
+// ========== TABLE STORAGE ==========
+
+// Table node: Parsed markdown table with metadata
+N::Table {
+    INDEX table_id: String,           // "table_{source_chunk_id}"
+    raw_markdown: String,             // Original markdown for LLM synthesis
+    summary_text: String,             // LLM-generated description
+    column_names: String,             // JSON array
+    column_types: String,             // JSON array: ["text", "numeric", "date"]
+    row_count: U32,
+    column_count: U32,
+    rows: String,                     // JSON array of arrays
+    has_header_row: U32,              // Boolean as U32
+    surrounding_context: String,      // Text before table
+    source_chunk_id: String,          // Link to source chunk
+    INDEX document_id: String,        // For document filtering
+    key_columns: String,              // JSON array (from summary)
+    key_values: String,               // JSON array (from summary)
+}
+
+// TableVector: Embedding for table summary similarity search
+V::TableVector {
+    model_name: String,
+    embedding_dim: U32,
+}
+
+// Document owns tables
+E::HasTable {
+    From: Document,
+    To: Table,
+}
+
+// Chunk contains table
+E::ChunkHasTable {
+    From: Chunk,
+    To: Table,
+}
+
+// Table relates to concept (graph traversal)
+E::TableRelatedToConcept {
+    From: Table,
+    To: Concept,
+}
+
+// Table has embedding
+E::TableHasEmbedding {
+    From: Table,
+    To: TableVector,
+}
