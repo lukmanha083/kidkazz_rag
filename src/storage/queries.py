@@ -1393,3 +1393,373 @@ class DropConcept(_get_query_base_class()):
     def response(self, response: Any) -> QueryResult:
         """Process response."""
         return QueryResult(success=True)
+
+
+# ============================================================================
+# Table Queries
+# ============================================================================
+
+
+class AddTable(_get_query_base_class()):
+    """Add a table node to the database.
+
+    Maps to HelixQL AddTable query.
+    """
+
+    def __init__(self, table_props: dict[str, Any]) -> None:
+        """
+        Initialize AddTable query.
+
+        Args:
+            table_props: Dictionary containing all table properties
+        """
+        super().__init__()
+        self.table_props = table_props
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL AddTable query."""
+        p = self.table_props
+        return [{
+            "table_id": p.get("table_id", ""),
+            "raw_markdown": p.get("raw_markdown", ""),
+            "summary_text": p.get("summary_text", ""),
+            "column_names": p.get("column_names", "[]"),
+            "column_types": p.get("column_types", "[]"),
+            "row_count": p.get("row_count", 0),
+            "column_count": p.get("column_count", 0),
+            "rows": p.get("rows", "[]"),
+            "has_header_row": p.get("has_header_row", 0),
+            "surrounding_context": p.get("surrounding_context", ""),
+            "source_chunk_id": p.get("source_chunk_id", ""),
+            "document_id": p.get("document_id", ""),
+            "key_columns": p.get("key_columns", "[]"),
+            "key_values": p.get("key_values", "[]"),
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(
+            success=True,
+            data={"table_id": self.table_props.get("table_id")},
+        )
+
+
+class AddTableVector(_get_query_base_class()):
+    """Add vector embedding for table summary.
+
+    Maps to HelixQL AddTableVector query.
+    """
+
+    def __init__(
+        self,
+        embedding: list[float],
+        model_name: str,
+        embedding_dim: int,
+    ) -> None:
+        """
+        Initialize AddTableVector query.
+
+        Args:
+            embedding: The embedding vector for table summary
+            model_name: Name of the embedding model used
+            embedding_dim: Dimension of the embedding
+        """
+        super().__init__(endpoint="AddTableVector")
+        self.embedding = embedding
+        self.model_name = model_name
+        self.embedding_dim = embedding_dim
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL AddTableVector query."""
+        return [{
+            "embedding": self.embedding,
+            "model_name": self.model_name,
+            "embedding_dim": self.embedding_dim,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - returns vector node ID."""
+        return QueryResult(success=True, data=response)
+
+
+class LinkDocumentTable(_get_query_base_class()):
+    """Link document to table via HasTable edge.
+
+    Maps to HelixQL LinkDocumentTable query.
+    """
+
+    def __init__(self, doc_id: str, table_id: str) -> None:
+        """
+        Initialize LinkDocumentTable query.
+
+        Args:
+            doc_id: Internal document node ID
+            table_id: Internal table node ID
+        """
+        super().__init__(endpoint="LinkDocumentTable")
+        self.doc_id = doc_id
+        self.table_id = table_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL LinkDocumentTable query."""
+        return [{"doc_id": self.doc_id, "table_id": self.table_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class LinkChunkTable(_get_query_base_class()):
+    """Link chunk to table via ChunkHasTable edge.
+
+    Maps to HelixQL LinkChunkTable query.
+    """
+
+    def __init__(self, chunk_id: str, table_id: str) -> None:
+        """
+        Initialize LinkChunkTable query.
+
+        Args:
+            chunk_id: Internal chunk node ID
+            table_id: Internal table node ID
+        """
+        super().__init__(endpoint="LinkChunkTable")
+        self.chunk_id = chunk_id
+        self.table_id = table_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL LinkChunkTable query."""
+        return [{"chunk_id": self.chunk_id, "table_id": self.table_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class LinkTableConcept(_get_query_base_class()):
+    """Link table to concept via TableRelatedToConcept edge.
+
+    Maps to HelixQL LinkTableConcept query.
+    """
+
+    def __init__(self, table_id: str, concept_id: str) -> None:
+        """
+        Initialize LinkTableConcept query.
+
+        Args:
+            table_id: Internal table node ID
+            concept_id: Internal concept node ID
+        """
+        super().__init__(endpoint="LinkTableConcept")
+        self.table_id = table_id
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL LinkTableConcept query."""
+        return [{"table_id": self.table_id, "concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class LinkTableVector(_get_query_base_class()):
+    """Link table to its vector embedding via TableHasEmbedding edge.
+
+    Maps to HelixQL LinkTableVector query.
+    """
+
+    def __init__(self, table_id: str, vector_id: str) -> None:
+        """
+        Initialize LinkTableVector query.
+
+        Args:
+            table_id: Internal table node ID
+            vector_id: Internal vector node ID
+        """
+        super().__init__(endpoint="LinkTableVector")
+        self.table_id = table_id
+        self.vector_id = vector_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL LinkTableVector query."""
+        return [{"table_id": self.table_id, "vector_id": self.vector_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class GetTableById(_get_query_base_class()):
+    """Get table by table_id string.
+
+    Maps to HelixQL GetTableById query.
+    """
+
+    def __init__(self, table_id: str) -> None:
+        """
+        Initialize GetTableById query.
+
+        Args:
+            table_id: User-facing table identifier
+        """
+        super().__init__(endpoint="GetTableById")
+        self.table_id = table_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetTableById query."""
+        return [{"table_id": self.table_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of table nodes."""
+        if isinstance(response, list) and len(response) > 0:
+            return QueryResult(success=True, data={"node": response[0]})
+        return QueryResult(success=False, error="Table not found")
+
+
+class GetTablesByDocumentId(_get_query_base_class()):
+    """Get tables by document_id.
+
+    Maps to HelixQL GetTablesByDocumentId query.
+    """
+
+    def __init__(self, document_id: str) -> None:
+        """
+        Initialize GetTablesByDocumentId query.
+
+        Args:
+            document_id: Document identifier to filter by
+        """
+        super().__init__(endpoint="GetTablesByDocumentId")
+        self.document_id = document_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetTablesByDocumentId query."""
+        return [{"document_id": self.document_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of table nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class ListTables(_get_query_base_class()):
+    """List all tables.
+
+    Maps to HelixQL ListTables query.
+    """
+
+    def __init__(self) -> None:
+        """Initialize ListTables query."""
+        super().__init__(endpoint="ListTables")
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return empty parameters for HelixQL ListTables query."""
+        return [{}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of table nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetTablesForConcept(_get_query_base_class()):
+    """Get tables related to a concept via graph traversal.
+
+    Maps to HelixQL GetTablesForConcept query.
+    Traverses TableRelatedToConcept edges in reverse.
+    """
+
+    def __init__(self, concept_id: str) -> None:
+        """
+        Initialize GetTablesForConcept query.
+
+        Args:
+            concept_id: Internal concept node ID
+        """
+        super().__init__(endpoint="GetTablesForConcept")
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetTablesForConcept query."""
+        return [{"concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of table nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class SearchSimilarTables(_get_query_base_class()):
+    """Vector similarity search on table summaries.
+
+    Maps to HelixQL SearchSimilarTables query.
+    Filtering by doc_id done in Python post-processing.
+    """
+
+    def __init__(
+        self,
+        query_embedding: list[float],
+        top_k: int = 5,
+        doc_id: Optional[str] = None,
+    ) -> None:
+        """
+        Initialize SearchSimilarTables query.
+
+        Args:
+            query_embedding: Query vector
+            top_k: Number of results desired
+            doc_id: Filter by document (post-filtered in client.py)
+        """
+        super().__init__(endpoint="SearchSimilarTables")
+        self.query_embedding = query_embedding
+        self.top_k = top_k
+        self.doc_id = doc_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL SearchSimilarTables query."""
+        # Request extra results if we have filters to apply
+        request_top_k = self.top_k * 3 if self.doc_id else self.top_k
+        return [{
+            "query_vec": self.query_embedding,
+            "top_k": request_top_k,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects dict with 'results' key or list of nodes."""
+        if isinstance(response, dict) and 'results' in response:
+            results = response['results']
+        elif isinstance(response, list):
+            results = response
+        else:
+            results = []
+        return QueryResult(success=True, data=results)
+
+
+class DropTable(_get_query_base_class()):
+    """Delete a table by internal ID.
+
+    Maps to HelixQL DropTable query.
+    Note: Also removes connected edges (HasTable, ChunkHasTable, TableRelatedToConcept, TableHasEmbedding).
+    """
+
+    def __init__(self, table_id: str) -> None:
+        """
+        Initialize DropTable query.
+
+        Args:
+            table_id: Internal table node ID
+        """
+        super().__init__(endpoint="DropTable")
+        self.table_id = table_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL DropTable query."""
+        return [{"table_id": self.table_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
