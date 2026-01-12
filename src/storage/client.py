@@ -132,6 +132,10 @@ class ChunkStoreProtocol(Protocol):
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
         tags: Optional[list[str]] = None,
+        has_table: Optional[bool] = None,
+        has_code: Optional[bool] = None,
+        has_math: Optional[bool] = None,
+        header_level: Optional[int] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """Find similar chunks by vector search."""
         ...
@@ -563,6 +567,10 @@ class HelixChunkStore:
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
         tags: Optional[list[str]] = None,
+        has_table: Optional[bool] = None,
+        has_code: Optional[bool] = None,
+        has_math: Optional[bool] = None,
+        header_level: Optional[int] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
         Find chunks similar to query embedding with post-filtering.
@@ -575,6 +583,10 @@ class HelixChunkStore:
             semantic_type: Filter by semantic type (post-filtered)
             threshold: Minimum similarity score (post-filtered)
             tags: Filter by document tags (post-filtered, AND logic)
+            has_table: Filter to chunks containing tables (post-filtered)
+            has_code: Filter to chunks containing code (post-filtered)
+            has_math: Filter to chunks containing math (post-filtered)
+            header_level: Filter by header level 1-6 (post-filtered)
 
         Returns:
             List of (EmbeddedChunk, similarity_score) tuples, sorted by score
@@ -637,6 +649,18 @@ class HelixChunkStore:
                 chunk_doc_id = node.get("document_id", "")
                 if chunk_doc_id not in matching_doc_ids:
                     continue
+
+            # Apply content flag filters
+            if has_table is not None and bool(node.get("has_table", 0)) != has_table:
+                continue
+            if has_code is not None and bool(node.get("has_code", 0)) != has_code:
+                continue
+            if has_math is not None and bool(node.get("has_math", 0)) != has_math:
+                continue
+
+            # Apply header_level filter
+            if header_level is not None and node.get("header_level") != header_level:
+                continue
 
             embedding = item.get("embedding", []) if isinstance(item, dict) else []
             model_name = item.get("model_name", "unknown") if isinstance(item, dict) else "unknown"

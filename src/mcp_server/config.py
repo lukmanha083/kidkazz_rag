@@ -175,6 +175,7 @@ class ServerState:
         self._config = config or MCPServerConfig.from_env()
         self._store: Any = None
         self._embedder: Optional[LazyEmbedder] = None
+        self._table_store: Any = None
 
     @property
     def config(self) -> MCPServerConfig:
@@ -194,3 +195,20 @@ class ServerState:
         if self._embedder is None:
             self._embedder = LazyEmbedder(self._config)
         return self._embedder
+
+    @property
+    def table_store(self) -> Any:
+        """Get table store instance (lazy-loaded).
+
+        Returns:
+            TableStore instance for table operations, or None if unavailable
+        """
+        if self._table_store is None:
+            try:
+                from src.storage.table_store import TableStore
+
+                self._table_store = TableStore(embedder=self.embedder)
+            except ImportError:
+                # Table store not available
+                self._table_store = None
+        return self._table_store

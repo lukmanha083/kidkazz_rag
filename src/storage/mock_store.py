@@ -93,6 +93,10 @@ class MockChunkStore:
                 "has_code": meta.has_code,
                 "has_math": meta.has_math,
                 "has_list": meta.has_list,
+                # Header metadata (from Reducto block mode)
+                "header_text": meta.header_text,
+                "header_level": meta.header_level,
+                "block_type": meta.block_type,
             }
             self._embeddings[chunk.id] = ec.embedding
             self._model_names[chunk.id] = ec.model_name
@@ -214,6 +218,10 @@ class MockChunkStore:
         semantic_type: Optional[str] = None,
         threshold: float = 0.0,
         tags: Optional[list[str]] = None,
+        has_table: Optional[bool] = None,
+        has_code: Optional[bool] = None,
+        has_math: Optional[bool] = None,
+        header_level: Optional[int] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
         Find chunks similar to query embedding.
@@ -226,6 +234,10 @@ class MockChunkStore:
             semantic_type: Filter by semantic type (optional)
             threshold: Minimum similarity score (default: 0.0)
             tags: Filter by document tags (optional, AND logic)
+            has_table: Filter to chunks containing tables (optional)
+            has_code: Filter to chunks containing code (optional)
+            has_math: Filter to chunks containing math (optional)
+            header_level: Filter by header level 1-6 (optional)
 
         Returns:
             List of (EmbeddedChunk, similarity_score) tuples, sorted by score
@@ -252,6 +264,16 @@ class MockChunkStore:
                 continue
             # Filter by document tags
             if matching_doc_ids is not None and data.get("document_id") not in matching_doc_ids:
+                continue
+            # Filter by content flags
+            if has_table is not None and data.get("has_table", False) != has_table:
+                continue
+            if has_code is not None and data.get("has_code", False) != has_code:
+                continue
+            if has_math is not None and data.get("has_math", False) != has_math:
+                continue
+            # Filter by header level
+            if header_level is not None and data.get("header_level") != header_level:
                 continue
 
             # Calculate similarity
@@ -528,6 +550,22 @@ class MockChunkStore:
         embedding = self._embeddings.get(chunk_id, [])
         model_name = self._model_names.get(chunk_id, "unknown")
 
+        # Include stored metadata for MCP tools
+        metadata = {
+            "document_id": data.get("document_id"),
+            "semantic_type": data.get("semantic_type"),
+            "topic_tags": data.get("topic_tags", []),
+            "has_table": data.get("has_table", False),
+            "has_code": data.get("has_code", False),
+            "has_math": data.get("has_math", False),
+            "has_list": data.get("has_list", False),
+            "header_text": data.get("header_text"),
+            "header_level": data.get("header_level"),
+            "block_type": data.get("block_type"),
+            "sibling_ids": data.get("sibling_ids", []),
+            "sequence_position": data.get("sequence_position", 0),
+        }
+
         chunk = Chunk(
             id=data["chunk_id"],
             content=data["content"],
@@ -539,6 +577,7 @@ class MockChunkStore:
             next_id=data.get("next_id"),
             source_section=data.get("source_section"),
             section_path=data.get("section_path", []),
+            metadata=metadata,
         )
 
         return EmbeddedChunk(
