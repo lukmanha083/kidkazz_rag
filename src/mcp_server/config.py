@@ -200,15 +200,11 @@ class ServerState:
     def table_store(self) -> Any:
         """Get table store instance (lazy-loaded).
 
-        Returns:
-            TableStore instance for table operations, or None if unavailable
-        """
-        if self._table_store is None:
-            try:
-                from src.storage.table_store import TableStore
+        The table store is now integrated into the chunk store (both
+        HelixChunkStore and MockChunkStore have table methods).
 
-                self._table_store = TableStore(embedder=self.embedder)
-            except ImportError:
-                # Table store not available
-                self._table_store = None
-        return self._table_store
+        Returns:
+            ChunkStore instance (which has table methods)
+        """
+        # Table methods are now part of the chunk store
+        return self.store

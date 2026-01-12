@@ -16,6 +16,7 @@ from .formatters import (
     format_search_results,
     format_table,
     format_table_list,
+    format_table_metadata_list,
     format_table_search_results,
 )
 
@@ -642,7 +643,13 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             logger.warning("search_tables: table store not available")
             return []
 
-        results = state.table_store.search_tables(query, top_k=top_k, doc_id=doc_id)
+        # Embed query for vector search
+        query_embedding = state.embedder.embed_text(query)
+        results = state.table_store.search_tables(
+            query_embedding=query_embedding,
+            top_k=top_k,
+            doc_id=doc_id,
+        )
 
         logger.info(f"search_tables: found {len(results)} results")
         return format_table_search_results(results)
@@ -738,11 +745,15 @@ def register_tools(mcp: Any, state: ServerState) -> None:
     ) -> list[dict[str, Any]]:
         """List all tables in the knowledge base.
 
+        Returns lightweight metadata for discovery. Use get_table(table_id)
+        to retrieve full table data including rows and raw_markdown.
+
         Args:
             doc_id: Filter to tables from a specific document (optional)
 
         Returns:
-            List of tables with basic metadata (id, columns, row_count)
+            List of table metadata (table_id, document_id, summary_text, row_count, etc.)
+            Note: columns, rows, raw_markdown are null - use get_table for full data
         """
         logger.info(f"list_tables: doc_id={doc_id}")
 
@@ -753,4 +764,4 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         tables = state.table_store.list_tables(doc_id=doc_id)
 
         logger.info(f"list_tables: found {len(tables)} tables")
-        return format_table_list(tables)
+        return format_table_metadata_list(tables)

@@ -302,3 +302,45 @@ def format_table_search_results(
         List of formatted search result dictionaries
     """
     return [format_table_search_result(table, score) for table, score in results]
+
+
+def format_table_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Format table metadata dict for MCP response.
+
+    Used by list_tables which returns lightweight metadata without full table data.
+    Provides consistent structure with format_table but marks missing fields as null.
+
+    Args:
+        metadata: Table metadata dict from list_tables
+
+    Returns:
+        Formatted metadata dictionary with consistent keys
+    """
+    return {
+        "table_id": metadata.get("table_id", ""),
+        "document_id": metadata.get("document_id", ""),
+        "source_chunk_id": metadata.get("source_chunk_id", ""),
+        "summary_text": metadata.get("summary_text", ""),
+        "row_count": metadata.get("row_count", 0),
+        "column_count": metadata.get("column_count", 0),
+        # These fields are not loaded in metadata-only listing
+        "columns": None,
+        "column_types": None,
+        "rows": None,
+        "raw_markdown": None,
+        "context": None,
+    }
+
+
+def format_table_metadata_list(tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Format a list of table metadata dicts for MCP response.
+
+    Used by list_tables for lightweight table listing without loading full data.
+
+    Args:
+        tables: List of table metadata dicts
+
+    Returns:
+        List of formatted metadata dictionaries
+    """
+    return [format_table_metadata(t) for t in tables]
