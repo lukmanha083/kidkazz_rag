@@ -809,12 +809,18 @@ class MockChunkStore:
         """
         Create TableRelatedToConcept link between table and concept.
 
+        Note: Unlike HelixChunkStore.link_table_to_concept, this mock
+        implementation does NOT validate that the concept exists. This is
+        intentional since MockChunkStore doesn't maintain concept storage.
+        For testing scenarios that require concept validation, use
+        HelixChunkStore or manually verify concept existence.
+
         Args:
             table_id: Table identifier
             concept_id: Concept identifier
 
         Returns:
-            True if link created successfully
+            True if table exists and link created, False if table not found
         """
         if table_id not in self._tables:
             return False
