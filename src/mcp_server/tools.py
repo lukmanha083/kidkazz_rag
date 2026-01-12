@@ -725,7 +725,7 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             logger.info(f"get_tables_for_concept: resolved to concept_id='{resolved_id}'")
         else:
             resolved_id = concept_name
-            logger.info(f"get_tables_for_concept: concept not found, using original name")
+            logger.info("get_tables_for_concept: concept not found, using original name")
 
         tables = state.table_store.get_tables_for_concept(resolved_id)
 
