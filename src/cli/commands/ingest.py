@@ -304,7 +304,13 @@ def ingest_markdown(
                                     # Link mentioned concepts
                                     for mentioned_name in extraction.mentioned_concepts:
                                         concept_slug = slugify(mentioned_name)
+                                        # First check concepts from this ingestion
                                         concept_internal_id = concept_ids.get(concept_slug)
+                                        # If not found, check database for concepts from other documents
+                                        if not concept_internal_id:
+                                            existing = store_instance.get_concept_by_name(mentioned_name)
+                                            if existing:
+                                                concept_internal_id = existing.get("id")
                                         if concept_internal_id:
                                             store_instance.link_chunk_mentions_concept(
                                                 chunk_internal_id, concept_internal_id
