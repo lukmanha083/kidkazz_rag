@@ -27,6 +27,7 @@ pip install -e ".[mcp]"      # MCP server
 pip install -e ".[cli]"      # CLI (typer, rich)
 pip install -e ".[reducto]"  # Reducto.ai parsing
 pip install -e ".[openai]"   # OpenAI embeddings
+pip install -e ".[concepts]" # Concept extraction & summarization (instructor)
 pip install -e ".[all]"      # Everything
 ```
 
@@ -54,6 +55,10 @@ kidkazz tables list                 # List all tables
 kidkazz tables search "query"       # Semantic search tables
 kidkazz tables show <table_id>      # Show table details
 kidkazz ingest markdown file.md --extract-tables  # Process tables during ingestion
+kidkazz summarize generate doc_id   # Generate hierarchical summaries
+kidkazz summarize show doc_id       # Show document summary
+kidkazz summarize search "query"    # Search summaries semantically
+kidkazz summarize list              # List documents with summaries
 ```
 
 ## Architecture
@@ -80,6 +85,12 @@ kidkazz ingest markdown file.md --extract-tables  # Process tables during ingest
   - `TableSummarizer` class with Anthropic/OpenAI support
   - Key column/value extraction for retrieval hints
 
+- **`src/chunker/summarizer.py`** - LLM-powered document summarization:
+  - `Summary` dataclass with hierarchy (document → chapter → section)
+  - `DocumentSummarizer` class using Instructor for structured output
+  - Default provider: `anthropic/claude-3-5-haiku-20241022` (cost-effective)
+  - `generate_all_summaries()` for full hierarchical summarization
+
 - **`src/storage/table_store.py`** - Multi-vector table storage:
   - Embed summaries for retrieval, store raw markdown for synthesis
   - `search_tables()` with cosine similarity ranking
@@ -94,7 +105,7 @@ kidkazz ingest markdown file.md --extract-tables  # Process tables during ingest
   - `MockChunkStore`: In-memory for testing
   - `HelixChunkStore`: Production vector + graph DB
 
-- **`src/mcp_server/`** - FastMCP server exposing 25 search tools and 4 resource endpoints for Claude Code integration:
+- **`src/mcp_server/`** - FastMCP server exposing 25+ search tools and 4 resource endpoints for Claude Code integration:
   - Chunk tools: `search_semantic` (with filters: has_table, has_code, has_math, header_level), `search_keyword`, `get_chunk`, `get_context_window`, `get_parent`, `get_children`, `get_siblings`, `list_documents`, `get_document_chunks`, `get_document_stats`
   - Concept tools: `search_concepts`, `get_concept`, `get_related_concepts`, `get_concept_chunks`, `explain_concept_with_context`
   - Table tools: `search_tables`, `get_table`, `get_tables_for_concept`, `list_tables`
@@ -142,6 +153,15 @@ Tables use in-memory multi-vector storage (`TableStore`):
 - Raw markdown is stored for LLM synthesis
 - Concept-table relationships are tracked for graph traversal
 - **Note**: Table storage is currently in-memory only, not persisted to Helix-DB
+
+### Document Summarization
+Hierarchical summaries are generated using LLM and stored in Helix-DB:
+- **Document level**: 5-7 sentence overview of entire document
+- **Chapter level**: 3-5 sentence summary per L1 chunk
+- **Section level**: 2-3 sentence summary per L2 chunk
+- Default LLM provider: `anthropic/claude-3-5-haiku-20241022` (configurable)
+- Summaries are embedded for semantic search via `SummaryVector`
+- Parent-child relationships enable hierarchy navigation
 
 ## Configuration Files
 

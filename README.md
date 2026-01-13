@@ -21,6 +21,7 @@ This project provides tools to:
 8. Tag documents by topic for filtered search (e.g., "inventory", "accounting")
 9. Extract concepts and build cross-document knowledge graphs (LLM-powered)
 10. Parse and search tables with multi-vector retrieval (summaries for search, raw data for synthesis)
+11. Generate hierarchical document summaries (document, chapter, section levels) with LLM
 
 ## Current Status
 
@@ -36,6 +37,7 @@ This project provides tools to:
 | 8 | Quality Checker | ✅ Complete |
 | 9 | Concept Extraction & Knowledge Graph | ✅ Complete |
 | 10 | Table Processing & MCP Tools | ✅ Complete |
+| 11 | Document Summarization | ✅ Complete |
 
 ## Architecture
 
@@ -90,8 +92,9 @@ Markdown Document
      |                           ├── 10 search/retrieval tools  |        ├── kidkazz ingest
      |                           ├── 5 concept graph tools      |        ├── kidkazz search
      |                           ├── 4 table tools              |        ├── kidkazz docs
-     |                           └── 4 resource endpoints       |        ├── kidkazz concepts
-     v                                                         v        ├── kidkazz tables
+     |                           ├── 6 summary tools            |        ├── kidkazz concepts
+     |                           └── 4 resource endpoints       |        ├── kidkazz tables
+     v                                                         v        ├── kidkazz summarize
 Chat with your documents                               Terminal access  ├── kidkazz inbox
                                                                         └── kidkazz config
 ```
@@ -195,6 +198,7 @@ Install only what you need:
 | mcp | `pip install -e ".[mcp]"` | MCP server for Claude Code |
 | reducto | `pip install -e ".[reducto]"` | Reducto.ai PDF parsing |
 | openai | `pip install -e ".[openai]"` | OpenAI embeddings |
+| concepts | `pip install -e ".[concepts]"` | Concept extraction & summarization (instructor) |
 | all | `pip install -e ".[all]"` | Everything |
 
 ## Embeddings
@@ -797,7 +801,11 @@ kidkazz_rag/
 │   │   ├── parser.py                      # Markdown structure extraction
 │   │   ├── chunker.py                     # Hierarchical chunking
 │   │   ├── metadata.py                    # Metadata enrichment
-│   │   └── embedder.py                    # FastEmbed integration
+│   │   ├── embedder.py                    # FastEmbed integration
+│   │   ├── concept_extractor.py           # LLM concept extraction
+│   │   ├── table_parser.py                # Markdown table parsing
+│   │   ├── table_summarizer.py            # LLM table summarization
+│   │   └── summarizer.py                  # LLM document summarization
 │   ├── storage/                           # Phase 3: Helix-DB integration
 │   │   ├── __init__.py                    # Public API
 │   │   ├── schema.py                      # Helix-DB schema definitions
@@ -832,6 +840,7 @@ kidkazz_rag/
 │           ├── docs.py                    # docs list/stats/export/delete
 │           ├── db.py                      # db init/status/clear
 │           ├── inbox.py                   # inbox status/list/clear
+│           ├── summarize.py               # summarize generate/show/search/delete
 │           └── config_cmd.py              # config show/set/reset/init
 ├── tests/
 │   ├── conftest.py                        # Shared fixtures
@@ -1227,6 +1236,12 @@ You don't need to manually start the server - Claude Code does it automatically 
 | `get_table` | Get table by ID with full metadata | table_id |
 | `get_tables_for_concept` | Get tables related to a concept | concept_name |
 | `list_tables` | List all tables | doc_id |
+| `get_document_summary` | Get document-level summary | doc_id |
+| `get_chapter_summaries` | Get chapter summaries for document | doc_id |
+| `get_section_summaries` | Get section summaries for document | doc_id |
+| `search_summaries` | Search summaries semantically | query, top_k, level, doc_id |
+| `get_summary_hierarchy` | Get summary tree for document | doc_id |
+| `list_summarized_documents` | List documents with summaries | - |
 
 ### Available Resources
 
@@ -1386,6 +1401,7 @@ The CLI tool (`kidkazz`) provides command-line access to all RAG functionality w
 | `kidkazz search` | semantic, keyword | Search the knowledge base |
 | `kidkazz docs` | list, stats, export, delete | Manage documents |
 | `kidkazz concepts` | list, show, search, related, graph, export | Query concept graph |
+| `kidkazz summarize` | generate, show, list, search, delete, hierarchy | Document summarization |
 | `kidkazz db` | init, status, clear | Database operations |
 | `kidkazz inbox` | status, list, clear, sync, parse, quality | Manage PDF inbox and parsed output |
 | `kidkazz config` | show, set, reset, init | Configuration management |
@@ -1499,6 +1515,40 @@ kidkazz ingest markdown textbook.md --extract-concepts --concept-provider anthro
 
 # Batch ingest with concept extraction
 kidkazz ingest batch ./docs --pattern "*.md" --extract-concepts
+```
+
+### Summarize Commands
+
+Generate and query hierarchical document summaries:
+
+```bash
+# Generate summaries for a document (requires ANTHROPIC_API_KEY)
+kidkazz summarize generate textbook
+kidkazz summarize generate textbook --provider anthropic/claude-3-5-haiku-20241022
+kidkazz summarize generate textbook --force  # Regenerate existing
+
+# Show summaries
+kidkazz summarize show textbook              # Document-level summary
+kidkazz summarize show textbook --level chapter
+kidkazz summarize show textbook --level section
+kidkazz summarize show textbook --level all
+kidkazz summarize show textbook --json
+
+# List documents with summaries
+kidkazz summarize list
+kidkazz summarize list --json
+
+# Search summaries semantically
+kidkazz summarize search "inventory valuation methods"
+kidkazz summarize search "FIFO" --level chapter
+kidkazz summarize search "cost accounting" --doc textbook --limit 5
+
+# View summary hierarchy as tree
+kidkazz summarize hierarchy textbook
+
+# Delete summaries
+kidkazz summarize delete textbook
+kidkazz summarize delete textbook --force
 ```
 
 ### Database Operations
@@ -1739,6 +1789,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 - [x] Phase 8: Quality checker for parsed output validation
 - [x] Phase 9: Concept extraction & knowledge graph (LLM-powered)
 - [x] Phase 10: Table processing & MCP tools (multi-vector retrieval)
+- [x] Phase 11: Document summarization (hierarchical LLM summaries)
 
 ## Documentation
 
