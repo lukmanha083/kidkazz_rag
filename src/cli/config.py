@@ -64,12 +64,12 @@ class CLIConfig:
 
     # Concept extraction settings
     extract_concepts: bool = False
-    concept_provider: str = "anthropic/claude-sonnet-4-20250514"
+    concept_provider: str = "anthropic/claude-3-5-haiku-20241022"
     max_concepts_per_chunk: int = 10
 
     # Summarization settings
     summarization_enabled: bool = False
-    summarization_provider: str = "anthropic/claude-sonnet-4-20250514"
+    summarization_provider: str = "anthropic/claude-3-5-haiku-20241022"
     max_tokens_per_summary: int = 500
     include_key_points: bool = True
 

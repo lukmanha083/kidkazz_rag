@@ -2142,7 +2142,7 @@ class HelixChunkStore:
         List all documents that have summaries.
 
         Returns:
-            List of document info dictionaries with summary counts
+            List of document info dictionaries with doc_id, title, and summary_count
         """
         from src.storage.queries import ListSummarizedDocuments
 
@@ -2154,4 +2154,27 @@ class HelixChunkStore:
         if not result.success:
             return []
 
-        return result.data or []
+        summaries = result.data or []
+        if not summaries:
+            return []
+
+        # Aggregate summaries by document_id
+        doc_counts: dict[str, int] = {}
+        for s in summaries:
+            doc_id = s.get("document_id", "")
+            if doc_id:
+                doc_counts[doc_id] = doc_counts.get(doc_id, 0) + 1
+
+        # Get document titles
+        docs = self.list_documents()
+        doc_titles = {d.get("doc_id", ""): d.get("title", "") for d in docs}
+
+        # Build result with doc_id, title, summary_count
+        return [
+            {
+                "doc_id": doc_id,
+                "title": doc_titles.get(doc_id, doc_id),
+                "summary_count": count,
+            }
+            for doc_id, count in doc_counts.items()
+        ]

@@ -102,7 +102,7 @@ class DocumentSummarizer:
 
     def __init__(
         self,
-        provider: str = "anthropic/claude-sonnet-4-20250514",
+        provider: str = "anthropic/claude-3-5-haiku-20241022",
         max_retries: int = 2,
         max_tokens_per_summary: int = 500,
     ):

@@ -26,6 +26,21 @@ app = typer.Typer(help="Document summarization commands")
 console = Console()
 
 
+def _parse_key_points(value) -> list:
+    """Safely parse key_points which may be a JSON string or already a list."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
 def _get_store(config: CLIConfig):
     """Get storage instance."""
     from src.cli.commands.ingest import get_store
@@ -125,7 +140,7 @@ def generate_summaries(
         console.print(f"Found {len(chunks)} chunks")
 
     # Initialize summarizer
-    final_provider = provider or config.summarization_provider or "anthropic/claude-sonnet-4-20250514"
+    final_provider = provider or config.summarization_provider or "anthropic/claude-3-5-haiku-20241022"
     summarizer = DocumentSummarizer(provider=final_provider)
 
     # Generate summaries
@@ -239,7 +254,7 @@ def show_summary(
                     "summary_id": s.get("summary_id"),
                     "level": s.get("level"),
                     "content": s.get("content"),
-                    "key_points": json.loads(s.get("key_points", "[]")),
+                    "key_points": _parse_key_points(s.get("key_points")),
                     "word_count": s.get("word_count"),
                 }
                 for s in summaries
@@ -249,7 +264,7 @@ def show_summary(
         for summary in summaries:
             level_name = summary.get("level", "unknown").title()
             content = summary.get("content", "")
-            key_points = json.loads(summary.get("key_points", "[]"))
+            key_points = _parse_key_points(summary.get("key_points"))
 
             panel = Panel(
                 content,

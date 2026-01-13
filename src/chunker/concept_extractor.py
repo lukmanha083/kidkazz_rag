@@ -132,14 +132,14 @@ class ConceptExtractor:
 
     def __init__(
         self,
-        provider: str = "anthropic/claude-sonnet-4-20250514",
+        provider: str = "anthropic/claude-3-5-haiku-20241022",
         max_retries: int = 2,
     ):
         """
         Initialize extractor.
 
         Args:
-            provider: Instructor provider string (e.g., "anthropic/claude-sonnet-4-20250514")
+            provider: Instructor provider string (e.g., "anthropic/claude-3-5-haiku-20241022")
             max_retries: Number of retries on validation failure
 
         Raises:
