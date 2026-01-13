@@ -147,7 +147,7 @@ class TestDocumentSummarizer:
         mock_instructor.from_provider.return_value = MagicMock()
 
         from src.chunker.summarizer import DocumentSummarizer
-        summarizer = DocumentSummarizer(provider="anthropic/claude-opus-4-20250514")
+        _summarizer = DocumentSummarizer(provider="anthropic/claude-opus-4-20250514")  # noqa: F841
 
         mock_instructor.from_provider.assert_called_once_with("anthropic/claude-opus-4-20250514")
 

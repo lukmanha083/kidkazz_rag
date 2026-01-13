@@ -2093,9 +2093,12 @@ class HelixChunkStore:
 
         self._ensure_connected()
 
+        # Request more results than limit to allow for post-filtering
+        fetch_limit = limit * 3 if (level or document_id) else limit
+
         query = SearchSimilarSummaries(
             query_embedding=query_embedding,
-            limit=limit,
+            limit=fetch_limit,
             level=level,
             document_id=document_id,
         )
@@ -2104,7 +2107,16 @@ class HelixChunkStore:
         if not result.success:
             return []
 
-        return result.data or []
+        results = result.data or []
+
+        # Post-filter by level and document_id (HelixQL doesn't support these filters)
+        if level:
+            results = [r for r in results if r.get("level") == level]
+        if document_id:
+            results = [r for r in results if r.get("document_id") == document_id]
+
+        # Apply limit after filtering
+        return results[:limit]
 
     def delete_document_summaries(self, document_id: str) -> bool:
         """

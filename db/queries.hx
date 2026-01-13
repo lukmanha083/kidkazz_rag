@@ -624,8 +624,8 @@ QUERY GetSummary(summary_id: String) =>
     summaries <- N<Summary>::WHERE(_::{summary_id}::EQ(summary_id))
     RETURN summaries
 
-// Get summaries by document_id (maps to Python GetDocumentSummaries)
-QUERY GetDocumentSummaries(document_id: String) =>
+// Get summaries by document_id property (maps to Python GetDocumentSummaries)
+QUERY GetSummariesByDocumentId(document_id: String) =>
     summaries <- N<Summary>::WHERE(_::{document_id}::EQ(document_id))
     RETURN summaries
 
@@ -654,7 +654,7 @@ QUERY ListSummaries() =>
     summaries <- N<Summary>
     RETURN summaries
 
-// List summarized documents (returns unique document IDs with summaries)
+// List summarized documents (returns all Summary nodes; client deduplicates by document_id)
 QUERY ListSummarizedDocuments() =>
     summaries <- N<Summary>
     RETURN summaries

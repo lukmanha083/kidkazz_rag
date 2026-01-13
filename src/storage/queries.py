@@ -1925,7 +1925,7 @@ class GetSummary(_get_query_base_class()):
 class GetDocumentSummaries(_get_query_base_class()):
     """Get all summaries for a document.
 
-    Maps to HelixQL GetDocumentSummaries or GetDocumentSummariesByLevel query.
+    Maps to HelixQL GetSummariesByDocumentId or GetDocumentSummariesByLevel query.
     """
 
     def __init__(self, document_id: str, level: Optional[str] = None) -> None:
@@ -1937,7 +1937,7 @@ class GetDocumentSummaries(_get_query_base_class()):
             level: Optional filter by level ("document", "chapter", "section")
         """
         # Use different endpoint based on whether level filter is provided
-        endpoint = "GetDocumentSummariesByLevel" if level else "GetDocumentSummaries"
+        endpoint = "GetDocumentSummariesByLevel" if level else "GetSummariesByDocumentId"
         super().__init__(endpoint=endpoint)
         self.document_id = document_id
         self.level = level

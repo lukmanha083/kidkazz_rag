@@ -79,7 +79,8 @@ def generate_summaries(
     store = _get_store(config)
 
     # Check if document exists
-    doc = store.get_document(doc_id)
+    docs = store.list_documents()
+    doc = next((d for d in docs if d.get("doc_id") == doc_id), None)
     if not doc:
         print_error(f"Document not found: {doc_id}")
         raise typer.Exit(1)
@@ -482,7 +483,6 @@ def show_hierarchy(
         return
 
     # Build hierarchy
-    by_id = {s.get("summary_id"): s for s in summaries}
     doc_summary = next((s for s in summaries if s.get("level") == "document"), None)
 
     if json_output:
