@@ -881,3 +881,201 @@ class TestBlockMetadataExtraction:
         assert result[1]["markdown"] == "Content here."
         assert result[1]["metadata"]["header_text"] is None
         assert result[1]["metadata"]["block_type"] == "Text"
+
+
+class TestResponseToMarkdownHeaderExtraction:
+    """Tests for header extraction in _response_to_markdown for all chunk modes."""
+
+    def test_chunk_mode_block_extracts_headers(self):
+        """Verify block chunk mode extracts headers from block metadata."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        # Simulate block mode (raw_output=False is set by CLI for block/variable/page/section)
+        config = ReductoConfig(api_key="test_key", chunk_mode="block", raw_output=False)
+        client = ReductoClient(config)
+
+        # Create mock response with header block
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Chapter 1: Introduction"
+        header_block.level = 1
+
+        text_block = MagicMock()
+        text_block.type = "Text"
+        text_block.content = "This is the chapter content."
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Chapter 1: Introduction\n\nThis is the chapter content."
+        mock_chunk.blocks = [header_block, text_block]
+
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+
+        result = client._response_to_markdown(mock_response)
+
+        # Should contain markdown header syntax
+        assert "# Chapter 1: Introduction" in result
+        assert "This is the chapter content." in result
+
+    def test_chunk_mode_variable_extracts_headers(self):
+        """Verify variable chunk mode also extracts headers."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key", chunk_mode="variable", raw_output=False)
+        client = ReductoClient(config)
+
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Getting Started"
+        header_block.level = 2
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Getting Started"
+        mock_chunk.blocks = [header_block]
+
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+
+        result = client._response_to_markdown(mock_response)
+
+        assert "## Getting Started" in result
+
+    def test_chunk_mode_page_extracts_headers(self):
+        """Verify page chunk mode also extracts headers."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key", chunk_mode="page", raw_output=False)
+        client = ReductoClient(config)
+
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Page Title"
+        header_block.level = 1
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Page Title"
+        mock_chunk.blocks = [header_block]
+
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+
+        result = client._response_to_markdown(mock_response)
+
+        assert "# Page Title" in result
+
+    def test_chunk_mode_section_extracts_headers(self):
+        """Verify section chunk mode also extracts headers."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key", chunk_mode="section", raw_output=False)
+        client = ReductoClient(config)
+
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Section Heading"
+        header_block.level = 2
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Section Heading"
+        mock_chunk.blocks = [header_block]
+
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+
+        result = client._response_to_markdown(mock_response)
+
+        assert "## Section Heading" in result
+
+    def test_multiple_chunks_with_headers_separated_by_dividers(self):
+        """Verify multiple chunks are separated by --- and headers are extracted."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key", raw_output=False)
+        client = ReductoClient(config)
+
+        # First chunk with header
+        header_block1 = MagicMock()
+        header_block1.type = "Header"
+        header_block1.content = "Section A"
+        header_block1.level = 1
+
+        chunk1 = MagicMock()
+        chunk1.content = "Section A"
+        chunk1.blocks = [header_block1]
+
+        # Second chunk with header
+        header_block2 = MagicMock()
+        header_block2.type = "Header"
+        header_block2.content = "Section B"
+        header_block2.level = 1
+
+        chunk2 = MagicMock()
+        chunk2.content = "Section B"
+        chunk2.blocks = [header_block2]
+
+        mock_response = MagicMock()
+        mock_response.result.chunks = [chunk1, chunk2]
+
+        result = client._response_to_markdown(mock_response)
+
+        # Both headers should be extracted
+        assert "# Section A" in result
+        assert "# Section B" in result
+        # Chunks should be separated by ---
+        assert "---" in result
+
+    def test_blocks_as_dictionaries(self):
+        """Verify header extraction works when blocks are dictionaries (real Reducto API format)."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key", chunk_mode="block", raw_output=False)
+        client = ReductoClient(config)
+
+        # Simulate real Reducto API response where blocks are dictionaries
+        mock_chunk = MagicMock()
+        mock_chunk.content = "Chapter 1\n\nSome content here."
+        mock_chunk.blocks = [
+            {"type": "Header", "content": "Chapter 1", "level": 1},
+            {"type": "Text", "content": "Some content here."},
+        ]
+
+        mock_response = MagicMock()
+        mock_response.result.chunks = [mock_chunk]
+
+        result = client._response_to_markdown(mock_response)
+
+        # Should extract header from dictionary block
+        assert "# Chapter 1" in result
+        assert "Some content here." in result
+
+    def test_raw_output_true_uses_continuous_markdown(self):
+        """Verify raw_output=True uses _chunks_to_markdown without dividers."""
+        from src.pdf_converter.reducto_client import ReductoClient, ReductoConfig
+
+        config = ReductoConfig(api_key="test_key", raw_output=True)
+        client = ReductoClient(config)
+
+        header_block = MagicMock()
+        header_block.type = "Header"
+        header_block.content = "Title"
+        header_block.level = 1
+
+        text_block = MagicMock()
+        text_block.type = "Text"
+        text_block.content = "Content"
+
+        chunk1 = MagicMock()
+        chunk1.blocks = [header_block]
+
+        chunk2 = MagicMock()
+        chunk2.blocks = [text_block]
+
+        mock_response = MagicMock()
+        mock_response.result.chunks = [chunk1, chunk2]
+
+        result = client._response_to_markdown(mock_response)
+
+        assert "# Title" in result
+        assert "Content" in result
+        # Should NOT have --- separators in raw mode
+        assert "---" not in result

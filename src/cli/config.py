@@ -64,8 +64,14 @@ class CLIConfig:
 
     # Concept extraction settings
     extract_concepts: bool = False
-    concept_provider: str = "anthropic/claude-sonnet-4-20250514"
+    concept_provider: str = "anthropic/claude-3-5-haiku-20241022"
     max_concepts_per_chunk: int = 10
+
+    # Summarization settings
+    summarization_enabled: bool = False
+    summarization_provider: str = "anthropic/claude-3-5-haiku-20241022"
+    max_tokens_per_summary: int = 500
+    include_key_points: bool = True
 
     # Source tracking (which config file each setting came from)
     _sources: dict[str, str] = field(default_factory=dict)
@@ -191,6 +197,22 @@ class CLIConfig:
             if "max_concepts_per_chunk" in concepts:
                 self.max_concepts_per_chunk = int(concepts["max_concepts_per_chunk"])
                 self._sources["max_concepts_per_chunk"] = source
+
+        # Summarization settings
+        if "summarization" in data:
+            summarization = data["summarization"]
+            if "enabled" in summarization:
+                self.summarization_enabled = bool(summarization["enabled"])
+                self._sources["summarization_enabled"] = source
+            if "provider" in summarization:
+                self.summarization_provider = summarization["provider"]
+                self._sources["summarization_provider"] = source
+            if "max_tokens_per_summary" in summarization:
+                self.max_tokens_per_summary = int(summarization["max_tokens_per_summary"])
+                self._sources["max_tokens_per_summary"] = source
+            if "include_key_points" in summarization:
+                self.include_key_points = bool(summarization["include_key_points"])
+                self._sources["include_key_points"] = source
 
     def _load_from_env(self) -> None:
         """Load settings from environment variables.

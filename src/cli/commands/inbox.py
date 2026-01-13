@@ -572,6 +572,12 @@ def quality(
         "-t",
         help="Quality threshold: strict, normal, lenient",
     ),
+    block_mode: bool = typer.Option(
+        False,
+        "--block-mode",
+        "-b",
+        help="Use relaxed thresholds for block/chunk mode output (higher empty line tolerance)",
+    ),
 ) -> None:
     """Check quality of parsed markdown documents.
 
@@ -581,6 +587,7 @@ def quality(
     Examples:
         kidkazz inbox quality document.md           # Check single file
         kidkazz inbox quality --all                 # Check all in output dir
+        kidkazz inbox quality --all --block-mode   # Check block mode output
         kidkazz inbox quality --dir /path/to/md    # Check specific directory
         kidkazz inbox quality document.md --json   # JSON output
         kidkazz inbox quality --all --summary      # Summary of all files
@@ -602,7 +609,14 @@ def quality(
             console.print("Valid options: strict, normal, lenient")
             raise typer.Exit(1)
 
-        checker = ReductoQualityChecker(threshold_map[threshold])
+        # Use block mode thresholds if specified (overrides threshold selection)
+        if block_mode:
+            thresholds = QualityThresholds.block_mode()
+            console.print("[dim]Using block mode quality thresholds[/dim]")
+        else:
+            thresholds = threshold_map[threshold]
+
+        checker = ReductoQualityChecker(thresholds)
 
         # Collect files to check
         files_to_check: list[Path] = []
@@ -864,7 +878,14 @@ def parse(
             console.print("Valid options: strict, normal, lenient")
             raise typer.Exit(1)
 
-        checker = ReductoQualityChecker(threshold_map[quality_threshold]) if quality_check else None
+        # Use block_mode thresholds for chunked output (higher empty line tolerance)
+        if chunk_mode != "disabled" and quality_threshold == "normal":
+            thresholds = QualityThresholds.block_mode()
+            console.print("[dim]Using block mode quality thresholds[/dim]")
+        else:
+            thresholds = threshold_map[quality_threshold]
+
+        checker = ReductoQualityChecker(thresholds) if quality_check else None
 
         # Ensure directories exist
         inbox_path.mkdir(parents=True, exist_ok=True)

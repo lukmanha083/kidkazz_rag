@@ -59,9 +59,9 @@ class TestIngestWithConceptExtraction:
         mock_concept.concept_type = MagicMock(value="method")
         mock_concept.aliases = []
 
-        # Setup mock extractor
+        # Setup mock extractor - use extract_from_chunks_with_mapping for markdown
         mock_extractor = MagicMock()
-        mock_extractor.extract_from_chunks.return_value = ([mock_concept], [])
+        mock_extractor.extract_from_chunks_with_mapping.return_value = ([mock_concept], [], {})
         mock_extractor_class.return_value = mock_extractor
 
         with patch.dict("os.environ", {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
@@ -73,8 +73,8 @@ class TestIngestWithConceptExtraction:
 
         # Extractor should be instantiated
         mock_extractor_class.assert_called_once()
-        # extract_from_chunks should be called
-        mock_extractor.extract_from_chunks.assert_called_once()
+        # extract_from_chunks_with_mapping should be called (markdown command uses this)
+        mock_extractor.extract_from_chunks_with_mapping.assert_called_once()
         assert result.exit_code == 0
 
     @patch("src.cli.commands.ingest.CONCEPT_EXTRACTION_AVAILABLE", True)
@@ -82,7 +82,7 @@ class TestIngestWithConceptExtraction:
     def test_concept_provider_option(self, mock_extractor_class, sample_markdown):
         """Should pass provider to ConceptExtractor."""
         mock_extractor = MagicMock()
-        mock_extractor.extract_from_chunks.return_value = ([], [])
+        mock_extractor.extract_from_chunks_with_mapping.return_value = ([], [], {})
         mock_extractor_class.return_value = mock_extractor
 
         with patch.dict("os.environ", {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
@@ -98,8 +98,9 @@ class TestIngestWithConceptExtraction:
         )
         assert result.exit_code == 0
 
+    @patch("src.cli.commands.ingest.CONCEPT_EXTRACTION_AVAILABLE", False)
     def test_no_extract_concepts_by_default(self, sample_markdown):
-        """Should not extract concepts by default."""
+        """Should not extract concepts by default when instructor not available."""
         with patch.dict("os.environ", {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
             with patch("src.cli.commands.ingest.ConceptExtractor") as mock_class:
                 result = runner.invoke(app, [
@@ -107,7 +108,7 @@ class TestIngestWithConceptExtraction:
                     "--json",
                 ])
 
-        # Extractor should not be instantiated
+        # Extractor should not be instantiated when instructor not available
         mock_class.assert_not_called()
         assert result.exit_code == 0
 
@@ -128,9 +129,11 @@ class TestIngestWithConceptExtraction:
         mock_relation.relation_type = "used_in"
 
         mock_extractor = MagicMock()
-        mock_extractor.extract_from_chunks.return_value = (
+        # extract_from_chunks_with_mapping returns (concepts, relations, chunk_extractions_dict)
+        mock_extractor.extract_from_chunks_with_mapping.return_value = (
             [mock_concept],
             [mock_relation],
+            {},  # chunk_extractions mapping
         )
         mock_extractor_class.return_value = mock_extractor
 
@@ -138,6 +141,7 @@ class TestIngestWithConceptExtraction:
             with patch("src.cli.commands.ingest.get_store") as mock_get_store:
                 mock_store = MagicMock()
                 mock_store.store_or_merge_concept.return_value = "concept_internal_123"
+                mock_store.store_document.return_value = {}  # chunk_id_map
                 mock_get_store.return_value = mock_store
 
                 result = runner.invoke(app, [
@@ -155,7 +159,7 @@ class TestIngestWithConceptExtraction:
     def test_concept_extraction_error_handled(self, mock_extractor_class, sample_markdown):
         """Should handle concept extraction errors gracefully."""
         mock_extractor = MagicMock()
-        mock_extractor.extract_from_chunks.side_effect = Exception("LLM API error")
+        mock_extractor.extract_from_chunks_with_mapping.side_effect = Exception("LLM API error")
         mock_extractor_class.return_value = mock_extractor
 
         with patch.dict("os.environ", {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
@@ -188,9 +192,11 @@ class TestIngestWithConceptExtraction:
         mock_concept2.aliases = []
 
         mock_extractor = MagicMock()
-        mock_extractor.extract_from_chunks.return_value = (
+        # extract_from_chunks_with_mapping returns (concepts, relations, chunk_extractions_dict)
+        mock_extractor.extract_from_chunks_with_mapping.return_value = (
             [mock_concept1, mock_concept2],
             [],
+            {},  # chunk_extractions mapping
         )
         mock_extractor_class.return_value = mock_extractor
 
@@ -198,6 +204,7 @@ class TestIngestWithConceptExtraction:
             with patch("src.cli.commands.ingest.get_store") as mock_get_store:
                 mock_store = MagicMock()
                 mock_store.store_or_merge_concept.return_value = "concept-id"
+                mock_store.store_document.return_value = {}  # chunk_id_map
                 mock_get_store.return_value = mock_store
 
                 result = runner.invoke(app, [

@@ -1849,3 +1849,410 @@ class GetTableConcepts(_get_query_base_class()):
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[response] if response else [])
+
+
+# ============================================================================
+# Summary Queries (Document Summarization Feature)
+# ============================================================================
+
+
+class AddSummary(_get_query_base_class()):
+    """Add a summary node to the database.
+
+    Maps to HelixQL AddSummary query.
+    """
+
+    def __init__(self, summary_props: dict[str, Any]) -> None:
+        """
+        Initialize AddSummary query.
+
+        Args:
+            summary_props: Dictionary containing all summary properties
+        """
+        super().__init__()
+        self.summary_props = summary_props
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL AddSummary query."""
+        p = self.summary_props
+        return [{
+            "summary_id": p.get("summary_id", ""),
+            "content": p.get("content", ""),
+            "level": p.get("level", ""),
+            "source_id": p.get("source_id", ""),
+            "document_id": p.get("document_id", ""),
+            "parent_summary_id": p.get("parent_summary_id", ""),
+            "key_points": p.get("key_points", "[]"),
+            "word_count": p.get("word_count", 0),
+            "created_at": p.get("created_at", int(time.time())),
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(
+            success=True,
+            data={"summary_id": self.summary_props.get("summary_id")},
+        )
+
+
+class GetSummary(_get_query_base_class()):
+    """Get a summary by summary_id.
+
+    Maps to HelixQL GetSummary query.
+    """
+
+    def __init__(self, summary_id: str) -> None:
+        """
+        Initialize GetSummary query.
+
+        Args:
+            summary_id: Summary identifier
+        """
+        super().__init__(endpoint="GetSummary")
+        self.summary_id = summary_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetSummary query."""
+        return [{"summary_id": self.summary_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects summary node."""
+        if isinstance(response, list) and len(response) > 0:
+            return QueryResult(success=True, data={"node": response[0]})
+        return QueryResult(success=False, error="Summary not found")
+
+
+class GetDocumentSummaries(_get_query_base_class()):
+    """Get all summaries for a document.
+
+    Maps to HelixQL GetSummariesByDocumentId or GetDocumentSummariesByLevel query.
+    """
+
+    def __init__(self, document_id: str, level: Optional[str] = None) -> None:
+        """
+        Initialize GetDocumentSummaries query.
+
+        Args:
+            document_id: Document identifier
+            level: Optional filter by level ("document", "chapter", "section")
+        """
+        # Use different endpoint based on whether level filter is provided
+        endpoint = "GetDocumentSummariesByLevel" if level else "GetSummariesByDocumentId"
+        super().__init__(endpoint=endpoint)
+        self.document_id = document_id
+        self.level = level
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetDocumentSummaries query."""
+        params: dict[str, Any] = {"document_id": self.document_id}
+        if self.level:
+            params["level"] = self.level
+        return [params]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of summary nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[response] if response else [])
+
+
+class GetSummaryChildren(_get_query_base_class()):
+    """Get child summaries of a parent summary.
+
+    Maps to HelixQL GetSummaryChildren query via SummaryHasChild edge.
+    """
+
+    def __init__(self, summary_id: str) -> None:
+        """
+        Initialize GetSummaryChildren query.
+
+        Args:
+            summary_id: Parent summary identifier
+        """
+        super().__init__(endpoint="GetSummaryChildren")
+        self.summary_id = summary_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetSummaryChildren query."""
+        return [{"summary_id": self.summary_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of summary nodes."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[response] if response else [])
+
+
+class AddSummaryVector(_get_query_base_class()):
+    """Add vector embedding for summary.
+
+    Maps to HelixQL AddSummaryVector query.
+    """
+
+    def __init__(
+        self,
+        embedding: list[float],
+        model_name: str,
+        embedding_dim: int,
+    ) -> None:
+        """
+        Initialize AddSummaryVector query.
+
+        Args:
+            embedding: The embedding vector for summary
+            model_name: Name of the embedding model used
+            embedding_dim: Dimension of the embedding
+        """
+        super().__init__(endpoint="AddSummaryVector")
+        self.embedding = embedding
+        self.model_name = model_name
+        self.embedding_dim = embedding_dim
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL AddSummaryVector query."""
+        return [{
+            "embedding": self.embedding,
+            "model_name": self.model_name,
+            "embedding_dim": self.embedding_dim,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - returns vector node ID."""
+        return QueryResult(success=True, data=response)
+
+
+class LinkSummaryVector(_get_query_base_class()):
+    """Link summary to its vector embedding via SummaryHasEmbedding edge.
+
+    Maps to HelixQL LinkSummaryVector query.
+    """
+
+    def __init__(self, summary_id: str, vector_id: str) -> None:
+        """
+        Initialize LinkSummaryVector query.
+
+        Args:
+            summary_id: Internal summary node ID
+            vector_id: Internal vector node ID
+        """
+        super().__init__(endpoint="LinkSummaryVector")
+        self.summary_id = summary_id
+        self.vector_id = vector_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL LinkSummaryVector query."""
+        return [{
+            "summary_id": self.summary_id,
+            "vector_id": self.vector_id,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class LinkDocumentSummary(_get_query_base_class()):
+    """Link document to summary via DocumentHasSummary edge.
+
+    Maps to HelixQL LinkDocumentSummary query.
+    """
+
+    def __init__(self, doc_id: str, summary_id: str) -> None:
+        """
+        Initialize LinkDocumentSummary query.
+
+        Args:
+            doc_id: Internal document node ID
+            summary_id: Internal summary node ID
+        """
+        super().__init__(endpoint="LinkDocumentSummary")
+        self.doc_id = doc_id
+        self.summary_id = summary_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL LinkDocumentSummary query."""
+        return [{
+            "doc_id": self.doc_id,
+            "summary_id": self.summary_id,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class LinkChunkSummary(_get_query_base_class()):
+    """Link chunk to summary via ChunkHasSummary edge.
+
+    Maps to HelixQL LinkChunkSummary query.
+    """
+
+    def __init__(self, chunk_id: str, summary_id: str) -> None:
+        """
+        Initialize LinkChunkSummary query.
+
+        Args:
+            chunk_id: Internal chunk node ID
+            summary_id: Internal summary node ID
+        """
+        super().__init__(endpoint="LinkChunkSummary")
+        self.chunk_id = chunk_id
+        self.summary_id = summary_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL LinkChunkSummary query."""
+        return [{
+            "chunk_id": self.chunk_id,
+            "summary_id": self.summary_id,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class LinkSummaryParent(_get_query_base_class()):
+    """Link child summary to parent summary via SummaryHasChild edge.
+
+    Maps to HelixQL LinkSummaryParent query.
+    """
+
+    def __init__(self, parent_summary_id: str, child_summary_id: str) -> None:
+        """
+        Initialize LinkSummaryParent query.
+
+        Args:
+            parent_summary_id: Internal parent summary node ID
+            child_summary_id: Internal child summary node ID
+        """
+        super().__init__(endpoint="LinkSummaryParent")
+        self.parent_summary_id = parent_summary_id
+        self.child_summary_id = child_summary_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL LinkSummaryParent query."""
+        return [{
+            "parent_id": self.parent_summary_id,
+            "child_id": self.child_summary_id,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class SearchSimilarSummaries(_get_query_base_class()):
+    """Search for similar summaries using vector similarity.
+
+    Maps to HelixQL SearchSimilarSummaries query.
+    Note: Level and document_id filtering done in post-processing by client.
+    """
+
+    def __init__(
+        self,
+        query_embedding: list[float],
+        limit: int = 10,
+        level: Optional[str] = None,
+        document_id: Optional[str] = None,
+    ) -> None:
+        """
+        Initialize SearchSimilarSummaries query.
+
+        Args:
+            query_embedding: Query vector
+            limit: Maximum number of results
+            level: Optional filter by level (post-processing)
+            document_id: Optional filter by document (post-processing)
+        """
+        super().__init__(endpoint="SearchSimilarSummaries")
+        self.query_embedding = query_embedding
+        self.limit = limit
+        self.level = level
+        self.document_id = document_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL SearchSimilarSummaries query.
+
+        HelixQL expects query_vec and top_k parameters.
+        """
+        return [{
+            "query_vec": self.query_embedding,
+            "top_k": self.limit,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of summary nodes with scores."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[response] if response else [])
+
+
+class DeleteSummary(_get_query_base_class()):
+    """Delete a summary node.
+
+    Maps to HelixQL DeleteSummary query.
+    """
+
+    def __init__(self, summary_id: str) -> None:
+        """
+        Initialize DeleteSummary query.
+
+        Args:
+            summary_id: Internal summary node ID
+        """
+        super().__init__(endpoint="DeleteSummary")
+        self.summary_id = summary_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL DeleteSummary query."""
+        return [{"summary_id": self.summary_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class DeleteDocumentSummaries(_get_query_base_class()):
+    """Delete all summaries for a document.
+
+    Maps to HelixQL DeleteDocumentSummaries query.
+    """
+
+    def __init__(self, document_id: str) -> None:
+        """
+        Initialize DeleteDocumentSummaries query.
+
+        Args:
+            document_id: Document identifier
+        """
+        super().__init__(endpoint="DeleteDocumentSummaries")
+        self.document_id = document_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL DeleteDocumentSummaries query."""
+        return [{"document_id": self.document_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response."""
+        return QueryResult(success=True)
+
+
+class ListSummarizedDocuments(_get_query_base_class()):
+    """List all documents that have summaries.
+
+    Maps to HelixQL ListSummarizedDocuments query.
+    """
+
+    def __init__(self) -> None:
+        """Initialize ListSummarizedDocuments query."""
+        super().__init__(endpoint="ListSummarizedDocuments")
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL ListSummarizedDocuments query."""
+        return [{}]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - expects list of document IDs."""
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[response] if response else [])

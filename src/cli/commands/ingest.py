@@ -226,7 +226,7 @@ def ingest_markdown(
             # Stage 3: Store in database
             tracker.add_stage("Storing in database...", total=100)
             store_instance = get_store(config)
-            store_instance.store_document(
+            chunk_id_map = store_instance.store_document(
                 final_doc_id,
                 final_title,
                 embedded_chunks,
@@ -248,7 +248,8 @@ def ingest_markdown(
                     tracker.add_stage("Extracting concepts...", total=100)
                     try:
                         extractor = ConceptExtractor(provider=final_concept_provider)
-                        extracted_concepts, relations = extractor.extract_from_chunks(
+                        # Use new method that preserves per-chunk mapping
+                        extracted_concepts, relations, chunk_extractions = extractor.extract_from_chunks_with_mapping(
                             chunks, final_title, metadata_list=metadata
                         )
 
@@ -269,7 +270,7 @@ def ingest_markdown(
                             if internal_id:
                                 concept_ids[concept_slug] = internal_id
 
-                        # Store relationships
+                        # Store relationships between concepts
                         for relation in relations:
                             from_slug = slugify(relation.from_concept)
                             to_slug = slugify(relation.to_concept)
@@ -280,7 +281,45 @@ def ingest_markdown(
                                     from_id, to_id, relation.relation_type
                                 )
 
+                        # Create chunk-concept edges (DefinesConcept / MentionsConcept)
+                        defines_count = 0
+                        mentions_count = 0
+                        for chunk_idx, extraction in chunk_extractions.items():
+                            # Get chunk internal ID from the stored chunks
+                            if chunk_idx < len(embedded_chunks):
+                                chunk_str_id = embedded_chunks[chunk_idx].chunk.id
+                                chunk_internal_id = chunk_id_map.get(chunk_str_id)
+
+                                if chunk_internal_id:
+                                    # Link defined concepts
+                                    for defined in extraction.defined_concepts:
+                                        concept_slug = slugify(defined.name)
+                                        concept_internal_id = concept_ids.get(concept_slug)
+                                        if concept_internal_id:
+                                            store_instance.link_chunk_defines_concept(
+                                                chunk_internal_id, concept_internal_id
+                                            )
+                                            defines_count += 1
+
+                                    # Link mentioned concepts
+                                    for mentioned_name in extraction.mentioned_concepts:
+                                        concept_slug = slugify(mentioned_name)
+                                        # First check concepts from this ingestion
+                                        concept_internal_id = concept_ids.get(concept_slug)
+                                        # If not found, check database for concepts from other documents
+                                        if not concept_internal_id:
+                                            existing = store_instance.get_concept_by_name(mentioned_name)
+                                            if existing:
+                                                concept_internal_id = existing.get("id")
+                                        if concept_internal_id:
+                                            store_instance.link_chunk_mentions_concept(
+                                                chunk_internal_id, concept_internal_id
+                                            )
+                                            mentions_count += 1
+
                         result["concepts"] = len(extracted_concepts)
+                        result["defines_edges"] = defines_count
+                        result["mentions_edges"] = mentions_count
                         tracker.complete("Extracting concepts...")
 
                     except Exception as concept_error:

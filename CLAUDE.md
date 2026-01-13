@@ -94,12 +94,13 @@ kidkazz ingest markdown file.md --extract-tables  # Process tables during ingest
   - `MockChunkStore`: In-memory for testing
   - `HelixChunkStore`: Production vector + graph DB
 
-- **`src/mcp_server/`** - FastMCP server exposing 19 search tools and 4 resource endpoints for Claude Code integration:
+- **`src/mcp_server/`** - FastMCP server exposing 25 search tools and 4 resource endpoints for Claude Code integration:
   - Chunk tools: `search_semantic` (with filters: has_table, has_code, has_math, header_level), `search_keyword`, `get_chunk`, `get_context_window`, `get_parent`, `get_children`, `get_siblings`, `list_documents`, `get_document_chunks`, `get_document_stats`
   - Concept tools: `search_concepts`, `get_concept`, `get_related_concepts`, `get_concept_chunks`, `explain_concept_with_context`
   - Table tools: `search_tables`, `get_table`, `get_tables_for_concept`, `list_tables`
+  - Summary tools: `get_document_summary`, `get_chapter_summaries`, `get_section_summaries`, `search_summaries`, `get_summary_hierarchy`, `list_summarized_documents`
 
-- **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`, `concepts`, `tables`
+- **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`, `concepts`, `tables`, `summarize`
 
 - **`src/pdf_inbox/`** - PDF lifecycle management with Reducto.ai integration and optional rclone cloud sync
 
