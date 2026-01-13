@@ -53,14 +53,57 @@ except ImportError:
 app = typer.Typer(help="Document ingestion commands")
 
 
+def _resolve_file_path(file: Path, config: CLIConfig) -> Path:
+    """Resolve file path, checking output directory if file not found.
+
+    Args:
+        file: The file path provided by user
+        config: CLI configuration with output_path
+
+    Returns:
+        Resolved absolute path to the file
+
+    Raises:
+        typer.Exit: If file not found in any location
+    """
+    # If absolute path or exists in current location, use as-is
+    if file.is_absolute():
+        if file.exists():
+            return file
+        print_error(f"File not found: {file}")
+        raise typer.Exit(1)
+
+    # Check current directory first
+    if file.exists():
+        return file.resolve()
+
+    # Check output directory
+    output_path = Path(config.output_path).expanduser()
+    output_file = output_path / file
+    if output_file.exists():
+        return output_file.resolve()
+
+    # Also try with just the filename in output directory
+    output_file_name = output_path / file.name
+    if output_file_name.exists():
+        return output_file_name.resolve()
+
+    # File not found anywhere
+    print_error(
+        f"File not found: {file}\n"
+        f"Searched in:\n"
+        f"  - Current directory: {Path.cwd()}\n"
+        f"  - Output directory: {output_path}"
+    )
+    raise typer.Exit(1)
+
+
 @app.command("markdown")
 def ingest_markdown(
     file: Path = typer.Argument(
         ...,
-        help="Path to Markdown file",
-        exists=True,
+        help="Path to Markdown file (checks output directory if not found)",
         dir_okay=False,
-        resolve_path=True,
     ),
     doc_id: Optional[str] = typer.Option(
         None,
@@ -136,8 +179,15 @@ def ingest_markdown(
         fastembed  - Local CPU-based embeddings (free, default)
         openai     - OpenAI API embeddings (requires OPENAI_API_KEY)
         mock       - Mock embeddings for testing
+
+    File resolution:
+        If file is not found in current directory, the output directory
+        (configured in .kidkazz.toml) will be checked automatically.
     """
     config = CLIConfig.load()
+
+    # Resolve file path (check output directory if not found)
+    file = _resolve_file_path(file, config)
 
     # Override config with command options
     if store:
@@ -248,9 +298,18 @@ def ingest_markdown(
                     tracker.add_stage("Extracting concepts...", total=100)
                     try:
                         extractor = ConceptExtractor(provider=final_concept_provider)
+                        # Convert Chunk dataclasses to dicts for concept extractor
+                        chunks_as_dicts = [
+                            {
+                                "content": c.content if hasattr(c, 'content') else c.get("content", ""),
+                                "id": c.id if hasattr(c, 'id') else c.get("id", ""),
+                                "section_path": c.section_path if hasattr(c, 'section_path') else c.get("section_path", []),
+                            }
+                            for c in chunks
+                        ]
                         # Use new method that preserves per-chunk mapping
                         extracted_concepts, relations, chunk_extractions = extractor.extract_from_chunks_with_mapping(
-                            chunks, final_title, metadata_list=metadata
+                            chunks_as_dicts, final_title, metadata_list=metadata
                         )
 
                         # Store or merge concepts (cross-document linking)
@@ -343,8 +402,11 @@ def ingest_markdown(
                         for i, (chunk, meta) in enumerate(zip(chunks, metadata, strict=False)):
                             if getattr(meta, "has_table", False):
                                 # Parse table from chunk content
+                                # chunk is a Chunk dataclass, access via attributes
+                                chunk_content = chunk.content if hasattr(chunk, 'content') else chunk.get("content", "")
+                                chunk_id = chunk.id if hasattr(chunk, 'id') else chunk.get("id", f"chunk_{i}")
                                 parsed_table = parse_markdown_table(
-                                    chunk["content"], chunk["id"]
+                                    chunk_content, chunk_id
                                 )
                                 if parsed_table:
                                     # Generate summary
