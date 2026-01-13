@@ -331,7 +331,6 @@ class DocumentSummarizer:
         document_id: str,
         document_title: str,
         chunks: list[dict],
-        metadata_list: Optional[list] = None,
     ) -> list[Summary]:
         """
         Generate hierarchical summaries for an entire document.
@@ -340,7 +339,6 @@ class DocumentSummarizer:
             document_id: Document identifier
             document_title: Document title
             chunks: List of chunk dicts with 'id', 'content', 'level', 'section_path'
-            metadata_list: Optional list of ChunkMetadata objects
 
         Returns:
             List of all summaries (section, chapter, document)

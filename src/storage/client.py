@@ -1951,8 +1951,7 @@ class HelixChunkStore:
             LinkSummaryVector,
             LinkDocumentSummary,
             LinkChunkSummary,
-            LinkSummaryParent,
-            GetDocument,
+            GetDocumentByDocId,
             GetChunk,
         )
 
@@ -1997,7 +1996,7 @@ class HelixChunkStore:
 
             # Link to document
             if summary.level == "document":
-                doc_query = GetDocument(summary.document_id)
+                doc_query = GetDocumentByDocId(summary.document_id)
                 doc_result = self._execute_query(doc_query)
                 if doc_result.success and doc_result.data:
                     doc_node = doc_result.data.get("node", doc_result.data)

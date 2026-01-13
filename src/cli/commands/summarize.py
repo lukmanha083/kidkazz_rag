@@ -129,12 +129,20 @@ def generate_summaries(
 
     # Generate summaries
     try:
-        with console.status("[bold green]Generating summaries...") as status:
+        if json_output:
+            # No spinner for JSON output to keep output clean
             summaries = summarizer.generate_all_summaries(
                 document_id=doc_id,
                 document_title=doc_title,
                 chunks=chunks,
             )
+        else:
+            with console.status("[bold green]Generating summaries..."):
+                summaries = summarizer.generate_all_summaries(
+                    document_id=doc_id,
+                    document_title=doc_title,
+                    chunks=chunks,
+                )
     except Exception as e:
         print_error(f"Summarization failed: {e}")
         raise typer.Exit(1)
