@@ -161,7 +161,7 @@ def generate_summaries(
                 )
     except Exception as e:
         print_error(f"Summarization failed: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     # Store summaries (with embeddings)
     embedder = _get_embedder(config)
@@ -467,7 +467,7 @@ def delete_summaries(
             print_success(f"Deleted {len(existing)} summaries for '{doc_id}'")
     except Exception as e:
         print_error(f"Delete failed: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("hierarchy")

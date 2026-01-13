@@ -166,6 +166,7 @@ class DocumentSummarizer:
                     {"role": "user", "content": f"{context}\n\nContent:\n{chunk_content}"},
                 ],
                 max_retries=self.max_retries,
+                max_tokens=self.max_tokens_per_summary,
             )
 
             summary_id = f"summary_{chunk_id}_section"
@@ -241,6 +242,7 @@ class DocumentSummarizer:
                     {"role": "user", "content": f"{context}\n\nSection Summaries:\n{section_context}"},
                 ],
                 max_retries=self.max_retries,
+                max_tokens=self.max_tokens_per_summary,
             )
 
             summary_id = f"summary_{chunk_id}_chapter"
@@ -304,6 +306,7 @@ class DocumentSummarizer:
                     {"role": "user", "content": f"Document: {document_title}\n\nChapter Summaries:\n{chapter_context}"},
                 ],
                 max_retries=self.max_retries,
+                max_tokens=self.max_tokens_per_summary,
             )
 
             summary_id = f"summary_{document_id}_document"

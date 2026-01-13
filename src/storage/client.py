@@ -2018,8 +2018,8 @@ class HelixChunkStore:
 
             return summary_internal_id
 
-        except Exception as e:
-            logger.exception(f"Error storing summary {summary.summary_id}: {e}")
+        except Exception:
+            logger.exception("Error storing summary %s", summary.summary_id)
             return None
 
     def get_summary(self, summary_id: str) -> Optional[dict[str, Any]]:
