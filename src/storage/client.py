@@ -2018,9 +2018,12 @@ class HelixChunkStore:
 
             return summary_internal_id
 
-        except Exception:
-            logger.exception("Error storing summary %s", summary.summary_id)
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error("Network error storing summary '%s': %s", summary.summary_id, e)
             return None
+        except Exception:
+            logger.exception("Unexpected error storing summary '%s'", summary.summary_id)
+            raise
 
     def get_summary(self, summary_id: str) -> Optional[dict[str, Any]]:
         """
