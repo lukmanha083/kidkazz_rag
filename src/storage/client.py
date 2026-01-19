@@ -53,6 +53,7 @@ from .queries import (
     DropDocument,
     DropTable,
     GetChunk,
+    GetChunkForVector,
     GetChunksByParentId,
     GetChunkTable,
     GetChunkWithContext,
@@ -292,18 +293,29 @@ class HelixChunkStore:
         if hasattr(response, 'data'):
             data = response.data
             if isinstance(data, dict):
-                return data.get('id') or data.get('_id') or data.get('node_id')
+                # Check for nested node data under 'chunk', 'vec', 'doc' keys
+                for key in ['chunk', 'vec', 'doc', 'node', 'N']:
+                    if key in data and isinstance(data[key], dict):
+                        node_id = data[key].get('id') or data[key].get('Id')
+                        if node_id:
+                            return str(node_id)
+                # Direct ID in data
+                result = data.get('id') or data.get('_id') or data.get('node_id')
+                if result:
+                    return str(result)
             if hasattr(data, 'id'):
                 return str(data.id)
         if isinstance(response, dict):
+            # Check for nested node data first
+            for key in ['chunk', 'vec', 'doc', 'node', 'N']:
+                if key in response and isinstance(response[key], dict):
+                    node_id = response[key].get('id') or response[key].get('Id')
+                    if node_id:
+                        return str(node_id)
             # Check common ID locations
             result = response.get('id') or response.get('_id') or response.get('node_id')
             if result:
                 return result
-            # Helix-DB sometimes nests node data under "N" key with "Id" (capitalized)
-            node_data = response.get('N') or response.get('node')
-            if isinstance(node_data, dict):
-                return node_data.get('Id') or node_data.get('id')
 
         return None
 
@@ -650,13 +662,47 @@ class HelixChunkStore:
         # Post-filter results
         results: list[tuple[EmbeddedChunk, float]] = []
         for item in result.data or []:
-            # Extract node and score from response
-            # HelixQL may return {"node": {...}, "score": ...} or direct node
-            node = item.get("node", item) if isinstance(item, dict) else item
-            score = item.get("score", 0.0) if isinstance(item, dict) else 0.0
+            # Extract vector info and score from response
+            # SearchSimilar returns ChunkVector nodes with scores
+            if isinstance(item, dict):
+                score = item.get("score", 0.0)
+                vector_id = item.get("id")
+                embedding = item.get("data", [])  # Vector data is in 'data' field
+                model_name = item.get("model_name", "unknown")
+            else:
+                # Handle QueryResult or other response types
+                if hasattr(item, 'data') and isinstance(item.data, dict):
+                    score = item.data.get("score", 0.0)
+                    vector_id = item.data.get("id")
+                    embedding = item.data.get("data", [])
+                    model_name = item.data.get("model_name", "unknown")
+                else:
+                    continue
 
-            # Apply threshold filter
+            # Apply threshold filter early
             if threshold > 0 and score < threshold:
+                continue
+
+            # Fetch the chunk linked to this vector
+            if not vector_id:
+                continue
+
+            chunk_query = GetChunkForVector(vector_id)
+            chunk_result = self._execute_query(chunk_query)
+
+            if not chunk_result.success or not chunk_result.data:
+                continue
+
+            # Handle nested response structure
+            # Response could be: {"chunk": [{...}]} or {"chunk": {...}} or [{...}]
+            node = chunk_result.data
+            if isinstance(node, dict) and "chunk" in node:
+                node = node["chunk"]
+            # Now node could be a list of chunks
+            if isinstance(node, list) and len(node) > 0:
+                node = node[0]
+            # Final check - node should be a dict now
+            if not isinstance(node, dict):
                 continue
 
             # Apply doc_id filter
@@ -688,9 +734,6 @@ class HelixChunkStore:
             # Apply header_level filter
             if header_level is not None and node.get("header_level") != header_level:
                 continue
-
-            embedding = item.get("embedding", []) if isinstance(item, dict) else []
-            model_name = item.get("model_name", "unknown") if isinstance(item, dict) else "unknown"
 
             ec = helix_to_embedded_chunk(node, embedding, model_name)
             results.append((ec, score))

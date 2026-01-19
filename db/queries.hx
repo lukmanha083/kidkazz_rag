@@ -222,7 +222,12 @@ QUERY LinkChunkVector(chunk_id: ID, vector_id: ID) =>
 
 // ========== SEARCH QUERIES ==========
 
-// Vector similarity search (filtering done in Python post-processing)
+// Get chunk linked to a vector (for search result processing)
+QUERY GetChunkForVector(vector_id: ID) =>
+    chunk <- V<ChunkVector>(vector_id)::In<HasEmbedding>
+    RETURN chunk
+
+// Vector similarity search (returns vectors with scores, chunks fetched separately)
 QUERY SearchSimilar(query_vec: [F64], top_k: U32) =>
     results <- SearchV<ChunkVector>(query_vec, top_k)
     RETURN results

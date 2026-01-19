@@ -99,7 +99,11 @@ class AddDocument(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """Process response - extracts document node with internal ID."""
+        # Response format: {"doc": {...node data with 'id'...}}
+        if isinstance(response, dict) and 'doc' in response:
+            return QueryResult(success=True, data=response)
+        # Fallback for unexpected format
         return QueryResult(success=True, data={"doc_id": self.doc_id})
 
 
@@ -173,7 +177,11 @@ class AddChunk(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """Process response - extracts chunk node with internal ID."""
+        # Response format: {"chunk": {...node data with 'id'...}}
+        if isinstance(response, dict) and 'chunk' in response:
+            return QueryResult(success=True, data=response)
+        # Fallback for unexpected format
         return QueryResult(
             success=True,
             data={"chunk_id": self.chunk_props.get("chunk_id")},
@@ -394,6 +402,37 @@ class GetChunkWithContext(_get_query_base_class()):
 
 
 # Search Queries
+class GetChunkForVector(_get_query_base_class()):
+    """Get the chunk linked to a vector embedding.
+
+    Maps to HelixQL GetChunkForVector query.
+    Used to retrieve chunk data after vector search returns vector IDs.
+    """
+
+    def __init__(self, vector_id: str) -> None:
+        """
+        Initialize GetChunkForVector query.
+
+        Args:
+            vector_id: Internal vector node ID from search results
+        """
+        super().__init__(endpoint="GetChunkForVector")
+        self.vector_id = vector_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetChunkForVector query."""
+        return [{
+            "vector_id": self.vector_id,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - returns chunk node data."""
+        # Handle list response from HelixQL edge traversal
+        if isinstance(response, list) and len(response) > 0:
+            return QueryResult(success=True, data=response[0])
+        return QueryResult(success=True, data=response)
+
+
 class SearchSimilarChunks(_get_query_base_class()):
     """Vector similarity search - filtering done in Python post-processing."""
 
