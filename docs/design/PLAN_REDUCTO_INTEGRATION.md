@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add Reducto.ai as a PDF parsing option for users who prefer API-based processing over Google Colab. This provides a local command-line alternative while still using rclone + Google Drive for storage and backup.
+Reducto.ai is the PDF parsing solution for KidKazz RAG. It provides API-based processing with rclone + Google Drive for storage and backup.
 
 ## Workflow
 
@@ -353,17 +353,16 @@ kidkazz ingest markdown ~/.kidkazz/output/document.md \
 kidkazz search semantic "your query"
 ```
 
-## Comparison: Reducto vs Colab
+## Reducto.ai Features
 
-| Feature | Reducto.ai | Google Colab |
-|---------|-----------|--------------|
-| GPU Required | No (cloud API) | Yes (T4/A100) |
-| Setup | API key only | Notebook + Drive mount |
-| Speed | Fast (cloud infra) | Depends on GPU |
-| Cost | Pay per page | Free (with limits) |
-| Accuracy | 99%+ (agentic mode) | Varies by tool |
-| Batch Processing | Built-in | Manual |
-| Offline | No | No |
+| Feature | Details |
+|---------|---------|
+| GPU Required | No (cloud API) |
+| Setup | API key only |
+| Speed | Fast (cloud infra) |
+| Accuracy | 99%+ (agentic mode) |
+| Batch Processing | Built-in |
+| Cloud Backup | rclone + Google Drive |
 
 ## References
 

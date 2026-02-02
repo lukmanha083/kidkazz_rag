@@ -21,7 +21,7 @@ pytest tests/ -m "not mcp"                                 # Skip MCP tests
 ### Installation (optional dependencies)
 ```bash
 pip install -e ".[dev]"      # Testing (pytest, coverage)
-pip install -e ".[chunker]"  # Embeddings (FastEmbed)
+pip install -e ".[chunker]"  # Chunking pipeline
 pip install -e ".[helixdb]"  # Storage (helix-py)
 pip install -e ".[mcp]"      # MCP server
 pip install -e ".[cli]"      # CLI (typer, rich)
@@ -96,9 +96,8 @@ kidkazz summarize list              # List documents with summaries
   - `search_tables()` with cosine similarity ranking
   - `link_table_to_concept()` for graph-based retrieval
 
-- **`src/chunker/embedder.py`** - Three embedder implementations:
-  - `ChunkEmbedder` (FastEmbed): Local CPU, ONNX Runtime, 384/768/1024 dims
-  - `OpenAIEmbedder`: API-based, 1536/3072 dims
+- **`src/chunker/embedder.py`** - Embedder implementations:
+  - `OpenAIEmbedder`: API-based, 1536/3072 dims (default)
   - `MockEmbedder`: Testing
 
 - **`src/storage/`** - Protocol-based storage with `ChunkStoreProtocol`:
@@ -174,4 +173,4 @@ Hierarchical summaries are generated using LLM and stored in Helix-DB:
 Tests use pytest markers to control execution:
 - `@pytest.mark.helix` - Requires running Helix-DB server
 - `@pytest.mark.mcp` - MCP-related tests
-- `@pytest.mark.fastembed` - Requires FastEmbed (slow)
+- `@pytest.mark.openai` - Requires OpenAI API key

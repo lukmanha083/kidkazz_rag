@@ -91,10 +91,10 @@ def get_embedder(config: CLIConfig, embedder_override: Optional[str] = None) -> 
 
     Args:
         config: CLI configuration
-        embedder_override: Override embedder type (fastembed, openai, mock)
+        embedder_override: Override embedder type (openai, mock)
 
     Returns:
-        Embedder instance (MockEmbedder, ChunkEmbedder, or OpenAIEmbedder)
+        Embedder instance (MockEmbedder or OpenAIEmbedder)
     """
     embedder_type = embedder_override or config.embedder_type
 
@@ -107,17 +107,6 @@ def get_embedder(config: CLIConfig, embedder_override: Optional[str] = None) -> 
             raise ImportError(
                 "OpenAI is not installed. Run: pip install openai"
             ) from err
-
-    elif embedder_type == "fastembed":
-        try:
-            from src.chunker import ChunkEmbedder
-
-            return ChunkEmbedder(model_name=config.model_name)
-        except ImportError:
-            # Fall back to mock if fastembed not installed
-            from src.chunker.embedder import MockEmbedder
-
-            return MockEmbedder()
     else:
         from src.chunker.embedder import MockEmbedder
 

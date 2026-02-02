@@ -18,8 +18,8 @@ class TestMCPServerConfig:
         assert config.store_type == "mock"
         assert config.helix_port == 6969
         assert config.helix_local is True
-        assert config.embedder_type == "fastembed"
-        assert config.model_name == "BAAI/bge-small-en-v1.5"
+        assert config.embedder_type == "openai"
+        assert config.model_name == "text-embedding-3-small"
         assert config.cache_dir is None
         assert config.log_level == "INFO"
 
@@ -47,7 +47,7 @@ class TestMCPServerConfig:
         with patch.dict(os.environ, {}, clear=True):
             config = MCPServerConfig.from_env()
             assert config.store_type == "mock"
-            assert config.embedder_type == "fastembed"
+            assert config.embedder_type == "openai"
 
     def test_from_env_with_values(self):
         """Test from_env reads environment variables."""

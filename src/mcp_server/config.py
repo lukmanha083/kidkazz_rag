@@ -19,7 +19,7 @@ class MCPServerConfig:
         store_type: Storage backend - "mock" for testing, "helix" for production
         helix_port: Port for Helix-DB connection (default: 6969)
         helix_local: Whether to connect to local Helix-DB instance
-        embedder_type: Embedder backend - "mock", "fastembed", or "openai"
+        embedder_type: Embedder backend - "mock" or "openai"
         model_name: Name of embedding model
         cache_dir: Optional cache directory for embeddings
         log_level: Logging level (default: INFO)
@@ -28,8 +28,8 @@ class MCPServerConfig:
     store_type: Literal["mock", "helix"] = "mock"
     helix_port: int = 6969
     helix_local: bool = True
-    embedder_type: Literal["mock", "fastembed", "openai"] = "fastembed"
-    model_name: str = "BAAI/bge-small-en-v1.5"
+    embedder_type: Literal["mock", "openai"] = "openai"
+    model_name: str = "text-embedding-3-small"
     cache_dir: Optional[Path] = None
     log_level: str = "INFO"
 
@@ -60,7 +60,7 @@ class MCPServerConfig:
         """Create embedder instance based on configuration.
 
         Returns:
-            MockEmbedder, ChunkEmbedder, or OpenAIEmbedder instance
+            MockEmbedder or OpenAIEmbedder instance
 
         Raises:
             ImportError: If required dependencies are not installed
@@ -70,17 +70,10 @@ class MCPServerConfig:
             from src.chunker import MockEmbedder
 
             return MockEmbedder(model_name=self.model_name)
-        elif self.embedder_type == "openai":
+        else:
             from src.chunker import OpenAIEmbedder
 
             return OpenAIEmbedder(model_name=self.model_name)
-        else:
-            from src.chunker import ChunkEmbedder
-
-            return ChunkEmbedder(
-                model_name=self.model_name,
-                cache_dir=str(self.cache_dir) if self.cache_dir else None,
-            )
 
     @classmethod
     def from_env(cls) -> "MCPServerConfig":
@@ -117,8 +110,8 @@ class MCPServerConfig:
             store_type=storage.get("store_type", "mock"),  # type: ignore
             helix_port=storage.get("helix_port", 6969),
             helix_local=storage.get("helix_local", True),
-            embedder_type=embeddings.get("embedder_type", "fastembed"),  # type: ignore
-            model_name=embeddings.get("model_name", "BAAI/bge-small-en-v1.5"),
+            embedder_type=embeddings.get("embedder_type", "openai"),  # type: ignore
+            model_name=embeddings.get("model_name", "text-embedding-3-small"),
             cache_dir=None,
             log_level=os.getenv("KIDKAZZ_LOG_LEVEL", "INFO"),
         )

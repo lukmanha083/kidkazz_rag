@@ -7,8 +7,8 @@ This document outlines the design for a PDF inbox management feature that allows
 ## Problem Statement
 
 Currently, users manually manage PDF files during the conversion process:
-1. Upload PDFs to Colab or specify paths manually
-2. Run conversion
+1. Place PDFs in a directory or specify paths manually
+2. Run conversion with Reducto.ai
 3. Manually clean up source PDFs after successful conversion
 
 This creates clutter and requires manual intervention. Users want:
@@ -173,13 +173,13 @@ kidkazz inbox clear [--failed] [--processed]
 
 ### Integration with Existing Workflow
 
-#### Colab Notebook Updates
-The Colab notebook will be updated to:
-1. Accept inbox path as configurable location
-2. Call `PDFInboxManager.mark_completed()` after successful conversion
+#### CLI Integration
+The CLI will:
+1. Use inbox manager to find PDFs
+2. Call `PDFInboxManager.mark_completed()` after successful conversion via Reducto.ai
 3. Trigger auto-cleanup based on configured action
 
-#### Local CLI Updates
+#### Ingest CLI Updates
 The `ingest pdf` command will:
 1. Use inbox manager to find PDFs
 2. Show pending files before processing
@@ -198,8 +198,8 @@ The `ingest pdf` command will:
 2. Implement `inbox` command group
 3. Write integration tests
 
-### Phase 3: Colab Integration
-1. Update notebook to use inbox manager
+### Phase 3: Reducto.ai Integration
+1. Integrate inbox manager with Reducto.ai parsing
 2. Add auto-cleanup after conversion
 3. Update documentation
 

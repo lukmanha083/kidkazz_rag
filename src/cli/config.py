@@ -39,8 +39,8 @@ class CLIConfig:
     helix_local: bool = True
 
     # Embedding settings
-    embedder_type: str = "fastembed"
-    model_name: str = "BAAI/bge-small-en-v1.5"
+    embedder_type: str = "openai"
+    model_name: str = "text-embedding-3-small"
 
     # Chunking settings
     level_1_size: int = 2048

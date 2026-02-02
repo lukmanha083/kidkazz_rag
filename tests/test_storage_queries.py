@@ -552,12 +552,12 @@ class TestAddChunkVector:
         embedding = [0.5] * 768
         query = AddChunkVector(
             embedding=embedding,
-            model_name="bge-base-en-v1.5",
+            model_name="text-embedding-3-small",
             embedding_dim=768,
         )
 
         assert query.embedding == embedding
-        assert query.model_name == "bge-base-en-v1.5"
+        assert query.model_name == "text-embedding-3-small"
         assert query.embedding_dim == 768
 
     def test_response_success(self):

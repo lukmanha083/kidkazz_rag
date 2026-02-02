@@ -11,7 +11,6 @@ from .chunker import (
     split_text_with_overlap,
 )
 from .embedder import (
-    ChunkEmbedder,
     EmbeddedChunk,
     MockEmbedder,
     OpenAIEmbedder,
@@ -51,7 +50,6 @@ __all__ = [
     "get_sibling_chunks",
     "split_text_with_overlap",
     # Embedder
-    "ChunkEmbedder",
     "EmbeddedChunk",
     "MockEmbedder",
     "OpenAIEmbedder",

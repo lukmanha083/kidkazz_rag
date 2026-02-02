@@ -1,8 +1,7 @@
 """Embedding generation with multiple backend support.
 
 Supports:
-- FastEmbed (CPU-optimized, local, free)
-- OpenAI (API-based, higher quality, pay-per-use)
+- OpenAI (API-based, production)
 - Mock (testing)
 """
 
@@ -14,17 +13,8 @@ from .chunker import Chunk
 
 
 # Default model configuration
-DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_BATCH_SIZE = 32
-
-# Model dimension mapping (FastEmbed models)
-MODEL_DIMENSIONS = {
-    "BAAI/bge-small-en-v1.5": 384,
-    "BAAI/bge-base-en-v1.5": 768,
-    "BAAI/bge-large-en-v1.5": 1024,
-    "sentence-transformers/all-MiniLM-L6-v2": 384,
-    "sentence-transformers/all-mpnet-base-v2": 768,
-}
 
 # OpenAI model dimensions
 OPENAI_MODEL_DIMENSIONS = {
@@ -64,176 +54,9 @@ class EmbeddedChunk:
         }
 
 
-class ChunkEmbedder:
-    """
-    CPU-optimized embedding generator using FastEmbed.
-
-    FastEmbed uses ONNX Runtime with INT8 quantization for fast CPU inference.
-    No GPU required - optimized for AMD Ryzen CPUs.
-    """
-
-    def __init__(
-        self,
-        model_name: str = DEFAULT_MODEL,
-        cache_dir: Optional[str] = None,
-        threads: Optional[int] = None,
-    ):
-        """
-        Initialize the embedder.
-
-        Args:
-            model_name: Name of the embedding model
-            cache_dir: Directory to cache model files
-            threads: Number of CPU threads (None = auto-detect)
-        """
-        self.model_name = model_name
-        self.cache_dir = cache_dir
-        self.threads = threads
-        self._model = None
-        self._initialized = False
-
-    def _ensure_initialized(self) -> None:
-        """Lazy initialization of the model."""
-        if self._initialized:
-            return
-
-        try:
-            from fastembed import TextEmbedding
-
-            kwargs = {"model_name": self.model_name}
-            if self.cache_dir:
-                kwargs["cache_dir"] = self.cache_dir
-            if self.threads:
-                kwargs["threads"] = self.threads
-
-            self._model = TextEmbedding(**kwargs)
-            self._initialized = True
-        except ImportError as e:
-            raise ImportError(
-                "FastEmbed is not installed. Run: pip install fastembed"
-            ) from e
-
-    def get_embedding_dim(self) -> int:
-        """
-        Get embedding dimension for the configured model.
-
-        Returns:
-            Embedding dimension (e.g., 384 for bge-small)
-        """
-        return MODEL_DIMENSIONS.get(self.model_name, 384)
-
-    def embed_text(self, text: str) -> list[float]:
-        """
-        Generate embedding for a single text.
-
-        Args:
-            text: Text to embed
-
-        Returns:
-            Embedding vector as list of floats
-        """
-        self._ensure_initialized()
-
-        if not text.strip():
-            # Return zero vector for empty text
-            return [0.0] * self.get_embedding_dim()
-
-        # FastEmbed returns a generator, get first result
-        embeddings = list(self._model.embed([text]))
-        return embeddings[0].tolist()
-
-    def embed_texts(
-        self,
-        texts: list[str],
-        batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> Iterator[list[float]]:
-        """
-        Generate embeddings for multiple texts.
-
-        Args:
-            texts: List of texts to embed
-            batch_size: Batch size for processing
-
-        Yields:
-            Embedding vectors
-        """
-        self._ensure_initialized()
-
-        if not texts:
-            return
-
-        # Track which texts are empty (return zero vector) vs non-empty (embed)
-        empty_mask = [not t.strip() for t in texts]
-        non_empty_texts = [t for t in texts if t.strip()]
-        zero_vector = [0.0] * self.get_embedding_dim()
-
-        # Get embeddings for non-empty texts
-        non_empty_embeddings = list(
-            self._model.embed(non_empty_texts, batch_size=batch_size)
-        ) if non_empty_texts else []
-
-        # Yield embeddings in original order
-        non_empty_idx = 0
-        for is_empty in empty_mask:
-            if is_empty:
-                yield zero_vector
-            else:
-                yield non_empty_embeddings[non_empty_idx].tolist()
-                non_empty_idx += 1
-
-    def embed_chunk(self, chunk: Chunk) -> EmbeddedChunk:
-        """
-        Generate embedding for a single chunk.
-
-        Args:
-            chunk: Chunk to embed
-
-        Returns:
-            EmbeddedChunk with embedding attached
-        """
-        embedding = self.embed_text(chunk.content)
-        return EmbeddedChunk(
-            chunk=chunk,
-            embedding=embedding,
-            model_name=self.model_name,
-        )
-
-    def embed_chunks(
-        self,
-        chunks: list[Chunk],
-        batch_size: int = DEFAULT_BATCH_SIZE,
-        show_progress: bool = False,  # noqa: ARG002 - reserved for future use
-    ) -> list[EmbeddedChunk]:
-        """
-        Generate embeddings for multiple chunks.
-
-        Args:
-            chunks: List of chunks to embed
-            batch_size: Batch size for processing
-            show_progress: Show progress indicator (reserved for future implementation)
-
-        Returns:
-            List of EmbeddedChunks with embeddings
-        """
-        if not chunks:
-            return []
-
-        texts = [chunk.content for chunk in chunks]
-        embeddings = list(self.embed_texts(texts, batch_size=batch_size))
-
-        return [
-            EmbeddedChunk(
-                chunk=chunk,
-                embedding=embedding,
-                model_name=self.model_name,
-            )
-            for chunk, embedding in zip(chunks, embeddings, strict=True)
-        ]
-
-
 class MockEmbedder:
     """
-    Mock embedder for testing without FastEmbed dependency.
+    Mock embedder for testing without API dependencies.
 
     Generates deterministic pseudo-embeddings based on text hash.
     """
@@ -286,7 +109,7 @@ class MockEmbedder:
 
         Args:
             texts: List of texts to embed
-            batch_size: Batch size (unused, for API compatibility with ChunkEmbedder)
+            batch_size: Batch size (unused, for API compatibility)
 
         Yields:
             Mock embedding vectors
@@ -312,7 +135,7 @@ class MockEmbedder:
 
         Args:
             chunks: List of chunks to embed
-            batch_size: Batch size (unused, for API compatibility with ChunkEmbedder)
+            batch_size: Batch size (unused, for API compatibility)
             show_progress: Progress indicator (unused, for API compatibility)
 
         Returns:

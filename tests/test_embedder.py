@@ -7,7 +7,6 @@ import pytest
 
 from src.chunker.chunker import Chunk
 from src.chunker.embedder import (
-    ChunkEmbedder,
     EmbeddedChunk,
     MockEmbedder,
     OpenAIEmbedder,
@@ -23,7 +22,7 @@ class TestMockEmbedder:
     def test_initialization(self):
         """Should initialize with default values."""
         embedder = MockEmbedder()
-        assert embedder.model_name == "BAAI/bge-small-en-v1.5"
+        assert embedder.model_name == "text-embedding-3-small"
         assert embedder.get_embedding_dim() == 384
 
     def test_custom_dimension(self):
@@ -271,35 +270,6 @@ class TestFindSimilarChunks:
         assert len(results) == 1
         assert isinstance(results[0][0], EmbeddedChunk)
         assert isinstance(results[0][1], float)
-
-
-class TestChunkEmbedderInitialization:
-    """Tests for ChunkEmbedder initialization (without loading model)."""
-
-    def test_initialization(self):
-        """Should initialize without loading model."""
-        embedder = ChunkEmbedder()
-        assert embedder.model_name == "BAAI/bge-small-en-v1.5"
-        assert embedder._initialized is False
-
-    def test_custom_model_name(self):
-        """Should accept custom model name."""
-        embedder = ChunkEmbedder(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        assert embedder.model_name == "sentence-transformers/all-MiniLM-L6-v2"
-
-    def test_get_embedding_dim_without_init(self):
-        """Should return dimension without initializing model."""
-        embedder = ChunkEmbedder()
-        dim = embedder.get_embedding_dim()
-        assert dim == 384  # Default for bge-small
-
-    def test_get_embedding_dim_custom_model(self):
-        """Should return correct dimension for known models."""
-        embedder = ChunkEmbedder(model_name="BAAI/bge-base-en-v1.5")
-        assert embedder.get_embedding_dim() == 768
-
-        embedder = ChunkEmbedder(model_name="BAAI/bge-large-en-v1.5")
-        assert embedder.get_embedding_dim() == 1024
 
 
 class TestOpenAIEmbedder:

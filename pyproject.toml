@@ -35,7 +35,8 @@ converter = [
     "nougat-ocr>=0.1.0",
 ]
 chunker = [
-    "fastembed>=0.2.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
 ]
 helixdb = [
     "helix-py>=0.1.0",
@@ -62,7 +63,6 @@ concepts = [
     "graphviz>=0.20",
 ]
 all = [
-    "fastembed>=0.2.0",
     "helix-py>=0.1.0",
     "mcp>=1.2.0",
     "reductoai>=0.1.0",
@@ -89,7 +89,7 @@ addopts = "-v --tb=short"
 markers = [
     "helix: marks tests requiring real Helix-DB server (deselect with '-m \"not helix\"')",
     "mcp: marks MCP-related tests",
-    "fastembed: marks tests requiring FastEmbed (slow)",
+    "openai: marks tests requiring OpenAI API key",
 ]
 
 [tool.coverage.run]

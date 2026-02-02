@@ -133,7 +133,7 @@ def ingest_markdown(
         None,
         "--embedder",
         "-e",
-        help="Embedder type: fastembed (local), openai (API), mock",
+        help="Embedder type: openai (API), mock",
     ),
     model: Optional[str] = typer.Option(
         None,
@@ -176,8 +176,7 @@ def ingest_markdown(
     """Chunk Markdown file, generate embeddings, and store in database.
 
     Embedder options:
-        fastembed  - Local CPU-based embeddings (free, default)
-        openai     - OpenAI API embeddings (requires OPENAI_API_KEY)
+        openai     - OpenAI API embeddings (requires OPENAI_API_KEY, default)
         mock       - Mock embeddings for testing
 
     File resolution:
@@ -481,7 +480,7 @@ def ingest_batch(
         None,
         "--embedder",
         "-e",
-        help="Embedder type: fastembed (local), openai (API), mock",
+        help="Embedder type: openai (API), mock",
     ),
     skip_existing: bool = typer.Option(
         False,
@@ -702,23 +701,21 @@ def ingest_pdf(
 ) -> None:
     """Convert PDF to Markdown, chunk, embed, and store.
 
-    Note: PDF conversion requires GPU and is recommended to run via
-    the Colab notebook. This command is for future local support.
+    Note: Use 'kidkazz inbox parse' to convert PDFs via Reducto.ai API,
+    then use 'kidkazz ingest markdown' to ingest the converted markdown.
     """
-    # For now, PDF conversion is not implemented locally
-    # Direct users to use the notebook and then ingest markdown
+    # Direct users to use Reducto.ai for PDF parsing
     print_warning(
-        "PDF conversion is currently only supported via Google Colab notebook.\n"
-        "Please use the notebook to convert PDF to Markdown first:\n"
-        "  1. Open notebooks/pdf_to_markdown_converter.ipynb\n"
-        "  2. Upload and convert your PDF\n"
-        "  3. Run: kidkazz ingest markdown <output.md>"
+        "Use Reducto.ai API for PDF conversion:\n"
+        "  1. Place PDFs in ~/.kidkazz/inbox/\n"
+        "  2. Run: kidkazz inbox parse\n"
+        "  3. Run: kidkazz ingest markdown ~/.kidkazz/output/<document>.md"
     )
 
     if json_output:
         print_json({
             "status": "not_implemented",
-            "message": "PDF conversion requires GPU. Use Colab notebook first.",
+            "message": "Use 'kidkazz inbox parse' for PDF conversion via Reducto.ai.",
         })
 
     raise typer.Exit(1)

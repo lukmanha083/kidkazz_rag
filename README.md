@@ -11,10 +11,10 @@ A RAG (Retrieval-Augmented Generation) system for converting PDF textbooks to se
 ## Overview
 
 This project provides tools to:
-1. Convert PDF documents to Markdown via **Reducto.ai API** (recommended) or **Google Colab** (GPU)
+1. Convert PDF documents to Markdown via **Reducto.ai API**
 2. Validate conversion quality with automatic quality checks (OCR confidence, structure, content)
 3. Chunk documents hierarchically for vector + graph storage
-4. Generate embeddings using **FastEmbed** (local CPU, free) or **OpenAI API** (cloud, higher quality)
+4. Generate embeddings using **OpenAI API**
 5. Store in Helix-DB (vector + graph database)
 6. Query documents via MCP integration with Claude Code or CLI tool
 7. Manage PDF inbox with auto-delete after conversion
@@ -50,18 +50,11 @@ PDF Document
      |                           ├── Track processing status
      |                           └── Auto-delete after conversion
      v
-[PDF to Markdown Converter] ──── Two Options:
-     |                           │
-     |                           ├── Option A: Reducto.ai API (Recommended)
-     |                           │   └── kidkazz inbox parse
-     |                           │       ├── No GPU required
-     |                           │       ├── 99%+ accuracy
-     |                           │       └── Cloud backup via rclone
-     |                           │
-     |                           └── Option B: Google Colab (GPU)
-     |                               ├── Marker (fast, clean PDFs)
-     |                               ├── Docling (tables, mixed)
-     |                               └── Nougat (math/equations)
+[PDF to Markdown Converter] ──── Reducto.ai API
+     |                           └── kidkazz inbox parse
+     |                               ├── No GPU required
+     |                               ├── 99%+ accuracy
+     |                               └── Cloud backup via rclone
      v
 Markdown Document
      |
@@ -74,10 +67,7 @@ Markdown Document
      |                           ├── Header metadata extraction (h1-h6)
      |                           └── Optional: LLM concept extraction
      v
-[Embeddings] ─────────────────── Two Options:
-     |                           ├── FastEmbed (local CPU, free)
-     |                           │   └── BAAI/bge-small-en-v1.5 (384 dims)
-     |                           └── OpenAI API (cloud, pay-per-use)
+[Embeddings] ─────────────────── OpenAI API
      |                               └── text-embedding-3-small (1536 dims)
      v
 [Helix-DB Storage] ─────────── Vector + Graph Storage
@@ -106,12 +96,10 @@ Chat with your documents                               Terminal access  ├─�
 - **For Helix-DB (Production storage):**
   - [Rust 1.88.0+](https://rustup.rs/) - Required for Helix CLI
   - [Docker Desktop](https://www.docker.com/products/docker-desktop/) - Required for local Helix-DB
-- **For PDF Parsing (choose one):**
-  - **Reducto.ai API (Recommended):** [Reducto API key](https://reducto.ai) + [rclone](https://rclone.org/install/) (optional, for cloud backup)
-  - **Google Colab (Alternative):** VS Code with [Google Colab Extension](https://marketplace.visualstudio.com/items?itemName=GoogleCloudPlatform.colab-vscode-plugin) + Google account
-- **For Embeddings (choose one):**
-  - **FastEmbed (Default):** No API key required, runs locally on CPU
-  - **OpenAI API (Optional):** [OpenAI API key](https://platform.openai.com/api-keys) for higher quality embeddings
+- **For PDF Parsing:**
+  - **Reducto.ai API:** [Reducto API key](https://reducto.ai) + [rclone](https://rclone.org/install/) (optional, for cloud backup)
+- **For Embeddings:**
+  - **OpenAI API:** [OpenAI API key](https://platform.openai.com/api-keys)
 
 ## Getting Started
 
@@ -193,7 +181,7 @@ Install only what you need:
 |-------|---------|-------------|
 | dev | `pip install -e ".[dev]"` | Testing (pytest, coverage) |
 | cli | `pip install -e ".[cli]"` | CLI tool (typer, rich) |
-| chunker | `pip install -e ".[chunker]"` | Embeddings (FastEmbed) |
+| chunker | `pip install -e ".[chunker]"` | Chunking pipeline |
 | helixdb | `pip install -e ".[helixdb]"` | Helix-DB client (helix-py) |
 | mcp | `pip install -e ".[mcp]"` | MCP server for Claude Code |
 | reducto | `pip install -e ".[reducto]"` | Reducto.ai PDF parsing |
@@ -203,36 +191,16 @@ Install only what you need:
 
 ## Embeddings
 
-Kidkazz RAG supports two embedding backends:
+Kidkazz RAG uses OpenAI embeddings for vector search.
 
-### FastEmbed (Default - Local)
-
-CPU-optimized embeddings using ONNX Runtime. Free, private, no API required.
-
-```bash
-# Use FastEmbed (default)
-kidkazz ingest markdown doc.md --embedder fastembed
-
-# Or configure in .kidkazz.toml
-kidkazz config set embedder_type fastembed
-```
-
-| Model | Dimensions | Speed | Use Case |
-|-------|------------|-------|----------|
-| BAAI/bge-small-en-v1.5 | 384 | Fast | Default, general use |
-| BAAI/bge-base-en-v1.5 | 768 | Medium | Higher quality |
-| BAAI/bge-large-en-v1.5 | 1024 | Slow | Best quality |
-
-### OpenAI Embeddings (Cloud API)
-
-Higher quality embeddings via OpenAI API. Requires API key, pay-per-use.
+### OpenAI Embeddings
 
 ```bash
 # Set API key in .env
 echo 'OPENAI_API_KEY=sk-xxxxx' >> .env
 
-# Use OpenAI embeddings
-kidkazz ingest markdown doc.md --embedder openai
+# Ingest with OpenAI embeddings (default)
+kidkazz ingest markdown doc.md
 
 # Or configure in .kidkazz.toml
 kidkazz config set embedder_type openai
@@ -241,22 +209,21 @@ kidkazz config set model_name text-embedding-3-small
 
 | Model | Dimensions | Cost | Use Case |
 |-------|------------|------|----------|
-| text-embedding-3-small | 1536 | $0.02/1M tokens | Cost-effective |
+| text-embedding-3-small | 1536 | $0.02/1M tokens | Default, cost-effective |
 | text-embedding-3-large | 3072 | $0.13/1M tokens | Highest quality |
-| text-embedding-ada-002 | 1536 | $0.10/1M tokens | Legacy |
 
 ### Embedding Compatibility Warning
 
-Different embedders produce different dimensions. **You must use the same embedder for ingestion AND search queries.**
+**You must use the same embedding model for ingestion AND search queries.**
 
 ```bash
-# WARNING: Changing embedder after ingestion
-kidkazz config set embedder_type openai
-# Warning: Changing embedder may make existing embeddings incompatible.
+# WARNING: Changing model after ingestion
+kidkazz config set model_name text-embedding-3-large
+# Warning: Changing model may make existing embeddings incompatible.
 # You may need to re-ingest documents for consistent search results.
 ```
 
-**Best practice:** Choose your embedder before ingesting documents and stick with it.
+**Best practice:** Choose your embedding model before ingesting documents and stick with it.
 
 ## PDF Inbox Workflow
 
@@ -365,62 +332,9 @@ kidkazz config set cloud_path kidkazz_inbox
 kidkazz config set post_action delete  # delete, move, or keep
 ```
 
-**Reducto.ai vs Google Colab:**
+### Cloud Sync with rclone (Optional Backup)
 
-| Feature | Reducto.ai | Google Colab |
-|---------|------------|--------------|
-| GPU Required | No (cloud API) | Yes (T4/A100) |
-| Setup | API key only | Notebook + Drive mount |
-| Speed | Fast (cloud infra) | Depends on GPU availability |
-| Cost | Pay per page | Free (with session limits) |
-| Accuracy | 99%+ (agentic mode) | Varies by tool |
-| Batch Processing | Built-in | Manual |
-| Offline | No | No |
-| Best For | Production, automation | Free tier, experimentation |
-
----
-
-### Alternative: Google Colab Workflow
-
-For users who prefer free GPU-based conversion or need specific tools (Marker, Docling, Nougat).
-
-### Complete Workflow
-
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            LOCAL MACHINE                                     │
-│  ┌────────────────┐                                                         │
-│  │  Drop PDF into │──┐                                                      │
-│  │  ~/.kidkazz/   │  │                                                      │
-│  │  inbox/        │  │                                                      │
-│  └────────────────┘  │                                                      │
-│          │           │                                                      │
-│          ▼           │                                                      │
-│  ┌────────────────┐  │    ┌─────────────────────────────────────────────┐  │
-│  │ kidkazz inbox  │  │    │              GOOGLE COLAB (GPU)             │  │
-│  │ status/list    │  │    │  ┌─────────┐  ┌─────────┐  ┌─────────────┐  │  │
-│  │ (view pending) │  │    │  │ Upload  │─▶│ Convert │─▶│ Download    │  │  │
-│  └────────────────┘  │    │  │ PDF     │  │ (GPU)   │  │ Markdown    │  │  │
-│                      │    │  └─────────┘  └─────────┘  └─────────────┘  │  │
-│                      │    └────────────────────│────────────────────────┘  │
-│                      │                         │                            │
-│                      │                         ▼                            │
-│                      │    ┌─────────────────────────────────────────────┐  │
-│                      └───▶│  Save markdown to ~/.kidkazz/output/        │  │
-│                           └─────────────────────────────────────────────┘  │
-│                                                │                            │
-│                                                ▼                            │
-│  ┌────────────────┐       ┌─────────────────────────────────────────────┐  │
-│  │ AUTO-DELETE    │◀──────│  kidkazz ingest markdown                    │  │
-│  │ PDF from inbox │       │  (chunk, embed, store)                      │  │
-│  │ after success  │       └─────────────────────────────────────────────┘  │
-│  └────────────────┘                                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Cloud Sync with rclone (Recommended)
-
-Instead of manually uploading PDFs to Colab, you can use `rclone` to automatically sync your inbox to Google Drive, then access files from Colab via Drive mount.
+Use `rclone` to automatically backup your inbox PDFs to Google Drive.
 
 **One-Time rclone Setup:**
 
@@ -450,35 +364,6 @@ kidkazz config set cloud_remote gdrive
 kidkazz config set cloud_path kidkazz_inbox
 ```
 
-**Automated Workflow with Cloud Sync:**
-
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            LOCAL MACHINE                                     │
-│  ┌────────────────┐     ┌────────────────┐                                  │
-│  │  Drop PDF into │────▶│ kidkazz inbox  │                                  │
-│  │  ~/.kidkazz/   │     │ sync           │                                  │
-│  │  inbox/        │     │ (auto-upload)  │                                  │
-│  └────────────────┘     └───────┬────────┘                                  │
-│                                 │                                            │
-└─────────────────────────────────┼────────────────────────────────────────────┘
-                                  │ rclone copy
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         GOOGLE DRIVE                                         │
-│                    kidkazz_inbox/document.pdf                                │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │ drive.mount()
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    COLAB / VS CODE EXTENSION (GPU)                           │
-│  from google.colab import drive                                              │
-│  drive.mount('/content/drive')                                               │
-│  # PDF at: /content/drive/MyDrive/kidkazz_inbox/document.pdf                │
-│  # Convert → Download markdown → Save to ~/.kidkazz/output/                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
 **Cloud Sync Commands:**
 
 ```bash
@@ -488,7 +373,7 @@ kidkazz inbox sync --check
 # List configured remotes
 kidkazz inbox sync --remotes
 
-# Upload inbox PDFs to Google Drive
+# Upload inbox PDFs to Google Drive (backup)
 kidkazz inbox sync
 
 # Preview what would sync (dry run)
@@ -498,7 +383,7 @@ kidkazz inbox sync --dry-run
 kidkazz inbox sync --download
 ```
 
-### Step-by-Step Instructions
+### Step-by-Step Workflow
 
 **Step 1: Configure Your Inbox**
 
@@ -551,25 +436,18 @@ The `--output` view shows:
 - **Quality metrics**: word count, headers, tables
 - **Summary**: total/ingested/pending counts
 
-**Step 4: Convert PDFs in Google Colab**
+**Step 4: Parse PDFs with Reducto.ai**
 
-1. Open `notebooks/pdf_to_markdown_converter.ipynb` in VS Code or Colab
-2. Enable GPU runtime: `Runtime → Change runtime type → GPU (T4)`
-3. Upload PDFs from your inbox to Colab:
-   ```python
-   from google.colab import files
-   uploaded = files.upload()  # Select PDFs from ~/.kidkazz/inbox/
-   ```
-4. Run conversion cells
-5. Download converted markdown:
-   ```python
-   from google.colab import files
-   files.download('output/textbook.md')
-   ```
-6. Save markdown to output directory:
-   ```bash
-   mv ~/Downloads/textbook.md ~/.kidkazz/output/
-   ```
+```bash
+# Parse all PDFs in inbox
+kidkazz inbox parse
+
+# Enable AI-enhanced accuracy (uses 2x credits)
+kidkazz inbox parse --agentic
+
+# Use RAG-optimized chunking
+kidkazz inbox parse --chunk-mode variable
+```
 
 **Step 5: Ingest Markdown (Auto-Deletes PDF)**
 
@@ -618,20 +496,13 @@ cp ~/textbooks/*.pdf ~/.kidkazz/inbox/
 # 2. Check what's pending
 kidkazz inbox list --status pending
 
-# 3. Upload batch to Colab (use Google Drive mount for large batches)
-# In Colab:
-from google.colab import drive
-drive.mount('/content/drive')
-# Copy PDFs from local inbox to Drive, then access in Colab
+# 3. Parse all PDFs with Reducto.ai
+kidkazz inbox parse
 
-# 4. Convert all PDFs in Colab
-
-# 5. Download all markdown files to output directory
-
-# 6. Batch ingest
+# 4. Batch ingest all markdown files
 kidkazz ingest batch ~/.kidkazz/output/ --pattern "*.md"
 
-# 7. All successfully ingested PDFs are auto-deleted from inbox
+# 5. All successfully ingested PDFs are auto-deleted from inbox
 kidkazz inbox status  # Should show fewer pending files
 ```
 
@@ -639,32 +510,25 @@ kidkazz inbox status  # Should show fewer pending files
 
 | Scenario | Recommendation |
 |----------|----------------|
-| Large PDFs (>50 pages) | Mount Google Drive for faster upload |
-| Many PDFs | Use batch ingest after converting all |
+| Many PDFs | Use batch ingest after parsing all |
 | Failed conversions | Check `kidkazz inbox list --status failed` |
 | Keep originals | Set `post_action` to `move` |
 | Disk space concerns | Set `post_action` to `delete` (default) |
+| Cloud backup | Use `kidkazz inbox sync` before parsing |
 
 ## Quick Start
 
-### Step 1: PDF to Markdown Conversion (Colab)
-
-1. Open `notebooks/pdf_to_markdown_converter.ipynb` in VS Code
-2. Connect to Colab runtime with GPU
-3. Upload your PDF and run the cells
-4. Download the converted Markdown
-
-### Step 2: Chunk and Embed (Local)
+### Step 1: Chunk and Embed (Local)
 
 ```python
 from src.chunker import (
     parse_markdown_structure,
     create_hierarchical_chunks,
     enrich_all_chunks,
-    ChunkEmbedder,  # or MockEmbedder for testing
+    OpenAIEmbedder,  # or MockEmbedder for testing
 )
 
-# Load markdown from Phase 1
+# Load markdown
 with open("output/textbook.md") as f:
     content = f.read()
 
@@ -681,8 +545,8 @@ chunks = create_hierarchical_chunks(
 # Enrich with metadata
 metadata = enrich_all_chunks(chunks, document_id="textbook")
 
-# Generate embeddings (CPU-optimized)
-embedder = ChunkEmbedder(model_name="BAAI/bge-small-en-v1.5")
+# Generate embeddings (OpenAI)
+embedder = OpenAIEmbedder(model_name="text-embedding-3-small")
 embedded_chunks = embedder.embed_chunks(chunks, batch_size=32)
 
 # Ready for storage
@@ -786,8 +650,6 @@ All commands support `--json` for machine-readable output and `--help` for detai
 kidkazz_rag/
 ├── README.md
 ├── pyproject.toml
-├── notebooks/
-│   └── pdf_to_markdown_converter.ipynb   # Phase 1: PDF → Markdown
 ├── src/
 │   ├── pdf_converter/                     # Phase 1: PDF conversion logic
 │   │   ├── __init__.py
@@ -801,7 +663,7 @@ kidkazz_rag/
 │   │   ├── parser.py                      # Markdown structure extraction
 │   │   ├── chunker.py                     # Hierarchical chunking
 │   │   ├── metadata.py                    # Metadata enrichment
-│   │   ├── embedder.py                    # FastEmbed integration
+│   │   ├── embedder.py                    # Embedding implementations
 │   │   ├── concept_extractor.py           # LLM concept extraction
 │   │   ├── table_parser.py                # Markdown table parsing
 │   │   ├── table_summarizer.py            # LLM table summarization
@@ -1189,7 +1051,7 @@ MCP (Model Context Protocol) is a standard protocol that allows AI assistants li
 ```bash
 # Start with mock storage (no Helix-DB required)
 KIDKAZZ_STORE_TYPE=mock \
-KIDKAZZ_EMBEDDER_TYPE=fastembed \
+KIDKAZZ_EMBEDDER_TYPE=openai \
 python -m src.mcp_server
 
 # Start with Helix-DB (requires helix deploy --local)
@@ -1261,8 +1123,8 @@ Environment variables for MCP server:
 | `KIDKAZZ_STORE_TYPE` | `mock` | Storage backend: `mock` or `helix` |
 | `KIDKAZZ_HELIX_PORT` | `6969` | Helix-DB port (if using helix) |
 | `KIDKAZZ_HELIX_LOCAL` | `true` | Connect to local Helix-DB |
-| `KIDKAZZ_EMBEDDER_TYPE` | `fastembed` | Embedder: `fastembed`, `openai`, or `mock` |
-| `KIDKAZZ_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Embedding model name |
+| `KIDKAZZ_EMBEDDER_TYPE` | `openai` | Embedder: `openai` or `mock` |
+| `KIDKAZZ_MODEL_NAME` | `text-embedding-3-small` | Embedding model name |
 | `KIDKAZZ_LOG_LEVEL` | `INFO` | Logging level |
 
 ### Claude Code Integration
@@ -1292,8 +1154,8 @@ cp .mcp.json.example .mcp.json
       "cwd": "/path/to/kidkazz_rag",
       "env": {
         "KIDKAZZ_STORE_TYPE": "mock",
-        "KIDKAZZ_EMBEDDER_TYPE": "fastembed",
-        "KIDKAZZ_MODEL_NAME": "BAAI/bge-small-en-v1.5"
+        "KIDKAZZ_EMBEDDER_TYPE": "openai",
+        "KIDKAZZ_MODEL_NAME": "text-embedding-3-small"
       }
     }
   }
@@ -1314,7 +1176,7 @@ cp .mcp.json.example .mcp.json
         "KIDKAZZ_STORE_TYPE": "helix",
         "KIDKAZZ_HELIX_PORT": "6969",
         "KIDKAZZ_HELIX_LOCAL": "true",
-        "KIDKAZZ_EMBEDDER_TYPE": "fastembed"
+        "KIDKAZZ_EMBEDDER_TYPE": "openai"
       }
     }
   }
@@ -1421,13 +1283,13 @@ kidkazz ingest markdown document.md --dry-run
 # Custom chunk sizes (level1,level2,overlap)
 kidkazz ingest markdown document.md --chunk-sizes 1024,256,128
 
-# Use specific embedder (fastembed, openai, mock)
+# Use specific embedder (openai, mock)
 kidkazz ingest markdown document.md --embedder openai
 
 # Batch ingest a directory
 kidkazz ingest batch ./docs --pattern "*.md" --recursive
 
-# PDF ingestion (redirects to Colab notebook)
+# PDF ingestion (use kidkazz inbox parse instead)
 kidkazz ingest pdf document.pdf
 ```
 
@@ -1667,8 +1529,8 @@ helix_port = 6969
 helix_local = true
 
 [embeddings]
-embedder_type = "fastembed"  # fastembed (local), openai (API), or mock
-model_name = "BAAI/bge-small-en-v1.5"  # Or "text-embedding-3-small" for OpenAI
+embedder_type = "openai"  # openai (API) or mock (testing)
+model_name = "text-embedding-3-small"  # Or "text-embedding-3-large" for higher quality
 
 [chunking]
 level_1_size = 2048
@@ -1717,24 +1579,22 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 
 ## Troubleshooting
 
-### PDF Conversion (Colab)
+### PDF Conversion (Reducto.ai)
 
 | Issue | Solution |
 |-------|----------|
-| No GPU detected | Runtime → Change runtime type → Hardware accelerator → GPU (T4) |
-| PDF not uploading | Use Google Drive mount for large files (see workflow above) |
-| Upload timeout | Mount Google Drive instead of direct upload |
-| Out of memory | Use Marker (most efficient), restart runtime, or split PDF |
-| Poor quality | Try different tool (Nougat for math, Docling for tables) |
-| Session disconnected | Enable "Keep alive" extension or remount Drive |
-| Files disappeared | Colab sessions reset after timeout; save to Drive |
+| REDUCTO_API_KEY not set | `export REDUCTO_API_KEY="your_key"` or add to `.env` |
+| API key invalid | Verify key at [reducto.ai/dashboard](https://reducto.ai/dashboard) |
+| Rate limit exceeded | Wait and retry, or upgrade plan |
+| Poor quality output | Try `--agentic` mode for higher accuracy |
+| Large PDF timeout | Split PDF into smaller files |
 
 ### Chunking (Local)
 
 | Issue | Solution |
 |-------|----------|
-| FastEmbed not installed | `pip install fastembed` |
-| Slow embedding | Reduce batch_size, or use MockEmbedder for testing |
+| OpenAI API key not set | Add `OPENAI_API_KEY` to `.env` file |
+| Slow embedding | Reduce batch_size, use MockEmbedder for testing, or check API rate limits |
 | Memory issues | Process documents in smaller sections |
 
 ### Storage (Local)
@@ -1779,7 +1639,7 @@ python -m pytest tests/test_cli_*.py -v                             # Phase 5
 
 ## Roadmap
 
-- [x] Phase 1: PDF to Markdown converter (Colab notebook)
+- [x] Phase 1: PDF to Markdown converter (Reducto.ai)
 - [x] Phase 2: Hierarchical chunking pipeline
 - [x] Phase 3: Helix-DB integration (vector + graph storage)
 - [x] Phase 4: MCP server for Claude Code

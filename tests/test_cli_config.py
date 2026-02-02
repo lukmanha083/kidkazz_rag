@@ -18,14 +18,14 @@ class TestCLIConfigDefaults:
         assert config.store_type == "mock"
 
     def test_default_embedder_type(self):
-        """Test default embedder type is fastembed."""
+        """Test default embedder type is openai."""
         config = CLIConfig()
-        assert config.embedder_type == "fastembed"
+        assert config.embedder_type == "openai"
 
     def test_default_model_name(self):
         """Test default model name."""
         config = CLIConfig()
-        assert config.model_name == "BAAI/bge-small-en-v1.5"
+        assert config.model_name == "text-embedding-3-small"
 
     def test_default_chunk_sizes(self):
         """Test default chunk sizes."""
@@ -173,4 +173,4 @@ class TestCLIConfigGetDefaults:
         """Test defaults have expected values."""
         defaults = CLIConfig.get_defaults()
         assert defaults.store_type == "mock"
-        assert defaults.embedder_type == "fastembed"
+        assert defaults.embedder_type == "openai"

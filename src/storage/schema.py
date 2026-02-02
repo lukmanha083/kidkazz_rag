@@ -24,12 +24,12 @@ class SchemaConfig:
     """Configuration for Helix-DB schema.
 
     Attributes:
-        vector_dimensions: Embedding vector size (default: 384 for bge-small)
+        vector_dimensions: Embedding vector size (default: 1536 for OpenAI text-embedding-3-small)
         vector_type: Helix-DB vector type (Vec32 for float32)
         db_name: Database name for initialization
     """
 
-    vector_dimensions: int = 384
+    vector_dimensions: int = 1536
     vector_type: str = "Vec32"
     db_name: str = "kidkazz_rag"
 

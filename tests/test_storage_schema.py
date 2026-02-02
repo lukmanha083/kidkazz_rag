@@ -22,7 +22,7 @@ class TestSchemaConfig:
         """Should have sensible defaults."""
         config = SchemaConfig()
 
-        assert config.vector_dimensions == 384
+        assert config.vector_dimensions == 1536
         assert config.vector_type == "Vec32"
         assert config.db_name == "kidkazz_rag"
 

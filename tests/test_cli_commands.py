@@ -68,13 +68,13 @@ class TestIngestCommands:
         assert "Dry run" in result.output
 
     def test_ingest_pdf_not_implemented(self, tmp_path):
-        """Test ingest pdf shows not implemented message."""
+        """Test ingest pdf shows Reducto.ai message."""
         test_file = tmp_path / "test.pdf"
         test_file.write_bytes(b"%PDF-1.4")
 
         result = runner.invoke(app, ["ingest", "pdf", str(test_file)])
         assert result.exit_code != 0
-        assert "Colab" in result.output or "notebook" in result.output.lower()
+        assert "Reducto" in result.output or "inbox parse" in result.output
 
 
 class TestSearchCommands:
@@ -89,7 +89,7 @@ class TestSearchCommands:
 
     def test_search_semantic_empty_store(self):
         """Test semantic search on empty store."""
-        # Use mock embedder to avoid FastEmbed dependency
+        # Use mock embedder to avoid API dependency
         with patch.dict(os.environ, {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
             result = runner.invoke(app, [
                 "search", "semantic", "test query",

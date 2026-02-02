@@ -113,8 +113,8 @@ def convert_pdf(
     """
     Convert a PDF to markdown using the specified tool.
 
-    Note: This function is designed for testing. In Colab, the notebook
-    uses shell commands directly. This provides a subprocess-based
+    Note: This function is designed for testing. For production use,
+    use Reducto.ai via 'kidkazz inbox parse'. This provides a subprocess-based
     alternative for local/CI testing.
 
     Args:
