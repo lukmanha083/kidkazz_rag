@@ -8,7 +8,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from dotenv import load_dotenv
+
 from .table_parser import ParsedTable
+
+# Load environment variables (for ANTHROPIC_API_KEY)
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
