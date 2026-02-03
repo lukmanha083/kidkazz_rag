@@ -2,11 +2,15 @@
 
 This module provides LLM-powered hierarchical summarization of documents
 at document, chapter (L1), and section (L2) levels.
+
+Concept extraction is integrated into summarization - each summary LLM call
+also extracts key concepts, eliminating the need for separate concept extraction passes.
 """
 
 import logging
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -28,8 +32,65 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Concept Types and Models
+# ============================================================================
+
+
+class ConceptType(str, Enum):
+    """Types of concepts that can be extracted from textbooks."""
+
+    TERM = "term"  # Vocabulary: COGS, Depreciation, Liability
+    METHOD = "method"  # Techniques: FIFO, LIFO, Weighted Average
+    PRINCIPLE = "principle"  # Rules: Matching Principle, Revenue Recognition
+    FORMULA = "formula"  # Calculations: COGS = Begin + Purchases - End
+    ACCOUNT = "account"  # Ledger accounts: Inventory, Cost of Sales
+
+
+class ExtractedConcept(BaseModel):
+    """A concept extracted during summarization."""
+
+    name: str = Field(description="Concept name (e.g., 'FIFO', 'Safety Stock', 'Cost of Goods Sold')")
+    concept_type: ConceptType = Field(description="Type of concept: term, method, principle, formula, or account")
+    definition: str = Field(description="1 sentence definition explaining what this concept means")
+    aliases: list[str] = Field(
+        default_factory=list,
+        description="Alternative names or abbreviations (e.g., ['COGS'] for 'Cost of Goods Sold')"
+    )
+
+
+# ============================================================================
 # Data Classes
 # ============================================================================
+
+
+def slugify(name: str) -> str:
+    """Convert concept name to URL-safe ID."""
+    import re
+    if not name:
+        return ""
+    slug = name.lower().strip()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug)
+    return slug.strip("-")
+
+
+@dataclass
+class Concept:
+    """A concept extracted during summarization.
+
+    Concepts can appear in multiple summaries/chapters. The occurrences field
+    tracks all places where this concept is mentioned.
+    """
+
+    concept_id: str  # Slugified name for unique ID
+    name: str  # Display name
+    concept_type: str  # term, method, principle, formula, account
+    definition: str  # 1 sentence definition
+    aliases: list[str] = field(default_factory=list)
+    document_id: str = ""  # Parent document
+    occurrences: list[str] = field(default_factory=list)  # List of summary_ids where this concept appears
+    occurrence_count: int = 0  # How many times this concept was mentioned
 
 
 @dataclass
@@ -43,6 +104,7 @@ class Summary:
     document_id: str  # For document filtering
     parent_summary_id: Optional[str] = None  # Hierarchy navigation
     key_points: list[str] = field(default_factory=list)  # Key takeaways
+    concepts: list[Concept] = field(default_factory=list)  # Extracted concepts
     embedding: Optional[list[float]] = None  # Vector embedding
     word_count: int = 0
     created_at: int = 0
@@ -70,6 +132,11 @@ class SectionSummaryOutput(BaseModel):
         default_factory=list,
         description="1-3 key takeaways from this section",
     )
+    concepts: list[ExtractedConcept] = Field(
+        default_factory=list,
+        description="Key concepts (terms, methods, principles, formulas) defined or explained in this section. "
+                    "Only include concepts that are important enough to be referenced elsewhere.",
+    )
 
 
 class ChapterSummaryOutput(BaseModel):
@@ -82,6 +149,12 @@ class ChapterSummaryOutput(BaseModel):
         default_factory=list,
         description="3-5 key concepts or takeaways from this chapter",
     )
+    concepts: list[ExtractedConcept] = Field(
+        default_factory=list,
+        description="Important concepts covered in this chapter. Include terms, methods, principles, "
+                    "formulas, or accounts that readers should understand. Focus on concepts that appear "
+                    "multiple times or are central to the chapter's topic.",
+    )
 
 
 class DocumentSummaryOutput(BaseModel):
@@ -93,6 +166,12 @@ class DocumentSummaryOutput(BaseModel):
     key_points: list[str] = Field(
         default_factory=list,
         description="5-7 main topics or themes covered in this document",
+    )
+    concepts: list[ExtractedConcept] = Field(
+        default_factory=list,
+        description="The most important concepts in this document. These are the key terms, methods, "
+                    "principles, and formulas that define the document's subject matter. "
+                    "Focus on concepts that appear across multiple chapters.",
     )
 
 
@@ -159,7 +238,14 @@ class DocumentSummarizer:
         system_prompt = (
             "You are summarizing a section from a textbook or technical document. "
             "Create a concise summary that captures the main points and key concepts. "
-            "Focus on what this section teaches or explains."
+            "Focus on what this section teaches or explains.\n\n"
+            "Also extract important CONCEPTS from this section:\n"
+            "- Terms: vocabulary and definitions (e.g., 'Safety Stock', 'COGS')\n"
+            "- Methods: techniques and procedures (e.g., 'FIFO', 'ABC Analysis')\n"
+            "- Principles: rules and guidelines (e.g., 'Matching Principle')\n"
+            "- Formulas: calculations (e.g., 'EOQ Formula')\n"
+            "- Accounts: ledger accounts (e.g., 'Inventory', 'Cost of Sales')\n\n"
+            "Only include concepts that are important enough to be referenced elsewhere in the document."
         )
 
         try:
@@ -174,6 +260,22 @@ class DocumentSummarizer:
             )
 
             summary_id = f"summary_{chunk_id}_section"
+
+            # Convert extracted concepts to Concept dataclass
+            concepts = [
+                Concept(
+                    concept_id=slugify(c.name),
+                    name=c.name,
+                    concept_type=c.concept_type.value if hasattr(c.concept_type, 'value') else str(c.concept_type),
+                    definition=c.definition,
+                    aliases=c.aliases,
+                    document_id=document_id,
+                    occurrences=[summary_id],
+                    occurrence_count=1,
+                )
+                for c in result.concepts
+            ]
+
             return Summary(
                 summary_id=summary_id,
                 content=result.summary,
@@ -181,6 +283,7 @@ class DocumentSummarizer:
                 source_id=chunk_id,
                 document_id=document_id,
                 key_points=result.key_points,
+                concepts=concepts,
             )
 
         except Exception as e:
@@ -235,7 +338,14 @@ class DocumentSummarizer:
             "You are summarizing a chapter from a textbook or technical document. "
             "Given the summaries of individual sections, create an overall chapter summary "
             "that captures the main themes and learning objectives. "
-            "Synthesize the key concepts into a coherent overview."
+            "Synthesize the key concepts into a coherent overview.\n\n"
+            "Also extract the most important CONCEPTS from this chapter:\n"
+            "- Terms: vocabulary and definitions\n"
+            "- Methods: techniques and procedures\n"
+            "- Principles: rules and guidelines\n"
+            "- Formulas: calculations\n"
+            "- Accounts: ledger accounts\n\n"
+            "Focus on concepts that appear multiple times across sections or are central to the chapter."
         )
 
         try:
@@ -250,6 +360,22 @@ class DocumentSummarizer:
             )
 
             summary_id = f"summary_{chunk_id}_chapter"
+
+            # Convert extracted concepts to Concept dataclass
+            concepts = [
+                Concept(
+                    concept_id=slugify(c.name),
+                    name=c.name,
+                    concept_type=c.concept_type.value if hasattr(c.concept_type, 'value') else str(c.concept_type),
+                    definition=c.definition,
+                    aliases=c.aliases,
+                    document_id=document_id,
+                    occurrences=[summary_id],
+                    occurrence_count=1,
+                )
+                for c in result.concepts
+            ]
+
             return Summary(
                 summary_id=summary_id,
                 content=result.summary,
@@ -257,6 +383,7 @@ class DocumentSummarizer:
                 source_id=chunk_id,
                 document_id=document_id,
                 key_points=result.key_points,
+                concepts=concepts,
             )
 
         except Exception as e:
@@ -299,7 +426,15 @@ class DocumentSummarizer:
             "You are summarizing an entire textbook or technical document. "
             "Given the chapter summaries, create a comprehensive document overview "
             "that explains what the document covers, its purpose, and main themes. "
-            "This should help readers understand if this document is relevant to their needs."
+            "This should help readers understand if this document is relevant to their needs.\n\n"
+            "Also extract the most important CONCEPTS from this document:\n"
+            "- Terms: key vocabulary and definitions\n"
+            "- Methods: important techniques and procedures\n"
+            "- Principles: core rules and guidelines\n"
+            "- Formulas: essential calculations\n"
+            "- Accounts: key ledger accounts\n\n"
+            "Focus on the concepts that are most central to the document's subject matter "
+            "and appear across multiple chapters."
         )
 
         try:
@@ -314,6 +449,22 @@ class DocumentSummarizer:
             )
 
             summary_id = f"summary_{document_id}_document"
+
+            # Convert extracted concepts to Concept dataclass
+            concepts = [
+                Concept(
+                    concept_id=slugify(c.name),
+                    name=c.name,
+                    concept_type=c.concept_type.value if hasattr(c.concept_type, 'value') else str(c.concept_type),
+                    definition=c.definition,
+                    aliases=c.aliases,
+                    document_id=document_id,
+                    occurrences=[summary_id],
+                    occurrence_count=1,
+                )
+                for c in result.concepts
+            ]
+
             return Summary(
                 summary_id=summary_id,
                 content=result.summary,
@@ -321,6 +472,7 @@ class DocumentSummarizer:
                 source_id=document_id,
                 document_id=document_id,
                 key_points=result.key_points,
+                concepts=concepts,
             )
 
         except Exception as e:
@@ -338,9 +490,13 @@ class DocumentSummarizer:
         document_id: str,
         document_title: str,
         chunks: list[dict],
-    ) -> list[Summary]:
+    ) -> tuple[list[Summary], list[Concept]]:
         """
         Generate hierarchical summaries for an entire document.
+
+        Concepts are extracted during summarization and deduplicated across
+        all summaries. Concepts that appear in multiple summaries have their
+        occurrences tracked and counts aggregated.
 
         Args:
             document_id: Document identifier
@@ -348,7 +504,9 @@ class DocumentSummarizer:
             chunks: List of chunk dicts with 'id', 'content', 'level', 'section_path'
 
         Returns:
-            List of all summaries (section, chapter, document)
+            Tuple of:
+            - List of all summaries (section, chapter, document)
+            - List of deduplicated concepts with occurrence tracking
         """
         all_summaries: list[Summary] = []
 
@@ -415,5 +573,76 @@ class DocumentSummarizer:
 
         all_summaries.append(doc_summary)
 
-        logger.info(f"Generated {len(all_summaries)} summaries total")
-        return all_summaries
+        # Phase 4: Aggregate and deduplicate concepts across all summaries
+        logger.info("Aggregating concepts across summaries")
+        all_concepts = self._aggregate_concepts(all_summaries, document_id)
+
+        logger.info(f"Generated {len(all_summaries)} summaries and {len(all_concepts)} unique concepts")
+        return all_summaries, all_concepts
+
+    def _aggregate_concepts(
+        self,
+        summaries: list[Summary],
+        document_id: str,
+    ) -> list[Concept]:
+        """
+        Aggregate and deduplicate concepts from all summaries.
+
+        Concepts with the same name (case-insensitive) are merged:
+        - Occurrences are combined
+        - Best definition is kept (longest/most detailed)
+        - Aliases are merged
+
+        Args:
+            summaries: List of summaries with concepts
+            document_id: Document identifier
+
+        Returns:
+            List of deduplicated concepts sorted by occurrence count
+        """
+        concept_map: dict[str, Concept] = {}  # concept_id -> Concept
+
+        for summary in summaries:
+            for concept in summary.concepts:
+                concept_id = concept.concept_id
+
+                if concept_id not in concept_map:
+                    # First occurrence of this concept
+                    concept_map[concept_id] = Concept(
+                        concept_id=concept_id,
+                        name=concept.name,
+                        concept_type=concept.concept_type,
+                        definition=concept.definition,
+                        aliases=list(concept.aliases),
+                        document_id=document_id,
+                        occurrences=list(concept.occurrences),
+                        occurrence_count=1,
+                    )
+                else:
+                    # Merge with existing concept
+                    existing = concept_map[concept_id]
+
+                    # Add new occurrences
+                    for occ in concept.occurrences:
+                        if occ not in existing.occurrences:
+                            existing.occurrences.append(occ)
+
+                    existing.occurrence_count += 1
+
+                    # Keep longer definition (likely more detailed)
+                    if len(concept.definition) > len(existing.definition):
+                        existing.definition = concept.definition
+
+                    # Merge aliases
+                    for alias in concept.aliases:
+                        if alias not in existing.aliases:
+                            existing.aliases.append(alias)
+
+        # Sort by occurrence count (most frequent first)
+        sorted_concepts = sorted(
+            concept_map.values(),
+            key=lambda c: c.occurrence_count,
+            reverse=True,
+        )
+
+        return sorted_concepts

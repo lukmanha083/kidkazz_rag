@@ -278,7 +278,7 @@ class TestDocumentSummarizer:
             {"id": "l2_2", "content": "Section 2", "level": 2, "section_path": ["Ch1", "Sec2"]},
         ]
 
-        summaries = summarizer.generate_all_summaries(
+        summaries, concepts = summarizer.generate_all_summaries(
             document_id="doc1",
             document_title="Test Document",
             chunks=chunks,
@@ -292,6 +292,9 @@ class TestDocumentSummarizer:
         assert levels.count("section") == 2
         assert levels.count("chapter") == 1
         assert levels.count("document") == 1
+
+        # Concepts should be a list (may be empty in mock)
+        assert isinstance(concepts, list)
 
 
 class TestSummaryStorageQueries:

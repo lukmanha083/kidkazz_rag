@@ -143,18 +143,18 @@ def generate_summaries(
     final_provider = provider or config.summarization_provider or "anthropic/claude-3-5-haiku-20241022"
     summarizer = DocumentSummarizer(provider=final_provider)
 
-    # Generate summaries
+    # Generate summaries (and extract concepts)
     try:
         if json_output:
             # No spinner for JSON output to keep output clean
-            summaries = summarizer.generate_all_summaries(
+            summaries, concepts = summarizer.generate_all_summaries(
                 document_id=doc_id,
                 document_title=doc_title,
                 chunks=chunks,
             )
         else:
-            with console.status("[bold green]Generating summaries..."):
-                summaries = summarizer.generate_all_summaries(
+            with console.status("[bold green]Generating summaries and extracting concepts..."):
+                summaries, concepts = summarizer.generate_all_summaries(
                     document_id=doc_id,
                     document_title=doc_title,
                     chunks=chunks,
@@ -187,17 +187,22 @@ def generate_summaries(
             "title": doc_title,
             "summaries_generated": len(summaries),
             "summaries_stored": stored_count,
+            "concepts_extracted": len(concepts),
             "levels": {
                 "document": len([s for s in summaries if s.level == "document"]),
                 "chapter": len([s for s in summaries if s.level == "chapter"]),
                 "section": len([s for s in summaries if s.level == "section"]),
             },
+            "top_concepts": [
+                {"name": c.name, "type": c.concept_type, "occurrences": c.occurrence_count}
+                for c in concepts[:10]  # Top 10 by occurrence
+            ],
         })
     else:
         console.print()
         print_success(
             f"Generated {len(summaries)} summaries "
-            f"({stored_count} stored)"
+            f"({stored_count} stored) and extracted {len(concepts)} concepts"
         )
 
         # Show breakdown
@@ -207,6 +212,14 @@ def generate_summaries(
         console.print(f"  Document: {doc_count}")
         console.print(f"  Chapters: {chap_count}")
         console.print(f"  Sections: {sec_count}")
+        console.print(f"  Concepts: {len(concepts)}")
+
+        # Show top concepts
+        if concepts:
+            console.print()
+            console.print("[bold]Top concepts:[/bold]")
+            for c in concepts[:5]:
+                console.print(f"  - {c.name} ({c.concept_type}) - {c.occurrence_count} occurrences")
 
 
 @app.command("show")

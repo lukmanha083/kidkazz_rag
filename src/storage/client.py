@@ -738,11 +738,9 @@ class HelixChunkStore:
             ec = helix_to_embedded_chunk(node, embedding, model_name)
             results.append((ec, score))
 
-            # Stop once we have enough results
-            if len(results) >= top_k:
-                break
-
-        return results
+        # Sort by similarity score descending and return top_k
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k]
 
     def search_text(
         self,
