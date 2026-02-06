@@ -28,28 +28,6 @@ from ..utils import (
 )
 from src.chunker import create_hierarchical_chunks, enrich_all_chunks
 
-# Optional concept extraction support
-try:
-    from src.chunker.concept_extractor import ConceptExtractor
-
-    CONCEPT_EXTRACTION_AVAILABLE = True
-except ImportError:
-    ConceptExtractor = None  # type: ignore
-    CONCEPT_EXTRACTION_AVAILABLE = False
-
-# Optional table processing support
-try:
-    from src.chunker.table_parser import parse_markdown_table
-    from src.chunker.table_summarizer import TableSummarizer
-    from src.storage.table_store import TableStore
-
-    TABLE_PROCESSING_AVAILABLE = True
-except ImportError:
-    parse_markdown_table = None  # type: ignore
-    TableSummarizer = None  # type: ignore
-    TableStore = None  # type: ignore
-    TABLE_PROCESSING_AVAILABLE = False
-
 app = typer.Typer(help="Document ingestion commands")
 
 
@@ -152,21 +130,6 @@ def ingest_markdown(
         "--dry-run",
         help="Show chunks without storing",
     ),
-    extract_concepts: bool = typer.Option(
-        False,
-        "--extract-concepts",
-        help="Extract concepts using LLM (requires instructor)",
-    ),
-    concept_provider: Optional[str] = typer.Option(
-        None,
-        "--concept-provider",
-        help="LLM provider for concept extraction",
-    ),
-    extract_tables: bool = typer.Option(
-        False,
-        "--extract-tables",
-        help="Extract and summarize tables for semantic search",
-    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -238,14 +201,8 @@ def ingest_markdown(
         "tags": tag_list,
         "source": str(file),
         "chunks": 0,
-        "concepts": 0,
-        "tables": 0,
         "status": "success",
     }
-
-    # Resolve concept extraction settings
-    do_extract_concepts = extract_concepts or config.extract_concepts
-    final_concept_provider = concept_provider or config.concept_provider
 
     try:
         with ingestion_progress() as progress:
@@ -286,142 +243,14 @@ def ingest_markdown(
 
             result["chunks"] = len(chunks)
 
-            # Stage 4: Extract concepts (optional)
-            if do_extract_concepts:
-                if not CONCEPT_EXTRACTION_AVAILABLE:
-                    print_warning(
-                        "Concept extraction requires 'instructor' package. "
-                        "Install with: pip install instructor"
-                    )
-                else:
-                    tracker.add_stage("Extracting concepts...", total=100)
-                    try:
-                        extractor = ConceptExtractor(provider=final_concept_provider)
-                        # Convert Chunk dataclasses to dicts for concept extractor
-                        chunks_as_dicts = [
-                            {
-                                "content": c.content if hasattr(c, 'content') else c.get("content", ""),
-                                "id": c.id if hasattr(c, 'id') else c.get("id", ""),
-                                "section_path": c.section_path if hasattr(c, 'section_path') else c.get("section_path", []),
-                            }
-                            for c in chunks
-                        ]
-                        # Use new method that preserves per-chunk mapping
-                        extracted_concepts, relations, chunk_extractions = extractor.extract_from_chunks_with_mapping(
-                            chunks_as_dicts, final_title, metadata_list=metadata
-                        )
-
-                        # Store or merge concepts (cross-document linking)
-                        from src.chunker.concept_extractor import slugify
-
-                        concept_ids = {}
-                        for concept in extracted_concepts:
-                            concept_slug = slugify(concept.name)
-                            internal_id = store_instance.store_or_merge_concept(
-                                concept_id=concept_slug,
-                                name=concept.name,
-                                definition=concept.definition,
-                                concept_type=concept.concept_type.value if hasattr(concept.concept_type, 'value') else str(concept.concept_type),
-                                source_documents=[final_doc_id],
-                                aliases=concept.aliases,
-                            )
-                            if internal_id:
-                                concept_ids[concept_slug] = internal_id
-
-                        # Store relationships between concepts
-                        for relation in relations:
-                            from_slug = slugify(relation.from_concept)
-                            to_slug = slugify(relation.to_concept)
-                            from_id = concept_ids.get(from_slug)
-                            to_id = concept_ids.get(to_slug)
-                            if from_id and to_id:
-                                store_instance.link_concept_relates_to(
-                                    from_id, to_id, relation.relation_type
-                                )
-
-                        # Create chunk-concept edges (DefinesConcept / MentionsConcept)
-                        defines_count = 0
-                        mentions_count = 0
-                        for chunk_idx, extraction in chunk_extractions.items():
-                            # Get chunk internal ID from the stored chunks
-                            if chunk_idx < len(embedded_chunks):
-                                chunk_str_id = embedded_chunks[chunk_idx].chunk.id
-                                chunk_internal_id = chunk_id_map.get(chunk_str_id)
-
-                                if chunk_internal_id:
-                                    # Link defined concepts
-                                    for defined in extraction.defined_concepts:
-                                        concept_slug = slugify(defined.name)
-                                        concept_internal_id = concept_ids.get(concept_slug)
-                                        if concept_internal_id:
-                                            store_instance.link_chunk_defines_concept(
-                                                chunk_internal_id, concept_internal_id
-                                            )
-                                            defines_count += 1
-
-                                    # Link mentioned concepts
-                                    for mentioned_name in extraction.mentioned_concepts:
-                                        concept_slug = slugify(mentioned_name)
-                                        # First check concepts from this ingestion
-                                        concept_internal_id = concept_ids.get(concept_slug)
-                                        # If not found, check database for concepts from other documents
-                                        if not concept_internal_id:
-                                            existing = store_instance.get_concept_by_name(mentioned_name)
-                                            if existing:
-                                                concept_internal_id = existing.get("id")
-                                        if concept_internal_id:
-                                            store_instance.link_chunk_mentions_concept(
-                                                chunk_internal_id, concept_internal_id
-                                            )
-                                            mentions_count += 1
-
-                        result["concepts"] = len(extracted_concepts)
-                        result["defines_edges"] = defines_count
-                        result["mentions_edges"] = mentions_count
-                        tracker.complete("Extracting concepts...")
-
-                    except Exception as concept_error:
-                        tracker.complete("Extracting concepts...")
-                        print_warning(f"Concept extraction failed: {concept_error}")
-
-            # Stage 5: Table processing (optional)
-            if extract_tables:
-                if not TABLE_PROCESSING_AVAILABLE:
-                    print_warning(
-                        "Table processing requires table modules. "
-                        "Check installation."
-                    )
-                else:
-                    tracker.add_stage("Processing tables...", total=100)
-                    try:
-                        table_summarizer = TableSummarizer(provider=final_concept_provider or "anthropic")
-                        table_store = TableStore(embedder=embedder_instance)
-
-                        table_count = 0
-                        for i, (chunk, meta) in enumerate(zip(chunks, metadata, strict=False)):
-                            if getattr(meta, "has_table", False):
-                                # Parse table from chunk content
-                                # chunk is a Chunk dataclass, access via attributes
-                                chunk_content = chunk.content if hasattr(chunk, 'content') else chunk.get("content", "")
-                                chunk_id = chunk.id if hasattr(chunk, 'id') else chunk.get("id", f"chunk_{i}")
-                                parsed_table = parse_markdown_table(
-                                    chunk_content, chunk_id
-                                )
-                                if parsed_table:
-                                    # Generate summary
-                                    summary = table_summarizer.summarize(parsed_table)
-                                    # Store table
-                                    table_id = table_store.store_table(
-                                        parsed_table, summary, final_doc_id
-                                    )
-                                    table_count += 1
-
-                        result["tables"] = table_count
-                        tracker.complete("Processing tables...")
-
-                    except Exception as table_error:
-                        tracker.complete("Processing tables...")
-                        print_warning(f"Table processing failed: {table_error}")
+            # Collect content statistics from metadata
+            stats = {
+                "tables": sum(1 for m in metadata if getattr(m, "has_table", False)),
+                "code": sum(1 for m in metadata if getattr(m, "has_code", False)),
+                "math": sum(1 for m in metadata if getattr(m, "has_math", False)),
+                "lists": sum(1 for m in metadata if getattr(m, "has_list", False)),
+            }
+            result["content_stats"] = stats
 
     except Exception as e:
         result["status"] = "error"
@@ -441,6 +270,18 @@ def ingest_markdown(
             result["chunks"],
             str(file),
         )
+        # Show content statistics
+        stats = result.get("content_stats", {})
+        if any(stats.values()):
+            console.print("\n[bold]Content Statistics:[/bold]")
+            if stats.get("tables", 0) > 0:
+                console.print(f"  Tables: {stats['tables']} chunks")
+            if stats.get("code", 0) > 0:
+                console.print(f"  Code blocks: {stats['code']} chunks")
+            if stats.get("math", 0) > 0:
+                console.print(f"  Math expressions: {stats['math']} chunks")
+            if stats.get("lists", 0) > 0:
+                console.print(f"  Lists: {stats['lists']} chunks")
 
 
 @app.command("batch")
@@ -487,16 +328,6 @@ def ingest_batch(
         "--skip-existing",
         help="Skip files already in database",
     ),
-    extract_concepts: bool = typer.Option(
-        False,
-        "--extract-concepts",
-        help="Extract concepts using LLM (requires instructor)",
-    ),
-    concept_provider: Optional[str] = typer.Option(
-        None,
-        "--concept-provider",
-        help="LLM provider for concept extraction",
-    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -505,22 +336,6 @@ def ingest_batch(
 ) -> None:
     """Process multiple files in a directory."""
     config = CLIConfig.load()
-
-    # Resolve concept extraction settings
-    do_extract_concepts = extract_concepts or config.extract_concepts
-    final_concept_provider = concept_provider or config.concept_provider
-
-    # Initialize extractor if needed
-    extractor = None
-    if do_extract_concepts:
-        if not CONCEPT_EXTRACTION_AVAILABLE:
-            print_warning(
-                "Concept extraction requires 'instructor' package. "
-                "Install with: pip install instructor"
-            )
-            do_extract_concepts = False
-        else:
-            extractor = ConceptExtractor(provider=final_concept_provider)
 
     # Find files
     if recursive:
@@ -596,45 +411,6 @@ def ingest_batch(
                 store_instance.store_document(doc_id, title, embedded, metadata, tags=tag_list)
 
                 file_result["chunks"] = len(chunks)
-
-                # Extract concepts if enabled
-                if do_extract_concepts and extractor:
-                    try:
-                        from src.chunker.concept_extractor import slugify
-
-                        extracted_concepts, relations = extractor.extract_from_chunks(
-                            chunks, title, metadata_list=metadata
-                        )
-
-                        # Store or merge concepts (cross-document linking)
-                        concept_ids = {}
-                        for concept in extracted_concepts:
-                            concept_slug = slugify(concept.name)
-                            internal_id = store_instance.store_or_merge_concept(
-                                concept_id=concept_slug,
-                                name=concept.name,
-                                definition=concept.definition,
-                                concept_type=concept.concept_type.value if hasattr(concept.concept_type, 'value') else str(concept.concept_type),
-                                source_documents=[doc_id],
-                                aliases=concept.aliases,
-                            )
-                            if internal_id:
-                                concept_ids[concept_slug] = internal_id
-
-                        # Store relationships
-                        for relation in relations:
-                            from_slug = slugify(relation.from_concept)
-                            to_slug = slugify(relation.to_concept)
-                            from_id = concept_ids.get(from_slug)
-                            to_id = concept_ids.get(to_slug)
-                            if from_id and to_id:
-                                store_instance.link_concept_relates_to(
-                                    from_id, to_id, relation.relation_type
-                                )
-
-                        file_result["concepts"] = len(extracted_concepts)
-                    except Exception as concept_error:
-                        file_result["concept_error"] = str(concept_error)
 
             except Exception as e:
                 file_result["status"] = "error"

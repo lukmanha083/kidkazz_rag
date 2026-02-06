@@ -87,6 +87,87 @@ class TestSummaryDataclass:
         assert summary.parent_summary_id == "summary_chapter1_chapter"
 
 
+class TestConceptTypeCoercion:
+    """Tests for concept type coercion validator."""
+
+    def test_valid_concept_type(self):
+        """Should accept valid concept types."""
+        from src.chunker.summarizer import ExtractedConcept, ConceptType
+
+        concept = ExtractedConcept(
+            name="FIFO",
+            concept_type="method",
+            definition="First-in, first-out inventory method",
+        )
+        assert concept.concept_type == ConceptType.METHOD
+
+    def test_coerce_unknown_type_to_term(self):
+        """Should coerce unknown types to 'term'."""
+        from src.chunker.summarizer import ExtractedConcept, ConceptType
+
+        concept = ExtractedConcept(
+            name="Some Concept",
+            concept_type="unknown_type",
+            definition="A concept definition",
+        )
+        assert concept.concept_type == ConceptType.TERM
+
+    def test_coerce_technique_to_method(self):
+        """Should map 'technique' to 'method'."""
+        from src.chunker.summarizer import ExtractedConcept, ConceptType
+
+        concept = ExtractedConcept(
+            name="Crop Rotation",
+            concept_type="technique",
+            definition="A farming technique",
+        )
+        assert concept.concept_type == ConceptType.METHOD
+
+    def test_coerce_neural_network_to_model(self):
+        """Should map 'neural_network' to 'model'."""
+        from src.chunker.summarizer import ExtractedConcept, ConceptType
+
+        concept = ExtractedConcept(
+            name="CNN",
+            concept_type="neural_network",
+            definition="Convolutional Neural Network",
+        )
+        assert concept.concept_type == ConceptType.MODEL
+
+    def test_coerce_illness_to_disease(self):
+        """Should map 'illness' to 'disease' for veterinary concepts."""
+        from src.chunker.summarizer import ExtractedConcept, ConceptType
+
+        concept = ExtractedConcept(
+            name="Mastitis",
+            concept_type="illness",
+            definition="Inflammation of udder tissue",
+        )
+        assert concept.concept_type == ConceptType.DISEASE
+
+    def test_coerce_species_to_organism(self):
+        """Should map 'species' to 'organism' for biology concepts."""
+        from src.chunker.summarizer import ExtractedConcept, ConceptType
+
+        concept = ExtractedConcept(
+            name="E. coli",
+            concept_type="species",
+            definition="Escherichia coli bacteria",
+        )
+        assert concept.concept_type == ConceptType.ORGANISM
+
+    def test_handles_enum_directly(self):
+        """Should accept ConceptType enum directly."""
+        from src.chunker.summarizer import ExtractedConcept, ConceptType
+
+        concept = ExtractedConcept(
+            name="Safety Stock",
+            concept_type=ConceptType.TERM,
+            definition="Buffer inventory",
+        )
+        assert concept.concept_type == ConceptType.TERM
+
+
 class TestPydanticModels:
     """Tests for Pydantic output models."""
 
@@ -129,16 +210,14 @@ class TestPydanticModels:
 class TestDocumentSummarizer:
     """Tests for DocumentSummarizer class."""
 
+    @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", False)
+    @patch("src.chunker.summarizer.instructor", None)
     def test_init_raises_without_instructor(self):
         """Should raise ImportError if instructor not available."""
-        with patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", False):
-            with patch("src.chunker.summarizer.instructor", None):
-                from importlib import reload
-                import src.chunker.summarizer as summarizer_module
-                reload(summarizer_module)
+        from src.chunker.summarizer import DocumentSummarizer
 
-                with pytest.raises(ImportError):
-                    summarizer_module.DocumentSummarizer()
+        with pytest.raises(ImportError):
+            DocumentSummarizer()
 
     @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
     @patch("src.chunker.summarizer.instructor")
@@ -154,20 +233,15 @@ class TestDocumentSummarizer:
     @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
     @patch("src.chunker.summarizer.instructor")
     def test_summarize_section_returns_summary(self, mock_instructor):
-        """Should return Summary object for section."""
-        from src.chunker.summarizer import DocumentSummarizer, SectionSummaryOutput
+        """Should return Summary using extractive method (no LLM call)."""
+        from src.chunker.summarizer import DocumentSummarizer
 
-        # Mock the LLM response
         mock_client = MagicMock()
-        mock_client.create.return_value = SectionSummaryOutput(
-            summary="This section explains FIFO inventory method.",
-            key_points=["FIFO means first-in, first-out"],
-        )
         mock_instructor.from_provider.return_value = mock_client
 
         summarizer = DocumentSummarizer()
         summary = summarizer.summarize_section(
-            chunk_content="FIFO is an inventory valuation method...",
+            chunk_content="FIFO is an inventory valuation method. It assumes first items purchased are first sold. This provides accurate cost tracking.",
             chunk_id="chunk_001",
             document_id="inventory_book",
             document_title="Inventory Accounting",
@@ -177,29 +251,34 @@ class TestDocumentSummarizer:
         assert summary.level == "section"
         assert summary.source_id == "chunk_001"
         assert summary.document_id == "inventory_book"
-        assert "FIFO" in summary.content
+        assert summary.content  # non-empty
+        # No LLM call should be made for sections
+        mock_client.create.assert_not_called()
 
+    @patch("src.chunker.summarizer.extractive_summarize", None)
+    @patch("src.chunker.summarizer.extract_keywords", None)
     @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
     @patch("src.chunker.summarizer.instructor")
-    def test_summarize_section_handles_error(self, mock_instructor):
-        """Should return minimal summary on error."""
+    def test_summarize_section_handles_no_extractive(self, mock_instructor):
+        """Should return fallback summary when extractive libs unavailable."""
         mock_client = MagicMock()
-        mock_client.create.side_effect = Exception("API Error")
         mock_instructor.from_provider.return_value = mock_client
 
         from src.chunker.summarizer import DocumentSummarizer
 
         summarizer = DocumentSummarizer()
         summary = summarizer.summarize_section(
-            chunk_content="Some content",
+            chunk_content="Some content about inventory management and cost tracking methods.",
             chunk_id="chunk_001",
             document_id="doc1",
             document_title="Test Doc",
         )
 
-        # Should still return a summary, just minimal
+        # Should still return a summary (fallback), no LLM call
         assert summary.level == "section"
         assert summary.source_id == "chunk_001"
+        assert summary.content  # non-empty
+        mock_client.create.assert_not_called()
 
     @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
     @patch("src.chunker.summarizer.instructor")
@@ -249,23 +328,23 @@ class TestDocumentSummarizer:
     @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
     @patch("src.chunker.summarizer.instructor")
     def test_generate_all_summaries_creates_hierarchy(self, mock_instructor):
-        """Should generate summaries at all levels."""
+        """Should generate summaries at all levels.
+
+        Sections use extractive methods (no LLM calls).
+        Only chapter + document use LLM (2 API calls).
+        """
         from src.chunker.summarizer import (
             DocumentSummarizer,
-            SectionSummaryOutput,
             ChapterSummaryOutput,
             DocumentSummaryOutput,
         )
 
-        # Mock different responses based on call order
+        # Mock: only 2 LLM calls (chapter + document), sections are extractive
         mock_client = MagicMock()
         mock_client.create.side_effect = [
-            # Section summaries (2)
-            SectionSummaryOutput(summary="Section 1 summary", key_points=["A"]),
-            SectionSummaryOutput(summary="Section 2 summary", key_points=["B"]),
-            # Chapter summary (1)
+            # Chapter summary (1 LLM call)
             ChapterSummaryOutput(summary="Chapter summary", key_points=["C", "D"]),
-            # Document summary (1)
+            # Document summary (1 LLM call)
             DocumentSummaryOutput(summary="Document summary", key_points=["E", "F", "G"]),
         ]
         mock_instructor.from_provider.return_value = mock_client
@@ -274,8 +353,8 @@ class TestDocumentSummarizer:
 
         chunks = [
             {"id": "l1_1", "content": "Chapter content", "level": 1, "child_ids": ["l2_1", "l2_2"]},
-            {"id": "l2_1", "content": "Section 1", "level": 2, "section_path": ["Ch1", "Sec1"]},
-            {"id": "l2_2", "content": "Section 2", "level": 2, "section_path": ["Ch1", "Sec2"]},
+            {"id": "l2_1", "content": "Section 1 about FIFO method. It is commonly used.", "level": 2, "section_path": ["Ch1", "Sec1"]},
+            {"id": "l2_2", "content": "Section 2 about LIFO method. It provides tax benefits.", "level": 2, "section_path": ["Ch1", "Sec2"]},
         ]
 
         summaries, concepts = summarizer.generate_all_summaries(
@@ -292,6 +371,9 @@ class TestDocumentSummarizer:
         assert levels.count("section") == 2
         assert levels.count("chapter") == 1
         assert levels.count("document") == 1
+
+        # Only 2 LLM calls (chapter + document), not 4
+        assert mock_client.create.call_count == 2
 
         # Concepts should be a list (may be empty in mock)
         assert isinstance(concepts, list)

@@ -27,8 +27,9 @@ pip install -e ".[mcp]"      # MCP server
 pip install -e ".[cli]"      # CLI (typer, rich)
 pip install -e ".[reducto]"  # Reducto.ai parsing
 pip install -e ".[openai]"   # OpenAI embeddings
-pip install -e ".[concepts]" # Concept extraction & summarization (instructor)
-pip install -e ".[all]"      # Everything
+pip install -e ".[concepts]"    # Concept extraction & summarization (instructor)
+pip install -e ".[extractive]"  # Extractive summarization (sumy, yake, nltk)
+pip install -e ".[all]"        # Everything
 ```
 
 ### Helix-DB Setup (Production Storage)
@@ -51,11 +52,7 @@ kidkazz inbox list --output         # List parsed markdown (status + quality)
 kidkazz inbox sync --dry-run        # Preview cloud sync
 kidkazz inbox parse                 # Parse PDFs with Reducto.ai
 kidkazz config show
-kidkazz tables list                 # List all tables
-kidkazz tables search "query"       # Semantic search tables
-kidkazz tables show <table_id>      # Show table details
-kidkazz ingest markdown file.md --extract-tables  # Process tables during ingestion
-kidkazz summarize generate doc_id   # Generate hierarchical summaries
+kidkazz summarize generate doc_id   # Generate summaries + extract concepts (includes table parsing)
 kidkazz summarize show doc_id       # Show document summary
 kidkazz summarize search "query"    # Search summaries semantically
 kidkazz summarize list              # List documents with summaries
@@ -85,11 +82,27 @@ kidkazz summarize list              # List documents with summaries
   - `TableSummarizer` class with Anthropic/OpenAI support
   - Key column/value extraction for retrieval hints
 
-- **`src/chunker/summarizer.py`** - LLM-powered document summarization:
+- **`src/chunker/extractive.py`** - Local extractive summarization (no LLM required):
+  - `extractive_summarize()`: TextRank via sumy for key sentence extraction
+  - `extract_keywords()`: YAKE unsupervised keyword extraction
+  - `_fallback_summarize()`: Naive first-N-sentences when libs unavailable
+  - Auto-downloads NLTK `punkt_tab` data if missing
+
+- **`src/chunker/summarizer.py`** - Tiered document summarization:
   - `Summary` dataclass with hierarchy (document → chapter → section)
   - `DocumentSummarizer` class using Instructor for structured output
-  - Default provider: `anthropic/claude-3-5-haiku-20241022` (cost-effective)
-  - `generate_all_summaries()` for full hierarchical summarization
+  - Default provider: `openai/gpt-4o-mini` (cost-effective)
+  - **Tiered strategy** (82% API call reduction):
+    - Section (L2): Local extractive (TextRank + YAKE keywords, instant, free)
+    - Chapter (L1): LLM via Instructor (structured output with concepts)
+    - Document: LLM via Instructor (structured output with concepts)
+  - **Adaptive processing strategy** based on L1 (chapter) count:
+    - < 50 chapters: Sequential (simple, no overhead)
+    - 50-500 chapters: Async with rate limiting (parallel, respects limits)
+    - > 500 chapters: OpenAI Batch API (50% cheaper, higher limits)
+  - **Table parsing integration**: Chunks with `has_table=True` get structured table data (columns, rows, types) for better concept extraction
+  - Checkpointing for resume-from-failure (chapter/document phases only)
+  - `generate_all_summaries()` for full hierarchical summarization + concept extraction
 
 - **`src/storage/table_store.py`** - Multi-vector table storage:
   - Embed summaries for retrieval, store raw markdown for synthesis
@@ -154,11 +167,12 @@ Tables use in-memory multi-vector storage (`TableStore`):
 - **Note**: Table storage is currently in-memory only, not persisted to Helix-DB
 
 ### Document Summarization
-Hierarchical summaries are generated using LLM and stored in Helix-DB:
-- **Document level**: 5-7 sentence overview of entire document
-- **Chapter level**: 3-5 sentence summary per L1 chunk
-- **Section level**: 2-3 sentence summary per L2 chunk
-- Default LLM provider: `anthropic/claude-3-5-haiku-20241022` (configurable)
+Hierarchical summaries use a tiered approach - local extractive for sections, LLM for chapters/documents:
+- **Document level**: 5-7 sentence LLM summary of entire document
+- **Chapter level**: 3-5 sentence LLM summary per L1 chunk (with concept extraction)
+- **Section level**: Extractive summary via TextRank + YAKE keywords (no API calls)
+- Default LLM provider: `openai/gpt-4o-mini` (configurable)
+- For a 1302-chunk document: ~197 API calls instead of ~1107 (82% reduction)
 - Summaries are embedded for semantic search via `SummaryVector`
 - Parent-child relationships enable hierarchy navigation
 

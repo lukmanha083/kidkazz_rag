@@ -62,6 +62,11 @@ concepts = [
     "instructor>=1.0.0",
     "graphviz>=0.20",
 ]
+extractive = [
+    "sumy>=0.11.0",
+    "yake>=0.4.8",
+    "nltk>=3.8.0",
+]
 all = [
     "helix-py>=0.1.0",
     "mcp>=1.2.0",
@@ -74,6 +79,9 @@ all = [
     "tomli-w>=1.0.0",
     "instructor>=1.0.0",
     "graphviz>=0.20",
+    "sumy>=0.11.0",
+    "yake>=0.4.8",
+    "nltk>=3.8.0",
 ]
 
 [project.scripts]

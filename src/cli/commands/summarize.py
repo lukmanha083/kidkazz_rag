@@ -14,13 +14,25 @@ from src.cli.output import print_error, print_json, print_success, print_warning
 
 # Optional import for summarizer
 try:
-    from src.chunker.summarizer import DocumentSummarizer, Summary, INSTRUCTOR_AVAILABLE
+    from src.chunker.summarizer import (
+        DocumentSummarizer,
+        Summary,
+        SummarizationStrategy,
+        INSTRUCTOR_AVAILABLE,
+        EXTRACTIVE_AVAILABLE,
+        ASYNC_THRESHOLD,
+        BATCH_THRESHOLD,
+    )
 
     SUMMARIZER_AVAILABLE = INSTRUCTOR_AVAILABLE
 except ImportError:
     DocumentSummarizer = None  # type: ignore
     Summary = None  # type: ignore
+    SummarizationStrategy = None  # type: ignore
     SUMMARIZER_AVAILABLE = False
+    EXTRACTIVE_AVAILABLE = False
+    ASYNC_THRESHOLD = 50
+    BATCH_THRESHOLD = 500
 
 app = typer.Typer(help="Document summarization commands")
 console = Console()
@@ -125,6 +137,8 @@ def generate_summaries(
     chunks = []
     for ec in chunks_result:
         chunk = ec.chunk if hasattr(ec, 'chunk') else ec
+        # Get metadata (may be nested in chunk.metadata or directly on chunk)
+        metadata = chunk.metadata if hasattr(chunk, 'metadata') else chunk.get("metadata", {})
         chunk_dict = {
             "id": chunk.id if hasattr(chunk, 'id') else chunk.get("chunk_id"),
             "content": chunk.content if hasattr(chunk, 'content') else chunk.get("content"),
@@ -132,32 +146,83 @@ def generate_summaries(
             "section_path": chunk.section_path if hasattr(chunk, 'section_path') else chunk.get("section_path", []),
             "source_section": chunk.source_section if hasattr(chunk, 'source_section') else chunk.get("source_section"),
             "child_ids": chunk.child_ids if hasattr(chunk, 'child_ids') else chunk.get("child_ids", []),
+            # Include content flags for better summarization
+            "has_table": metadata.get("has_table", False) if isinstance(metadata, dict) else getattr(metadata, "has_table", False),
+            "has_code": metadata.get("has_code", False) if isinstance(metadata, dict) else getattr(metadata, "has_code", False),
+            "has_math": metadata.get("has_math", False) if isinstance(metadata, dict) else getattr(metadata, "has_math", False),
         }
         chunks.append(chunk_dict)
 
+    # Initialize summarizer
+    final_provider = provider or config.summarization_provider or "openai/gpt-4o-mini"
+    summarizer = DocumentSummarizer(provider=final_provider)
+
+    # Count chunks by level
+    l1_count = len([c for c in chunks if c.get("level") == 1])
+    l2_count = len([c for c in chunks if c.get("level") == 2])
+    api_calls = l1_count + 1  # chapters + document
+
+    # Determine strategy based on L1 count (sections are extractive)
+    strategy = summarizer.determine_strategy(l1_count)
+
     if not json_output:
         console.print(f"\nGenerating summaries for: [bold]{doc_title}[/bold]")
-        console.print(f"Found {len(chunks)} chunks")
+        console.print(f"Found {len(chunks)} chunks ({l2_count} sections, {l1_count} chapters)")
+        console.print(f"Provider: [cyan]{final_provider}[/cyan]")
 
-    # Initialize summarizer
-    final_provider = provider or config.summarization_provider or "anthropic/claude-3-5-haiku-20241022"
-    summarizer = DocumentSummarizer(provider=final_provider)
+        # Show tiered strategy info
+        console.print(f"  Sections: {l2_count} [green](extractive, instant)[/green]")
+        console.print(f"  Chapters: {l1_count} [yellow](LLM API calls)[/yellow]")
+        console.print(f"  Document: 1 [yellow](LLM API call)[/yellow]")
+        console.print(f"  Total API calls: ~{api_calls}")
+
+        if not EXTRACTIVE_AVAILABLE:
+            console.print(
+                "[yellow]Warning: sumy/yake not installed. "
+                "Install with: pip install -e '.[extractive]'[/yellow]"
+            )
+
+        strategy_info = {
+            "sequential": f"Sequential (< {ASYNC_THRESHOLD} chapters)",
+            "async": f"Async with rate limiting ({ASYNC_THRESHOLD}-{BATCH_THRESHOLD} chapters)",
+            "batch": f"OpenAI Batch API (> {BATCH_THRESHOLD} chapters, 50% cheaper)",
+        }
+        console.print(f"Strategy: [green]{strategy_info.get(strategy.value, strategy.value)}[/green]")
+        console.print()
+
+    # Progress callback for CLI
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
     # Generate summaries (and extract concepts)
     try:
         if json_output:
-            # No spinner for JSON output to keep output clean
+            # No progress for JSON output
             summaries, concepts = summarizer.generate_all_summaries(
                 document_id=doc_id,
                 document_title=doc_title,
                 chunks=chunks,
+                strategy=strategy,
             )
         else:
-            with console.status("[bold green]Generating summaries and extracting concepts..."):
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Generating summaries...", total=100)
+
+                def progress_callback(current: int, total: int, message: str):
+                    pct = int((current / max(total, 1)) * 100)
+                    progress.update(task, completed=pct, description=message)
+
                 summaries, concepts = summarizer.generate_all_summaries(
                     document_id=doc_id,
                     document_title=doc_title,
                     chunks=chunks,
+                    strategy=strategy,
+                    progress_callback=progress_callback,
                 )
     except Exception as e:
         print_error(f"Summarization failed: {e}")

@@ -293,8 +293,8 @@ class HelixChunkStore:
         if hasattr(response, 'data'):
             data = response.data
             if isinstance(data, dict):
-                # Check for nested node data under 'chunk', 'vec', 'doc' keys
-                for key in ['chunk', 'vec', 'doc', 'node', 'N']:
+                # Check for nested node data under various keys
+                for key in ['chunk', 'vec', 'doc', 'node', 'N', 'summary', 'Summary', 'concept', 'Concept']:
                     if key in data and isinstance(data[key], dict):
                         node_id = data[key].get('id') or data[key].get('Id')
                         if node_id:
@@ -307,7 +307,7 @@ class HelixChunkStore:
                 return str(data.id)
         if isinstance(response, dict):
             # Check for nested node data first
-            for key in ['chunk', 'vec', 'doc', 'node', 'N']:
+            for key in ['chunk', 'vec', 'doc', 'node', 'N', 'summary', 'Summary', 'concept', 'Concept']:
                 if key in response and isinstance(response[key], dict):
                     node_id = response[key].get('id') or response[key].get('Id')
                     if node_id:
@@ -2112,7 +2112,11 @@ class HelixChunkStore:
         if not result.success:
             return []
 
-        return result.data or []
+        # Filter out empty/phantom results from HelixQL
+        return [
+            s for s in (result.data or [])
+            if isinstance(s, dict) and s.get("summary_id")
+        ]
 
     def search_summaries(
         self,
@@ -2166,20 +2170,37 @@ class HelixChunkStore:
         """
         Delete all summaries for a document.
 
+        The HelixQL query returns matching summaries; client drops each one
+        individually since HelixQL doesn't support DELETE WHERE.
+
         Args:
             document_id: Document identifier
 
         Returns:
             True if deletion succeeded
         """
-        from src.storage.queries import DeleteDocumentSummaries
+        from src.storage.queries import DeleteDocumentSummaries, DeleteSummary
 
         self._ensure_connected()
 
         query = DeleteDocumentSummaries(document_id)
         result = self._execute_query(query)
 
-        return result.success
+        if not result.success:
+            return False
+
+        # Drop each summary individually
+        for summary in result.data or []:
+            if isinstance(summary, dict):
+                internal_id = summary.get("id")
+                if internal_id:
+                    try:
+                        drop_query = DeleteSummary(internal_id)
+                        self._client.query(drop_query)
+                    except Exception as e:
+                        logger.warning("Failed to drop summary %s: %s", internal_id, e)
+
+        return True
 
     def list_summarized_documents(self) -> list[dict[str, Any]]:
         """

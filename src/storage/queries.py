@@ -863,7 +863,11 @@ class AddConcept(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """Process response - extracts concept node with internal ID."""
+        # Response format: {"concept": {...node data with 'id'...}}
+        if isinstance(response, dict) and 'concept' in response:
+            return QueryResult(success=True, data=response)
+        # Fallback for unexpected format
         return QueryResult(success=True, data={"concept_id": self.concept_id})
 
 
@@ -910,7 +914,11 @@ class UpdateConcept(_get_query_base_class()):
         return [params]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """Process response - extracts updated concept node."""
+        # Response format: {"concept": {...node data with 'id'...}}
+        if isinstance(response, dict) and 'concept' in response:
+            return QueryResult(success=True, data=response)
+        # Fallback for unexpected format
         return QueryResult(success=True, data={"concept_id": self.concept_id})
 
 
@@ -1476,7 +1484,11 @@ class AddTable(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """Process response - extracts table node with internal ID."""
+        # Response format: {"table": {...node data with 'id'...}}
+        if isinstance(response, dict) and 'table' in response:
+            return QueryResult(success=True, data=response)
+        # Fallback for unexpected format
         return QueryResult(
             success=True,
             data={"table_id": self.table_props.get("table_id")},
@@ -1927,7 +1939,11 @@ class AddSummary(_get_query_base_class()):
         }]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
+        """Process response - extracts summary node with internal ID."""
+        # Response format: {"summary": {...node data with 'id'...}}
+        if isinstance(response, dict) and 'summary' in response:
+            return QueryResult(success=True, data=response)
+        # Fallback for unexpected format
         return QueryResult(
             success=True,
             data={"summary_id": self.summary_props.get("summary_id")},
@@ -1956,6 +1972,11 @@ class GetSummary(_get_query_base_class()):
 
     def response(self, response: Any) -> QueryResult:
         """Process response - expects summary node."""
+        # HelixQL returns {"summaries": [...]} from RETURN summaries
+        if isinstance(response, dict) and 'summaries' in response:
+            summaries = response['summaries']
+            if isinstance(summaries, list) and len(summaries) > 0:
+                return QueryResult(success=True, data={"node": summaries[0]})
         if isinstance(response, list) and len(response) > 0:
             return QueryResult(success=True, data={"node": response[0]})
         return QueryResult(success=False, error="Summary not found")
@@ -1990,9 +2011,14 @@ class GetDocumentSummaries(_get_query_base_class()):
 
     def response(self, response: Any) -> QueryResult:
         """Process response - expects list of summary nodes."""
+        # HelixQL returns {"summaries": [...]} from RETURN summaries
+        if isinstance(response, dict) and 'summaries' in response:
+            summaries = response['summaries']
+            if isinstance(summaries, list):
+                return QueryResult(success=True, data=summaries)
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
-        return QueryResult(success=True, data=[response] if response else [])
+        return QueryResult(success=True, data=[])
 
 
 class GetSummaryChildren(_get_query_base_class()):
@@ -2017,9 +2043,14 @@ class GetSummaryChildren(_get_query_base_class()):
 
     def response(self, response: Any) -> QueryResult:
         """Process response - expects list of summary nodes."""
+        # HelixQL returns {"children": [...]} from RETURN children
+        if isinstance(response, dict) and 'children' in response:
+            children = response['children']
+            if isinstance(children, list):
+                return QueryResult(success=True, data=children)
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
-        return QueryResult(success=True, data=[response] if response else [])
+        return QueryResult(success=True, data=[])
 
 
 class AddSummaryVector(_get_query_base_class()):
@@ -2221,9 +2252,12 @@ class SearchSimilarSummaries(_get_query_base_class()):
 
     def response(self, response: Any) -> QueryResult:
         """Process response - expects list of summary nodes with scores."""
+        # HelixQL returns {"results": [...]} from SearchV
+        if isinstance(response, dict) and 'results' in response:
+            return QueryResult(success=True, data=response['results'])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
-        return QueryResult(success=True, data=[response] if response else [])
+        return QueryResult(success=True, data=[])
 
 
 class DeleteSummary(_get_query_base_class()):
@@ -2255,6 +2289,7 @@ class DeleteDocumentSummaries(_get_query_base_class()):
     """Delete all summaries for a document.
 
     Maps to HelixQL DeleteDocumentSummaries query.
+    Note: HelixQL returns the summaries for client to drop individually.
     """
 
     def __init__(self, document_id: str) -> None:
@@ -2272,8 +2307,15 @@ class DeleteDocumentSummaries(_get_query_base_class()):
         return [{"document_id": self.document_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response."""
-        return QueryResult(success=True)
+        """Process response - returns summaries for client to drop."""
+        # HelixQL returns {"summaries": [...]} from RETURN summaries
+        if isinstance(response, dict) and 'summaries' in response:
+            summaries = response['summaries']
+            if isinstance(summaries, list):
+                return QueryResult(success=True, data=summaries)
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
 
 
 class ListSummarizedDocuments(_get_query_base_class()):
@@ -2291,7 +2333,12 @@ class ListSummarizedDocuments(_get_query_base_class()):
         return [{}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of document IDs."""
+        """Process response - expects list of summary nodes."""
+        # HelixQL returns {"summaries": [...]} from RETURN summaries
+        if isinstance(response, dict) and 'summaries' in response:
+            summaries = response['summaries']
+            if isinstance(summaries, list):
+                return QueryResult(success=True, data=summaries)
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
-        return QueryResult(success=True, data=[response] if response else [])
+        return QueryResult(success=True, data=[])
