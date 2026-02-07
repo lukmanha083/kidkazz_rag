@@ -2211,6 +2211,43 @@ class LinkSummaryParent(_get_query_base_class()):
         return QueryResult(success=True)
 
 
+class GetSummaryForVector(_get_query_base_class()):
+    """Get the summary linked to a vector embedding.
+
+    Maps to HelixQL GetSummaryForVector query.
+    Used to retrieve summary data after vector search returns vector IDs.
+    """
+
+    def __init__(self, vector_id: str) -> None:
+        """
+        Initialize GetSummaryForVector query.
+
+        Args:
+            vector_id: Internal vector node ID from search results
+        """
+        super().__init__(endpoint="GetSummaryForVector")
+        self.vector_id = vector_id
+
+    def query(self) -> list[dict[str, Any]]:
+        """Return parameters for HelixQL GetSummaryForVector query."""
+        return [{
+            "vector_id": self.vector_id,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        """Process response - returns summary node data."""
+        # Handle {"summary": [{...}]} or {"summary": {...}}
+        if isinstance(response, dict) and "summary" in response:
+            node = response["summary"]
+            if isinstance(node, list) and len(node) > 0:
+                return QueryResult(success=True, data=node[0])
+            return QueryResult(success=True, data=node)
+        # Handle list response from HelixQL edge traversal
+        if isinstance(response, list) and len(response) > 0:
+            return QueryResult(success=True, data=response[0])
+        return QueryResult(success=True, data=response)
+
+
 class SearchSimilarSummaries(_get_query_base_class()):
     """Search for similar summaries using vector similarity.
 

@@ -64,6 +64,7 @@ from .queries import (
     GetDocumentChunks,
     GetDocumentTables,
     GetRelatedConcepts,
+    GetSummaryForVector,
     GetConceptDependents,
     GetTableById,
     GetTableConcepts,
@@ -2155,16 +2156,44 @@ class HelixChunkStore:
         if not result.success:
             return []
 
-        results = result.data or []
+        # Vector search returns SummaryVector nodes with scores.
+        # We need to fetch the actual Summary node for each via edge traversal.
+        results = []
+        for item in result.data or []:
+            if isinstance(item, dict):
+                score = item.get("score", 0.0)
+                vector_id = item.get("id")
+            else:
+                continue
 
-        # Post-filter by level and document_id (HelixQL doesn't support these filters)
-        if level:
-            results = [r for r in results if r.get("level") == level]
-        if document_id:
-            results = [r for r in results if r.get("document_id") == document_id]
+            if not vector_id:
+                continue
 
-        # Apply limit after filtering
-        return results[:limit]
+            # Fetch the summary linked to this vector
+            summary_query = GetSummaryForVector(vector_id)
+            summary_result = self._execute_query(summary_query)
+
+            if not summary_result.success or not summary_result.data:
+                continue
+
+            node = summary_result.data
+            if not isinstance(node, dict):
+                continue
+
+            # Post-filter by level and document_id
+            if level and node.get("level") != level:
+                continue
+            if document_id and node.get("document_id") != document_id:
+                continue
+
+            # Merge score into summary data
+            node["score"] = score
+            results.append(node)
+
+            if len(results) >= limit:
+                break
+
+        return results
 
     def delete_document_summaries(self, document_id: str) -> bool:
         """

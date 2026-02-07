@@ -688,6 +688,11 @@ QUERY GetSummaryParent(summary_id: ID) =>
 
 // ========== SUMMARY VECTOR SEARCH ==========
 
+// Get summary linked to a vector (for search result processing)
+QUERY GetSummaryForVector(vector_id: ID) =>
+    summary <- V<SummaryVector>(vector_id)::In<SummaryHasEmbedding>
+    RETURN summary
+
 // Vector similarity search on summaries
 QUERY SearchSimilarSummaries(query_vec: [F64], top_k: U32) =>
     results <- SearchV<SummaryVector>(query_vec, top_k)
