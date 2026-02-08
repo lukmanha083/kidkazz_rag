@@ -1,7 +1,12 @@
 """CLI commands for document summarization."""
 
 import json
+import logging
+import os
+import time
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 import typer
 from rich.console import Console
@@ -102,6 +107,25 @@ def generate_summaries(
         )
         raise typer.Exit(1)
 
+    # Pin entire summarize command to 2 CPU cores to prevent system freeze.
+    # Covers: extractive summarization (TextRank+YAKE), LLM calls,
+    # summary storage, and concept storage.
+    try:
+        cpu_count = os.cpu_count() or 4
+        if cpu_count > 2:
+            os.sched_setaffinity(0, {0, 1})
+            actual = os.sched_getaffinity(0)
+            logger.info("CPU affinity set to cores %s (of %d total)", actual, cpu_count)
+        else:
+            logger.info("Only %d cores available, skipping affinity pin", cpu_count)
+    except (OSError, AttributeError) as e:
+        logger.warning("Could not set CPU affinity: %s", e)
+    try:
+        nice_val = os.nice(10)
+        logger.info("Process nice level set to %d", nice_val)
+    except OSError as e:
+        logger.warning("Could not set nice level: %s", e)
+
     config = CLIConfig.load()
     store = _get_store(config)
 
@@ -194,6 +218,8 @@ def generate_summaries(
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
     # Generate summaries (and extract concepts)
+    logger.info("=== PHASE: Summarization START (sections=%d, chapters=%d) ===", l2_count, l1_count)
+    phase_start = time.monotonic()
     try:
         if json_output:
             # No progress for JSON output
@@ -228,11 +254,15 @@ def generate_summaries(
         print_error(f"Summarization failed: {e}")
         raise typer.Exit(1) from e
 
+    elapsed = time.monotonic() - phase_start
+    logger.info("=== PHASE: Summarization DONE in %.1fs (%d summaries, %d concepts) ===",
+                elapsed, len(summaries), len(concepts))
+
     # Store summaries (with embeddings)
+    logger.info("=== PHASE: Summary storage START (%d summaries) ===", len(summaries))
+    phase_start = time.monotonic()
     embedder = _get_embedder(config)
     stored_count = 0
-
-    import time
 
     for i, summary in enumerate(summaries):
         try:
@@ -244,12 +274,59 @@ def generate_summaries(
             store.store_summary(summary)
             stored_count += 1
 
+            # Log progress every 100 summaries
+            if (i + 1) % 100 == 0:
+                elapsed = time.monotonic() - phase_start
+                rate = (i + 1) / elapsed if elapsed > 0 else 0
+                logger.info("  Summary storage: %d/%d (%.1f/s, %.1fs elapsed)",
+                            i + 1, len(summaries), rate, elapsed)
+
             # Yield CPU periodically during storage
             if i % 20 == 19:
                 time.sleep(0.05)
         except Exception as e:
+            logger.error("Failed to store summary %s: %s", summary.summary_id, e)
             if not json_output:
                 print_warning(f"Failed to store summary {summary.summary_id}: {e}")
+
+    elapsed = time.monotonic() - phase_start
+    logger.info("=== PHASE: Summary storage DONE in %.1fs (%d/%d stored) ===",
+                elapsed, stored_count, len(summaries))
+
+    # Store concepts (merge across documents for cross-document graph)
+    logger.info("=== PHASE: Concept storage START (%d concepts) ===", len(concepts))
+    phase_start = time.monotonic()
+    stored_concepts = 0
+    for i, concept in enumerate(concepts):
+        try:
+            store.store_or_merge_concept(
+                concept_id=concept.concept_id,
+                name=concept.name,
+                definition=concept.definition,
+                concept_type=concept.concept_type,
+                source_documents=[concept.document_id] if concept.document_id else [doc_id],
+                aliases=concept.aliases,
+            )
+            stored_concepts += 1
+
+            # Log progress every 100 concepts
+            if (i + 1) % 100 == 0:
+                elapsed = time.monotonic() - phase_start
+                rate = (i + 1) / elapsed if elapsed > 0 else 0
+                logger.info("  Concept storage: %d/%d (%.1f/s, %.1fs elapsed)",
+                            i + 1, len(concepts), rate, elapsed)
+
+            # Yield CPU periodically during storage
+            if i % 20 == 19:
+                time.sleep(0.05)
+        except Exception as e:
+            logger.error("Failed to store concept %s: %s", concept.name, e)
+            if not json_output:
+                print_warning(f"Failed to store concept {concept.name}: {e}")
+
+    elapsed = time.monotonic() - phase_start
+    logger.info("=== PHASE: Concept storage DONE in %.1fs (%d/%d stored) ===",
+                elapsed, stored_concepts, len(concepts))
 
     # Output results
     if json_output:
@@ -259,6 +336,7 @@ def generate_summaries(
             "summaries_generated": len(summaries),
             "summaries_stored": stored_count,
             "concepts_extracted": len(concepts),
+            "concepts_stored": stored_concepts,
             "levels": {
                 "document": len([s for s in summaries if s.level == "document"]),
                 "chapter": len([s for s in summaries if s.level == "chapter"]),
@@ -273,7 +351,8 @@ def generate_summaries(
         console.print()
         print_success(
             f"Generated {len(summaries)} summaries "
-            f"({stored_count} stored) and extracted {len(concepts)} concepts"
+            f"({stored_count} stored) and extracted {len(concepts)} concepts "
+            f"({stored_concepts} stored)"
         )
 
         # Show breakdown

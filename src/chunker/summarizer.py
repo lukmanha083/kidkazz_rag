@@ -568,21 +568,6 @@ class DocumentSummarizer:
         self._semaphore: Optional[asyncio.Semaphore] = None
         self._rate_limit_delay = 60.0 / requests_per_minute
 
-        # Limit CPU impact during extractive summarization (TextRank + YAKE).
-        # Pin process to 2 cores max so the rest of the system stays responsive.
-        try:
-            cpu_count = os.cpu_count() or 4
-            if cpu_count > 2:
-                os.sched_setaffinity(0, {0, 1})
-                logger.debug("CPU affinity set to cores 0,1 (of %d)", cpu_count)
-        except (OSError, AttributeError):
-            pass  # sched_setaffinity not available on all platforms
-        try:
-            os.nice(10)
-            logger.debug("Process priority lowered (nice=10)")
-        except OSError:
-            pass
-
     def determine_strategy(self, l1_count: int) -> SummarizationStrategy:
         """Determine the best strategy based on L1 (chapter) chunk count.
 
@@ -946,6 +931,9 @@ class DocumentSummarizer:
         if progress_callback:
             progress_callback(0, total, f"Extracting {len(l2_chunks)} sections (local)")
 
+        section_start = time.monotonic()
+        logger.info("Extractive section phase: %d sections", len(l2_chunks))
+
         for i, chunk in enumerate(l2_chunks):
             chunk_id = chunk.get("id", f"chunk_{i}")
 
@@ -961,9 +949,19 @@ class DocumentSummarizer:
             all_summaries.append(summary)
             current += 1
 
+            # Log progress every 100 sections
+            if (i + 1) % 100 == 0:
+                elapsed = time.monotonic() - section_start
+                rate = (i + 1) / elapsed if elapsed > 0 else 0
+                logger.info("  Extractive: %d/%d sections (%.1f/s, %.1fs)",
+                            i + 1, len(l2_chunks), rate, elapsed)
+
             # Yield CPU periodically — CPU affinity handles the main throttling
             if i % 20 == 19:
                 time.sleep(0.05)
+
+        elapsed = time.monotonic() - section_start
+        logger.info("Extractive section phase done: %d sections in %.1fs", len(l2_chunks), elapsed)
 
         # Phase 2: Chapter summaries (LLM calls - checkpoint supported)
         chapter_summaries: list[Summary] = []
@@ -1087,6 +1085,9 @@ class DocumentSummarizer:
         if progress_callback:
             progress_callback(0, total, f"Extracting {len(l2_chunks)} sections (local)")
 
+        section_start = time.monotonic()
+        logger.info("Async path - extractive section phase: %d sections", len(l2_chunks))
+
         for i, chunk in enumerate(l2_chunks):
             chunk_id = chunk.get("id", f"chunk_{i}")
             summary = self.summarize_section(
@@ -1100,10 +1101,19 @@ class DocumentSummarizer:
             section_summaries[chunk_id] = summary
             all_summaries.append(summary)
 
-            # Yield CPU after each section — TextRank + YAKE are CPU-heavy
-            time.sleep(0)
-            if i % 10 == 9:
+            # Log progress every 100 sections
+            if (i + 1) % 100 == 0:
+                elapsed = time.monotonic() - section_start
+                rate = (i + 1) / elapsed if elapsed > 0 else 0
+                logger.info("  Async extractive: %d/%d sections (%.1f/s, %.1fs)",
+                            i + 1, len(l2_chunks), rate, elapsed)
+
+            # Yield CPU periodically — CPU affinity handles the main throttling
+            if i % 20 == 19:
                 time.sleep(0.05)
+
+        elapsed = time.monotonic() - section_start
+        logger.info("Async extractive done: %d sections in %.1fs", len(l2_chunks), elapsed)
 
         completed = len(l2_chunks)
 
