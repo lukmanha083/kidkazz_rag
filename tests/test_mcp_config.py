@@ -43,31 +43,35 @@ class TestMCPServerConfig:
         assert config.log_level == "DEBUG"
 
     def test_from_env_defaults(self):
-        """Test from_env with no environment variables set."""
-        with patch.dict(os.environ, {}, clear=True):
+        """Test from_env with no config file returns defaults."""
+        with patch("src.mcp_server.config.Path.cwd", return_value=Path("/nonexistent")), \
+             patch("src.mcp_server.config.Path.home", return_value=Path("/nonexistent")), \
+             patch.dict(os.environ, {}, clear=True):
             config = MCPServerConfig.from_env()
             assert config.store_type == "mock"
             assert config.embedder_type == "openai"
 
-    def test_from_env_with_values(self):
-        """Test from_env reads environment variables."""
-        env_vars = {
-            "KIDKAZZ_STORE_TYPE": "helix",
-            "KIDKAZZ_HELIX_PORT": "8080",
-            "KIDKAZZ_HELIX_LOCAL": "false",
-            "KIDKAZZ_EMBEDDER_TYPE": "mock",
-            "KIDKAZZ_MODEL_NAME": "test-model",
-            "KIDKAZZ_CACHE_DIR": "/tmp/test-cache",
-            "KIDKAZZ_LOG_LEVEL": "WARNING",
-        }
-        with patch.dict(os.environ, env_vars, clear=True):
+    def test_from_env_reads_toml(self, tmp_path):
+        """Test from_env reads .kidkazz.toml config file."""
+        toml_content = b"""
+[storage]
+store_type = "helix"
+helix_port = 8080
+helix_local = false
+
+[embeddings]
+embedder_type = "mock"
+model_name = "test-model"
+"""
+        (tmp_path / ".kidkazz.toml").write_bytes(toml_content)
+        with patch("src.mcp_server.config.Path.cwd", return_value=tmp_path), \
+             patch.dict(os.environ, {"KIDKAZZ_LOG_LEVEL": "WARNING"}, clear=True):
             config = MCPServerConfig.from_env()
             assert config.store_type == "helix"
             assert config.helix_port == 8080
             assert config.helix_local is False
             assert config.embedder_type == "mock"
             assert config.model_name == "test-model"
-            assert config.cache_dir == Path("/tmp/test-cache")
             assert config.log_level == "WARNING"
 
     def test_create_mock_store(self):
@@ -127,7 +131,9 @@ class TestServerState:
 
     def test_default_config(self):
         """Test ServerState uses from_env if no config provided."""
-        with patch.dict(os.environ, {"KIDKAZZ_STORE_TYPE": "mock"}, clear=True):
+        with patch("src.mcp_server.config.Path.cwd", return_value=Path("/nonexistent")), \
+             patch("src.mcp_server.config.Path.home", return_value=Path("/nonexistent")), \
+             patch.dict(os.environ, {}, clear=True):
             state = ServerState()
             assert state.config.store_type == "mock"
 

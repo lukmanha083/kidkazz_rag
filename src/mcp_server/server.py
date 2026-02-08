@@ -44,7 +44,6 @@ def create_server(
     # Create FastMCP server
     mcp = FastMCP(
         name="kidkazz-rag",
-        version="0.1.0",
     )
 
     # Register tools and resources
