@@ -1336,7 +1336,21 @@ class HelixChunkStore:
         self._ensure_connected()
 
         if doc_id:
+            # Try edge traversal first (requires DefinesConcept edges)
             query = ListDocumentConcepts(doc_id)
+            result = self._execute_query(query)
+            if result.success and result.data:
+                return result.data
+
+            # Fallback: filter all concepts by source_documents field
+            all_query = ListConcepts()
+            all_result = self._execute_query(all_query)
+            if all_result.success and all_result.data:
+                return [
+                    c for c in all_result.data
+                    if doc_id in (c.get("source_documents") or "")
+                ]
+            return []
         else:
             query = ListConcepts()
 

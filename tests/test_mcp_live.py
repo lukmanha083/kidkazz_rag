@@ -149,29 +149,16 @@ class TestConceptSearch:
             assert concept.get("name") or concept.get("definition")
 
     def test_list_concepts_by_doc(self, state):
-        """Filter concepts by source_documents field (client-side).
-
-        Note: list_concepts(doc_id=...) uses DefinesConcept edge traversal
-        which requires edges to exist. Since edges may not be present,
-        we also verify client-side filtering via source_documents works.
-        """
-        import json
-
-        all_concepts = state.store.list_concepts()
-        inv_concepts = [
-            c for c in all_concepts
-            if INVENTORY_DOC in (c.get("source_documents") or "")
-        ]
-        wh_concepts = [
-            c for c in all_concepts
-            if WAREHOUSE_DOC in (c.get("source_documents") or "")
-        ]
-        logger.info(f"  Inventory concepts (by source_documents): {len(inv_concepts)}")
-        logger.info(f"  Warehouse concepts (by source_documents): {len(wh_concepts)}")
+        """list_concepts(doc_id=...) should filter correctly via store."""
+        inv_concepts = state.store.list_concepts(doc_id=INVENTORY_DOC)
+        wh_concepts = state.store.list_concepts(doc_id=WAREHOUSE_DOC)
+        logger.info(f"  Inventory concepts: {len(inv_concepts)}")
+        logger.info(f"  Warehouse concepts: {len(wh_concepts)}")
         assert len(inv_concepts) > 1000, f"Expected 2000+ inventory concepts, got {len(inv_concepts)}"
         assert len(wh_concepts) > 1000, f"Expected 1900+ warehouse concepts, got {len(wh_concepts)}"
 
-        # Also verify shared concepts exist (both docs in source_documents)
+        # Verify shared concepts exist (both docs in source_documents)
+        all_concepts = state.store.list_concepts()
         shared = [
             c for c in all_concepts
             if INVENTORY_DOC in (c.get("source_documents") or "")
