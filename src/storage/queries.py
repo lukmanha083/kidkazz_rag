@@ -943,7 +943,12 @@ class GetConceptByName(_get_query_base_class()):
         return [{"name": self.name}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of concept nodes."""
+        """Process response - expects concept nodes under 'concepts' key."""
+        # HelixQL RETURN concepts -> {"concepts": [...]}
+        if isinstance(response, dict) and "concepts" in response:
+            nodes = response["concepts"]
+            if isinstance(nodes, list) and len(nodes) > 0:
+                return QueryResult(success=True, data={"node": nodes[0]})
         if isinstance(response, list) and len(response) > 0:
             return QueryResult(success=True, data={"node": response[0]})
         return QueryResult(success=False, error="Concept not found")
@@ -970,7 +975,12 @@ class GetConceptById(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of concept nodes."""
+        """Process response - expects concept nodes under 'concepts' key."""
+        # HelixQL RETURN concepts -> {"concepts": [...]}
+        if isinstance(response, dict) and "concepts" in response:
+            nodes = response["concepts"]
+            if isinstance(nodes, list) and len(nodes) > 0:
+                return QueryResult(success=True, data={"node": nodes[0]})
         if isinstance(response, list) and len(response) > 0:
             return QueryResult(success=True, data={"node": response[0]})
         return QueryResult(success=False, error="Concept not found")
@@ -991,7 +1001,10 @@ class ListConcepts(_get_query_base_class()):
         return [{}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of concept nodes."""
+        """Process response - expects concept nodes under 'concepts' key."""
+        # HelixQL RETURN concepts -> {"concepts": [...]}
+        if isinstance(response, dict) and "concepts" in response:
+            return QueryResult(success=True, data=response["concepts"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1018,7 +1031,10 @@ class ListDocumentConcepts(_get_query_base_class()):
         return [{"document_id": self.document_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of concept nodes."""
+        """Process response - expects concept nodes under 'concepts' key."""
+        # HelixQL RETURN concepts -> {"concepts": [...]}
+        if isinstance(response, dict) and "concepts" in response:
+            return QueryResult(success=True, data=response["concepts"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
