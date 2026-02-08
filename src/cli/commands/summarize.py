@@ -232,6 +232,8 @@ def generate_summaries(
     embedder = _get_embedder(config)
     stored_count = 0
 
+    import time
+
     for i, summary in enumerate(summaries):
         try:
             # Generate embedding for summary
@@ -242,10 +244,10 @@ def generate_summaries(
             store.store_summary(summary)
             stored_count += 1
 
-            # Yield CPU every 50 summaries to prevent system freeze
-            if i % 50 == 49:
-                import time
-                time.sleep(0.01)
+            # Yield CPU — each store_summary makes ~5 HTTP calls
+            time.sleep(0)
+            if i % 10 == 9:
+                time.sleep(0.05)
         except Exception as e:
             if not json_output:
                 print_warning(f"Failed to store summary {summary.summary_id}: {e}")

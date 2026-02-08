@@ -568,6 +568,14 @@ class DocumentSummarizer:
         self._semaphore: Optional[asyncio.Semaphore] = None
         self._rate_limit_delay = 60.0 / requests_per_minute
 
+        # Lower process priority to keep system responsive during
+        # CPU-heavy extractive summarization (TextRank + YAKE)
+        try:
+            os.nice(10)
+            logger.debug("Process priority lowered (nice=10)")
+        except OSError:
+            pass  # May fail on some systems
+
     def determine_strategy(self, l1_count: int) -> SummarizationStrategy:
         """Determine the best strategy based on L1 (chapter) chunk count.
 
@@ -946,9 +954,10 @@ class DocumentSummarizer:
             all_summaries.append(summary)
             current += 1
 
-            # Yield CPU every 50 sections to prevent system freeze
-            if i % 50 == 49:
-                time.sleep(0.01)
+            # Yield CPU after each section — TextRank + YAKE are CPU-heavy
+            time.sleep(0)
+            if i % 10 == 9:
+                time.sleep(0.05)
 
         # Phase 2: Chapter summaries (LLM calls - checkpoint supported)
         chapter_summaries: list[Summary] = []
@@ -1085,9 +1094,10 @@ class DocumentSummarizer:
             section_summaries[chunk_id] = summary
             all_summaries.append(summary)
 
-            # Yield CPU every 50 sections to prevent system freeze
-            if i % 50 == 49:
-                time.sleep(0.01)
+            # Yield CPU after each section — TextRank + YAKE are CPU-heavy
+            time.sleep(0)
+            if i % 10 == 9:
+                time.sleep(0.05)
 
         completed = len(l2_chunks)
 
