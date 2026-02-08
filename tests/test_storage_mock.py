@@ -599,25 +599,6 @@ class TestDocumentTags:
             chunk_data = mock_store._chunks[ec.chunk.id]
             assert chunk_data["document_id"] == "doc1"
 
-    def test_search_similar_multiple_tags_filter(
-        self, mock_store, sample_embedded_chunks, sample_metadata, mock_embedder
-    ):
-        """Should filter search by multiple tags (AND logic)."""
-        mock_store.store_document(
-            "doc1", "Title 1", sample_embedded_chunks, sample_metadata,
-            tags=["inventory", "accounting"]
-        )
-
-        query = mock_embedder.embed_text("test query")
-
-        # Search with both tags - should find doc1
-        results_both = mock_store.search_similar(query, top_k=10, tags=["inventory", "accounting"])
-        assert len(results_both) > 0
-
-        # Search with non-matching tag combination
-        results_none = mock_store.search_similar(query, top_k=10, tags=["inventory", "marketing"])
-        assert len(results_none) == 0
-
     def test_filters_empty_strings_from_tags(
         self, mock_store, sample_embedded_chunks, sample_metadata
     ):

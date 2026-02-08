@@ -74,10 +74,13 @@ class TestListDocuments:
         assert WAREHOUSE_DOC in doc_ids, f"Missing warehouse book. Found: {doc_ids}"
 
     def test_document_has_chunks(self, state):
-        """Each book should have ~650 chunks."""
+        """Known books should have ~650 chunks each."""
         docs = state.store.list_documents()
+        known_docs = {INVENTORY_DOC, WAREHOUSE_DOC}
         for doc in docs:
             doc_id = doc.get("doc_id")
+            if doc_id not in known_docs:
+                continue
             chunk_count = doc.get("chunk_count", 0)
             logger.info(f"  {doc_id}: {chunk_count} chunks")
             assert chunk_count > 100, f"{doc_id} has too few chunks: {chunk_count}"

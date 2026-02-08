@@ -89,8 +89,10 @@ class TestSearchCommands:
 
     def test_search_semantic_empty_store(self):
         """Test semantic search on empty store."""
-        # Use mock embedder to avoid API dependency
-        with patch.dict(os.environ, {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
+        with patch.dict(os.environ, {
+            "KIDKAZZ_EMBEDDER_TYPE": "mock",
+            "KIDKAZZ_STORE_TYPE": "mock",
+        }):
             result = runner.invoke(app, [
                 "search", "semantic", "test query",
                 "--json"
@@ -101,12 +103,16 @@ class TestSearchCommands:
 
     def test_search_keyword_empty_store(self):
         """Test keyword search on empty store."""
-        result = runner.invoke(app, [
-            "search", "keyword", "test",
-            "--json"
-        ])
-        assert result.exit_code == 0
-        assert "[]" in result.output or "No results" in result.output
+        with patch.dict(os.environ, {
+            "KIDKAZZ_EMBEDDER_TYPE": "mock",
+            "KIDKAZZ_STORE_TYPE": "mock",
+        }):
+            result = runner.invoke(app, [
+                "search", "keyword", "test",
+                "--json"
+            ])
+            assert result.exit_code == 0
+            assert "[]" in result.output or "No results" in result.output
 
 
 class TestDocsCommands:

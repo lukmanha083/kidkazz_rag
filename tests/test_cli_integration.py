@@ -13,9 +13,12 @@ runner = CliRunner()
 
 
 @pytest.fixture(autouse=True)
-def mock_embedder_env():
-    """Use mock embedder for all tests."""
-    with patch.dict(os.environ, {"KIDKAZZ_EMBEDDER_TYPE": "mock"}):
+def mock_env():
+    """Use mock embedder and mock store for all tests."""
+    with patch.dict(os.environ, {
+        "KIDKAZZ_EMBEDDER_TYPE": "mock",
+        "KIDKAZZ_STORE_TYPE": "mock",
+    }):
         yield
 
 

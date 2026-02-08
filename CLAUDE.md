@@ -182,6 +182,12 @@ Hierarchical summaries use a tiered approach - local extractive for sections, LL
 - **`.env`** - Secrets only (REDUCTO_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY)
 - **`pyproject.toml`** - Dependencies and pytest configuration
 
+## Testing Policy
+
+- **Use real OpenAI API embeddings** in tests — do NOT use mock embedders with fake dimensions. The OPENAI_API_KEY is available in `.env`. Tests that need embeddings should use `OpenAIEmbedder` with `text-embedding-3-small` (1536 dims) to match production.
+- **All tests must pass.** Do not leave broken tests behind. Fix tests when interfaces change, or remove tests that test removed/obsolete functionality.
+- **No mock-only embedding tests.** MockEmbedder (384 dims) causes dimension mismatches with the real DB. Only use it for unit tests that never touch storage.
+
 ## Test Markers
 
 Tests use pytest markers to control execution:

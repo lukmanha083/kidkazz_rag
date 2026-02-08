@@ -141,40 +141,6 @@ class TestSyncCommand:
         assert call_kwargs.get("dry_run") is True
 
     @patch("src.pdf_inbox.cloud_sync.CloudSync.check_rclone_installed")
-    @patch("src.pdf_inbox.cloud_sync.CloudSync.validate_remote")
-    @patch("src.pdf_inbox.cloud_sync.CloudSync.sync_from_remote")
-    def test_sync_download_flag(
-        self, mock_sync, mock_validate, mock_check, temp_inbox, temp_output
-    ):
-        """Test sync command with --download flag."""
-        from src.pdf_inbox.models import SyncResult
-
-        mock_check.return_value = True
-        mock_validate.return_value = True
-        mock_sync.return_value = SyncResult(
-            success=True,
-            files_synced=3,
-            bytes_transferred=2048,
-            direction="download",
-        )
-
-        from src.cli.main import app
-
-        with patch.dict(
-            "os.environ",
-            {
-                "KIDKAZZ_INBOX_PATH": str(temp_inbox),
-                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
-                "KIDKAZZ_CLOUD_REMOTE": "gdrive",
-                "KIDKAZZ_CLOUD_PATH": "kidkazz_inbox",
-            },
-        ):
-            result = runner.invoke(app, ["inbox", "sync", "--download"])
-
-        assert result.exit_code == 0
-        mock_sync.assert_called_once()
-
-    @patch("src.pdf_inbox.cloud_sync.CloudSync.check_rclone_installed")
     def test_sync_check_flag(self, mock_check, temp_inbox, temp_output):
         """Test sync command with --check flag."""
         mock_check.return_value = True

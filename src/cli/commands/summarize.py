@@ -294,12 +294,14 @@ def generate_summaries(
                 elapsed, stored_count, len(summaries))
 
     # Store concepts (merge across documents for cross-document graph)
+    # and create DefinesConcept edges from source chunks
     logger.info("=== PHASE: Concept storage START (%d concepts) ===", len(concepts))
     phase_start = time.monotonic()
     stored_concepts = 0
+    edges_created = 0
     for i, concept in enumerate(concepts):
         try:
-            store.store_or_merge_concept(
+            concept_internal_id = store.store_or_merge_concept(
                 concept_id=concept.concept_id,
                 name=concept.name,
                 definition=concept.definition,
@@ -309,12 +311,38 @@ def generate_summaries(
             )
             stored_concepts += 1
 
+            # Create DefinesConcept edges from source chunks to this concept
+            if concept_internal_id and hasattr(store, 'get_chunk_internal_id'):
+                seen_chunk_ids: set[str] = set()
+                for occ in concept.occurrences:
+                    # Extract chunk_id from summary_id format: "summary_{chunk_id}_{level}"
+                    # e.g. "summary_inv_l1_5_chapter" -> chunk_id = "inv_l1_5"
+                    if occ.startswith("summary_"):
+                        rest = occ[len("summary_"):]  # strip "summary_" prefix
+                        # Split from right to remove level suffix (_section, _chapter, _document)
+                        parts = rest.rsplit("_", 1)
+                        if len(parts) == 2 and parts[1] in ("section", "chapter", "document"):
+                            source_chunk_id = parts[0]
+                        else:
+                            source_chunk_id = rest
+                    else:
+                        continue
+
+                    if source_chunk_id in seen_chunk_ids:
+                        continue
+                    seen_chunk_ids.add(source_chunk_id)
+
+                    chunk_internal_id = store.get_chunk_internal_id(source_chunk_id)
+                    if chunk_internal_id:
+                        if store.link_chunk_defines_concept(chunk_internal_id, concept_internal_id):
+                            edges_created += 1
+
             # Log progress every 100 concepts
             if (i + 1) % 100 == 0:
                 elapsed = time.monotonic() - phase_start
                 rate = (i + 1) / elapsed if elapsed > 0 else 0
-                logger.info("  Concept storage: %d/%d (%.1f/s, %.1fs elapsed)",
-                            i + 1, len(concepts), rate, elapsed)
+                logger.info("  Concept storage: %d/%d (%.1f/s, %.1fs elapsed, %d edges)",
+                            i + 1, len(concepts), rate, elapsed, edges_created)
 
             # Yield CPU periodically during storage
             if i % 20 == 19:
@@ -325,8 +353,8 @@ def generate_summaries(
                 print_warning(f"Failed to store concept {concept.name}: {e}")
 
     elapsed = time.monotonic() - phase_start
-    logger.info("=== PHASE: Concept storage DONE in %.1fs (%d/%d stored) ===",
-                elapsed, stored_concepts, len(concepts))
+    logger.info("=== PHASE: Concept storage DONE in %.1fs (%d/%d stored, %d edges) ===",
+                elapsed, stored_concepts, len(concepts), edges_created)
 
     # Output results
     if json_output:
@@ -337,6 +365,7 @@ def generate_summaries(
             "summaries_stored": stored_count,
             "concepts_extracted": len(concepts),
             "concepts_stored": stored_concepts,
+            "edges_created": edges_created,
             "levels": {
                 "document": len([s for s in summaries if s.level == "document"]),
                 "chapter": len([s for s in summaries if s.level == "chapter"]),
@@ -352,7 +381,7 @@ def generate_summaries(
         print_success(
             f"Generated {len(summaries)} summaries "
             f"({stored_count} stored) and extracted {len(concepts)} concepts "
-            f"({stored_concepts} stored)"
+            f"({stored_concepts} stored, {edges_created} edges)"
         )
 
         # Show breakdown

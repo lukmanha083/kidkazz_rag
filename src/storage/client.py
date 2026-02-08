@@ -1360,6 +1360,31 @@ class HelixChunkStore:
             return result.data or []
         return []
 
+    def get_chunk_internal_id(self, chunk_id: str) -> Optional[str]:
+        """Get internal Helix node ID for a user-facing chunk_id.
+
+        Args:
+            chunk_id: User-facing chunk identifier (e.g., "doc_l1_5")
+
+        Returns:
+            Internal node ID string, or None if not found
+        """
+        self._ensure_connected()
+
+        query = GetChunk(chunk_id)
+        result = self._execute_query(query)
+
+        if not result.success or not result.data:
+            return None
+
+        node = result.data.get("node") if isinstance(result.data, dict) else result.data
+        if isinstance(node, dict):
+            node_id = node.get("id")
+            if node_id:
+                return str(node_id)
+
+        return self._extract_node_id(result.data)
+
     def link_chunk_defines_concept(
         self,
         chunk_internal_id: str,

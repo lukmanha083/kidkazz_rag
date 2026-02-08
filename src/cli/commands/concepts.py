@@ -1,6 +1,9 @@
 """Concept management commands."""
 
 import json
+import logging
+import os
+import time
 from typing import Optional
 
 import typer
@@ -16,6 +19,8 @@ from ..output import (
     print_warning,
 )
 from ..utils import get_store
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(help="Concept extraction and management commands")
 
@@ -500,3 +505,182 @@ def export_concepts(
     except Exception as e:
         print_error(f"Export failed: {e}")
         raise typer.Exit(1)
+
+
+@app.command("backfill-edges")
+def backfill_edges(
+    doc_id: Optional[str] = typer.Option(
+        None,
+        "--doc-id",
+        "-d",
+        help="Filter to a specific document",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview edge count without creating edges",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON",
+    ),
+) -> None:
+    """Create DefinesConcept edges for existing concepts.
+
+    Links concepts to the chunks where they are defined using keyword
+    search. This is a one-time backfill for concepts stored before
+    edge creation was added to the summarize command.
+
+    Examples:
+        kidkazz concepts backfill-edges --dry-run
+        kidkazz concepts backfill-edges
+        kidkazz concepts backfill-edges --doc-id inventory_accounting
+    """
+    # Pin to 2 CPU cores (same pattern as summarize)
+    try:
+        cpu_count = os.cpu_count() or 4
+        if cpu_count > 2:
+            os.sched_setaffinity(0, {0, 1})
+            logger.info("CPU affinity set to 2 cores (of %d)", cpu_count)
+    except (OSError, AttributeError):
+        pass
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+
+    config = CLIConfig.load()
+    store = get_store(config)
+
+    # Check that store supports required methods
+    if not hasattr(store, 'get_chunk_internal_id') or not hasattr(store, 'link_chunk_defines_concept'):
+        print_error("Store does not support edge creation (requires HelixChunkStore)")
+        raise typer.Exit(1)
+
+    # List all concepts
+    try:
+        concepts = store.list_concepts(doc_id=doc_id)
+    except Exception as e:
+        print_error(f"Failed to list concepts: {e}")
+        raise typer.Exit(1)
+
+    if not concepts:
+        print_warning("No concepts found.")
+        return
+
+    if not json_output:
+        console.print(f"\nBackfilling DefinesConcept edges for {len(concepts)} concepts...")
+        if dry_run:
+            console.print("[yellow]DRY RUN — no edges will be created[/yellow]")
+        console.print()
+
+    edges_created = 0
+    concepts_linked = 0
+    concepts_skipped = 0
+    start_time = time.monotonic()
+
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+        disable=json_output,
+    ) as progress:
+        task = progress.add_task("Backfilling edges...", total=len(concepts))
+
+        for i, concept in enumerate(concepts):
+            concept_name = concept.get("name", "")
+            concept_internal_id = concept.get("id")
+
+            if not concept_internal_id:
+                concepts_skipped += 1
+                progress.advance(task)
+                continue
+
+            # Parse source_documents to determine which docs to search
+            source_docs_raw = concept.get("source_documents", "[]")
+            try:
+                source_docs = json.loads(source_docs_raw) if isinstance(source_docs_raw, str) else source_docs_raw
+            except json.JSONDecodeError:
+                source_docs = []
+
+            if not source_docs:
+                concepts_skipped += 1
+                progress.advance(task)
+                continue
+
+            # Filter by doc_id if specified
+            if doc_id:
+                source_docs = [d for d in source_docs if d == doc_id]
+                if not source_docs:
+                    progress.advance(task)
+                    continue
+
+            concept_edges = 0
+            for src_doc_id in source_docs:
+                # Keyword search for concept name in this document's chunks
+                try:
+                    matches = store.search_keyword(
+                        keyword=concept_name,
+                        doc_id=src_doc_id,
+                    )
+                except Exception as e:
+                    logger.warning("Keyword search failed for '%s' in %s: %s",
+                                   concept_name, src_doc_id, e)
+                    continue
+
+                # Create edges for top 3 matches per doc
+                for chunk in matches[:3]:
+                    chunk_id = chunk.chunk.id if hasattr(chunk, 'chunk') else chunk.get("chunk_id")
+                    if not chunk_id:
+                        continue
+
+                    if dry_run:
+                        concept_edges += 1
+                        continue
+
+                    chunk_internal_id = store.get_chunk_internal_id(chunk_id)
+                    if chunk_internal_id:
+                        try:
+                            if store.link_chunk_defines_concept(chunk_internal_id, concept_internal_id):
+                                concept_edges += 1
+                        except Exception as e:
+                            logger.warning("Failed to create edge %s -> %s: %s",
+                                           chunk_id, concept_name, e)
+
+            if concept_edges > 0:
+                edges_created += concept_edges
+                concepts_linked += 1
+
+            progress.advance(task)
+            progress.update(task, description=f"Edges: {edges_created} ({concepts_linked} concepts)")
+
+            # Yield CPU periodically
+            if i % 20 == 19:
+                time.sleep(0.05)
+
+    elapsed = time.monotonic() - start_time
+
+    if json_output:
+        print_json({
+            "dry_run": dry_run,
+            "concepts_total": len(concepts),
+            "concepts_linked": concepts_linked,
+            "concepts_skipped": concepts_skipped,
+            "edges_created": edges_created,
+            "elapsed_seconds": round(elapsed, 1),
+        })
+    else:
+        action = "Would create" if dry_run else "Created"
+        console.print()
+        print_success(
+            f"{action} {edges_created} edges for "
+            f"{concepts_linked}/{len(concepts)} concepts "
+            f"in {elapsed:.1f}s"
+        )
+        if concepts_skipped:
+            console.print(f"  Skipped: {concepts_skipped} (no internal ID or source docs)")

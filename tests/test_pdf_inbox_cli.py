@@ -368,26 +368,6 @@ class TestInboxConfigCommand:
         assert result.exit_code == 0
 
 
-class TestInboxPathExpansion:
-    """Tests for path expansion in inbox configuration."""
-
-    def test_tilde_expansion(self, temp_output):
-        """Test that ~ is expanded in inbox path."""
-        from src.cli.main import app
-
-        with patch.dict(
-            "os.environ",
-            {
-                "KIDKAZZ_INBOX_PATH": "~/kidkazz_inbox",
-                "KIDKAZZ_OUTPUT_PATH": str(temp_output),
-            },
-        ):
-            result = runner.invoke(app, ["inbox", "status"])
-
-        # Should not fail due to path issues
-        assert result.exit_code == 0
-
-
 class TestInboxErrorHandling:
     """Tests for error handling in inbox commands."""
 

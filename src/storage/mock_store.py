@@ -545,6 +545,19 @@ class MockChunkStore:
         self._table_model_names.clear()
         self._table_concept_links.clear()
 
+    def get_chunk_internal_id(self, chunk_id: str) -> Optional[str]:
+        """Get internal node ID for a chunk_id (mock returns chunk_id as-is).
+
+        Args:
+            chunk_id: User-facing chunk identifier
+
+        Returns:
+            chunk_id itself if found, None otherwise
+        """
+        if chunk_id in self._chunks:
+            return chunk_id
+        return None
+
     def _reconstruct_embedded_chunk(self, chunk_id: str) -> Optional[EmbeddedChunk]:
         """
         Reconstruct an EmbeddedChunk from stored data.

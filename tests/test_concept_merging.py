@@ -253,69 +253,11 @@ class TestStoreOrMergeConcept:
 
 
 class TestIngestCrossDocumentMerging:
-    """Tests for concept merging during document ingestion."""
+    """Tests for concept merging during document ingestion.
 
-    @pytest.fixture
-    def mock_store_with_existing_concept(self):
-        """Create mock store that has an existing concept."""
-        store = MagicMock()
-        store.get_concept_by_name = MagicMock(return_value={
-            "concept_id": "fifo",
-            "name": "FIFO",
-            "definition": "First-In, First-Out",
-            "source_documents": '["inventory_textbook"]',
-            "aliases": '["First-In First-Out"]',
-        })
-        store.store_or_merge_concept = MagicMock(return_value="merged-id")
-        return store
-
-    def test_ingest_uses_merge_instead_of_store(self):
-        """Ingest should use store_or_merge_concept instead of store_concept."""
-        # This test verifies the ingest command calls the merge method
-        from typer.testing import CliRunner
-        from src.cli.main import app
-
-        runner = CliRunner()
-
-        with patch("src.cli.commands.ingest.get_store") as mock_get_store, \
-             patch("src.cli.commands.ingest.CONCEPT_EXTRACTION_AVAILABLE", True), \
-             patch("src.cli.commands.ingest.ConceptExtractor") as mock_extractor_class:
-
-            mock_store = MagicMock()
-            mock_store.store_document = MagicMock()
-            mock_store.store_or_merge_concept = MagicMock(return_value="concept-id")
-            mock_store.link_chunk_defines_concept = MagicMock()
-            mock_store.link_concept_relates_to = MagicMock()
-            mock_get_store.return_value = mock_store
-
-            # Mock extractor
-            mock_extractor = MagicMock()
-            mock_extractor.extract_from_chunks.return_value = (
-                [{"concept_id": "fifo", "name": "FIFO", "definition": "Test", "concept_type": "method", "aliases": []}],
-                [],
-            )
-            mock_extractor_class.return_value = mock_extractor
-
-            # Create temp file
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
-                f.write("# Test\n\nFIFO is a method.")
-                temp_path = f.name
-
-            try:
-                result = runner.invoke(app, [
-                    "ingest", "markdown", temp_path,
-                    "--extract-concepts",
-                    "--dry-run",
-                ])
-
-                # Should call store_or_merge_concept, not store_concept
-                if mock_store.store_or_merge_concept.called:
-                    assert True
-                # For now, we're just checking the test structure is correct
-            finally:
-                import os
-                os.unlink(temp_path)
+    Note: Concept extraction is handled via the `summarize` command
+    (not `ingest`), so merge tests use store_or_merge_concept directly.
+    """
 
     def test_second_document_merges_concepts(self):
         """When second doc has same concept, it should merge not duplicate."""

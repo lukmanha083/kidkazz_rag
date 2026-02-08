@@ -54,7 +54,7 @@ class TestCLIConfigEnvironment:
         with patch.dict(os.environ, {"KIDKAZZ_STORE_TYPE": "helix"}):
             config = CLIConfig.load()
             assert config.store_type == "helix"
-            assert config.get_source("store_type") == "environment (KIDKAZZ_STORE_TYPE)"
+            assert config.get_source("store_type") == "env"
 
     def test_load_helix_port_from_env(self):
         """Test loading helix_port from environment."""
@@ -74,11 +74,11 @@ class TestCLIConfigEnvironment:
             config = CLIConfig.load()
             assert config.embedder_type == "mock"
 
-    def test_invalid_env_value_ignored(self):
-        """Test that invalid environment values are ignored."""
+    def test_invalid_env_value_raises(self):
+        """Test that invalid environment values raise ValueError."""
         with patch.dict(os.environ, {"KIDKAZZ_HELIX_PORT": "not_a_number"}):
-            config = CLIConfig.load()
-            assert config.helix_port == 6969  # Default
+            with pytest.raises(ValueError):
+                CLIConfig.load()
 
 
 class TestCLIConfigToDict:
@@ -155,10 +155,10 @@ class TestCLIConfigGetSource:
         assert config.get_source("store_type") == "default"
 
     def test_get_source_environment(self):
-        """Test get_source returns environment source."""
+        """Test get_source returns env source."""
         with patch.dict(os.environ, {"KIDKAZZ_STORE_TYPE": "helix"}):
             config = CLIConfig.load()
-            assert "environment" in config.get_source("store_type")
+            assert config.get_source("store_type") == "env"
 
 
 class TestCLIConfigGetDefaults:
