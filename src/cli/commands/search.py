@@ -76,6 +76,17 @@ def search_semantic(
     embedder = get_embedder(config)
     store = get_store(config)
 
+    # Check embedding dimension compatibility
+    if hasattr(store, "check_embedding_compatibility"):
+        try:
+            store.check_embedding_compatibility(
+                new_dim=embedder.get_embedding_dim(),
+                new_model=getattr(embedder, "model_name", "unknown"),
+            )
+        except RuntimeError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise typer.Exit(1) from None
+
     # Parse tags
     tag_list = parse_tags(tags)
 

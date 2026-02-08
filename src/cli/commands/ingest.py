@@ -232,6 +232,18 @@ def ingest_markdown(
             # Stage 3: Store in database
             tracker.add_stage("Storing in database...", total=100)
             store_instance = get_store(config)
+
+            # Check embedding dimension compatibility before storing
+            if embedded_chunks and hasattr(store_instance, "check_embedding_compatibility"):
+                try:
+                    store_instance.check_embedding_compatibility(
+                        new_dim=embedded_chunks[0].embedding_dim,
+                        new_model=embedded_chunks[0].model_name,
+                    )
+                except RuntimeError as e:
+                    print_error(str(e))
+                    raise typer.Exit(1) from None
+
             chunk_id_map = store_instance.store_document(
                 final_doc_id,
                 final_title,

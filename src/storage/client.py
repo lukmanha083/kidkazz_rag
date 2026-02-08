@@ -213,6 +213,46 @@ class HelixChunkStore:
         self._client: Any = None
         self._initialized = False
 
+    def check_embedding_compatibility(self, new_dim: int, new_model: str = "") -> None:
+        """Check if new embeddings are compatible with existing vectors in DB.
+
+        Probes the vector index by sending a dummy search. If Helix returns
+        a dimension error, it means stored vectors have a different size.
+        Raises RuntimeError so the user can wipe the DB before proceeding.
+
+        Args:
+            new_dim: Dimension of the embeddings about to be stored/queried
+            new_model: Model name for the new embeddings (for display)
+        """
+        self._ensure_connected()
+
+        try:
+            from src.storage.queries import SearchSimilarChunks
+
+            probe = SearchSimilarChunks(
+                query_embedding=[0.0] * new_dim, top_k=1,
+            )
+            # Call helix directly to catch dimension errors from the server
+            self._client.query(probe)
+            # If it succeeds or returns empty, dimensions are compatible
+
+        except RuntimeError:
+            raise
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "invalid vector dimensions" in err_msg:
+                raise RuntimeError(
+                    f"Embedding dimension mismatch! "
+                    f"Current embedder produces dim={new_dim} "
+                    f"(model: {new_model}), but database vectors use a "
+                    f"different dimension. You must wipe the database and "
+                    f"re-ingest all documents. To wipe: stop helix, run "
+                    f"'docker run --rm -v .helix/.volumes/dev:/data "
+                    f"alpine rm -rf /data/*', then 'helix push dev'."
+                ) from e
+            # Other errors (e.g., no vectors yet) are fine
+            logger.debug("Embedding compatibility check: %s", e)
+
     def _ensure_connected(self) -> None:
         """Ensure connection to Helix-DB is established."""
         if self._initialized:
