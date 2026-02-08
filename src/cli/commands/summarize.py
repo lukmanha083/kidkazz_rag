@@ -244,9 +244,8 @@ def generate_summaries(
             store.store_summary(summary)
             stored_count += 1
 
-            # Yield CPU — each store_summary makes ~5 HTTP calls
-            time.sleep(0)
-            if i % 10 == 9:
+            # Yield CPU periodically during storage
+            if i % 20 == 19:
                 time.sleep(0.05)
         except Exception as e:
             if not json_output:

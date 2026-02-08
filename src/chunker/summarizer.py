@@ -568,13 +568,20 @@ class DocumentSummarizer:
         self._semaphore: Optional[asyncio.Semaphore] = None
         self._rate_limit_delay = 60.0 / requests_per_minute
 
-        # Lower process priority to keep system responsive during
-        # CPU-heavy extractive summarization (TextRank + YAKE)
+        # Limit CPU impact during extractive summarization (TextRank + YAKE).
+        # Pin process to 2 cores max so the rest of the system stays responsive.
+        try:
+            cpu_count = os.cpu_count() or 4
+            if cpu_count > 2:
+                os.sched_setaffinity(0, {0, 1})
+                logger.debug("CPU affinity set to cores 0,1 (of %d)", cpu_count)
+        except (OSError, AttributeError):
+            pass  # sched_setaffinity not available on all platforms
         try:
             os.nice(10)
             logger.debug("Process priority lowered (nice=10)")
         except OSError:
-            pass  # May fail on some systems
+            pass
 
     def determine_strategy(self, l1_count: int) -> SummarizationStrategy:
         """Determine the best strategy based on L1 (chapter) chunk count.
@@ -954,9 +961,8 @@ class DocumentSummarizer:
             all_summaries.append(summary)
             current += 1
 
-            # Yield CPU after each section — TextRank + YAKE are CPU-heavy
-            time.sleep(0)
-            if i % 10 == 9:
+            # Yield CPU periodically — CPU affinity handles the main throttling
+            if i % 20 == 19:
                 time.sleep(0.05)
 
         # Phase 2: Chapter summaries (LLM calls - checkpoint supported)
