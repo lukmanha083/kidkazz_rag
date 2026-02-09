@@ -1068,6 +1068,24 @@ class LinkChunkDefinesConcept(_get_query_base_class()):
         return QueryResult(success=True)
 
 
+class BatchLinkChunkDefinesConcept(_get_query_base_class()):
+    """Batch create DefinesConcept edges.
+
+    Takes a list of (chunk_id, concept_id) pairs and creates all edges
+    in a single HTTP request using HelixQL FOR...IN loop.
+    """
+
+    def __init__(self, edges: list[dict[str, str]]) -> None:
+        super().__init__(endpoint="BatchLinkChunkDefinesConcept")
+        self.edges = edges  # [{"chunk_id": "...", "concept_id": "..."}, ...]
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"edges": self.edges}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True)
+
+
 class LinkChunkMentionsConcept(_get_query_base_class()):
     """Link chunk to concept it mentions.
 
@@ -1162,7 +1180,9 @@ class GetConceptDefinitionChunks(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of chunk nodes."""
+        """Process response - HelixQL RETURN chunks wraps in {"chunks": [...]}."""
+        if isinstance(response, dict) and "chunks" in response:
+            return QueryResult(success=True, data=response["chunks"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1190,7 +1210,9 @@ class GetConceptMentionChunks(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of chunk nodes."""
+        """Process response - HelixQL RETURN chunks wraps in {"chunks": [...]}."""
+        if isinstance(response, dict) and "chunks" in response:
+            return QueryResult(success=True, data=response["chunks"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1218,7 +1240,9 @@ class GetRelatedConcepts(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of concept nodes."""
+        """Process response - HelixQL RETURN related wraps in {"related": [...]}."""
+        if isinstance(response, dict) and "related" in response:
+            return QueryResult(success=True, data=response["related"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1246,13 +1270,16 @@ class GetConceptDependents(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
-        """Process response - expects list of concept nodes."""
+        """Process response - HelixQL RETURN dependents wraps in {"dependents": [...]}."""
+        if isinstance(response, dict) and "dependents" in response:
+            return QueryResult(success=True, data=response["dependents"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
 
 
 # Typed concept traversal queries - forward direction (Out edges)
+# All forward queries use HelixQL RETURN related -> {"related": [...]}
 class GetConceptsUses(_get_query_base_class()):
     """Get concepts this one uses (Out<Uses>)."""
 
@@ -1264,6 +1291,8 @@ class GetConceptsUses(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "related" in response:
+            return QueryResult(success=True, data=response["related"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1280,6 +1309,8 @@ class GetConceptsRequires(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "related" in response:
+            return QueryResult(success=True, data=response["related"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1296,6 +1327,8 @@ class GetConceptsCalculatedFrom(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "related" in response:
+            return QueryResult(success=True, data=response["related"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1312,6 +1345,8 @@ class GetConceptsComponentOf(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "related" in response:
+            return QueryResult(success=True, data=response["related"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1328,6 +1363,8 @@ class GetConceptsRecordedIn(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "related" in response:
+            return QueryResult(success=True, data=response["related"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1344,12 +1381,15 @@ class GetConceptsSupersedes(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "related" in response:
+            return QueryResult(success=True, data=response["related"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
 
 
 # Typed concept traversal queries - reverse direction (In edges)
+# All reverse queries use HelixQL RETURN dependents -> {"dependents": [...]}
 class GetConceptUsedBy(_get_query_base_class()):
     """Get concepts that use this one (In<Uses>)."""
 
@@ -1361,6 +1401,8 @@ class GetConceptUsedBy(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "dependents" in response:
+            return QueryResult(success=True, data=response["dependents"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
@@ -1377,6 +1419,8 @@ class GetConceptRequiredBy(_get_query_base_class()):
         return [{"concept_id": self.concept_id}]
 
     def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "dependents" in response:
+            return QueryResult(success=True, data=response["dependents"])
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])

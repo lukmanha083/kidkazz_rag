@@ -8,6 +8,92 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# CPU usage threshold — abort edge creation if system CPU exceeds this
+CPU_ABORT_THRESHOLD = 75.0
+
+
+EDGE_CHECKPOINT_DIR = os.path.join(os.path.expanduser("~"), ".cache", "kidkazz")
+
+
+def _checkpoint_path(doc_id: str) -> str:
+    """Path for edge-creation checkpoint file."""
+    return os.path.join(EDGE_CHECKPOINT_DIR, f"edge_progress_{doc_id}.json")
+
+
+def _load_checkpoint(doc_id: str) -> set[str]:
+    """Load set of concept names that already have edges created."""
+    path = _checkpoint_path(doc_id)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if data.get("doc_id") == doc_id:
+            return set(data.get("completed_concepts", []))
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass
+    return set()
+
+
+def _save_checkpoint(doc_id: str, completed_concepts: set[str], edges_created: int, total_edges: int) -> None:
+    """Save edge-creation progress to checkpoint file (atomic write)."""
+    os.makedirs(EDGE_CHECKPOINT_DIR, exist_ok=True)
+    path = _checkpoint_path(doc_id)
+    tmp_path = path + ".tmp"
+    data = {
+        "doc_id": doc_id,
+        "completed_concepts": sorted(completed_concepts),
+        "edges_created": edges_created,
+        "total_edges": total_edges,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    with open(tmp_path, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp_path, path)  # atomic on POSIX
+
+
+def _delete_checkpoint(doc_id: str) -> None:
+    """Remove checkpoint file after successful completion."""
+    path = _checkpoint_path(doc_id)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _get_cpu_percent(interval: float = 0.5) -> Optional[float]:
+    """Get current system-wide CPU usage percentage (0-100).
+
+    Reads /proc/stat twice with a short interval to compute usage.
+    Falls back to psutil if /proc/stat is unavailable (non-Linux).
+    Returns None if measurement fails entirely.
+    """
+    # Primary: read /proc/stat (Linux, no extra deps)
+    try:
+        def _read_cpu_times():
+            with open("/proc/stat") as f:
+                line = f.readline()  # first line is aggregate "cpu ..."
+            parts = line.split()
+            # fields: user, nice, system, idle, iowait, irq, softirq, steal
+            return [int(x) for x in parts[1:]]
+
+        t1 = _read_cpu_times()
+        time.sleep(interval)
+        t2 = _read_cpu_times()
+
+        delta_idle = (t2[3] + t2[4]) - (t1[3] + t1[4])  # idle + iowait
+        delta_total = sum(t2) - sum(t1)
+        if delta_total == 0:
+            return 0.0
+        return (1.0 - delta_idle / delta_total) * 100.0
+    except (FileNotFoundError, IndexError, ValueError, OSError):
+        pass
+
+    # Fallback: psutil (cross-platform)
+    try:
+        import psutil
+        return psutil.cpu_percent(interval=interval)
+    except (ImportError, Exception):
+        return None
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -294,11 +380,23 @@ def generate_summaries(
                 elapsed, stored_count, len(summaries))
 
     # Store concepts (merge across documents for cross-document graph)
-    # and create DefinesConcept edges from source chunks
+    # Two-phase approach: store concepts first, then create edges with throttling.
+    # This prevents interleaved concept+edge calls from overwhelming Helix-DB.
+
+    # Pre-build chunk_id -> internal_id cache (1 HTTP call instead of thousands)
+    chunk_id_cache: dict[str, str] = {}
+    if hasattr(store, 'build_chunk_id_cache'):
+        logger.info("=== PHASE: Building chunk ID cache ===")
+        chunk_id_cache = store.build_chunk_id_cache(doc_id)
+        logger.info("  Cached %d chunk ID mappings", len(chunk_id_cache))
+
+    # --- Phase A: Store/merge concepts, collect edge pairs ---
     logger.info("=== PHASE: Concept storage START (%d concepts) ===", len(concepts))
     phase_start = time.monotonic()
     stored_concepts = 0
-    edges_created = 0
+    edge_queue: list[tuple[str, str]] = []  # (chunk_internal_id, concept_internal_id)
+    concept_id_to_name: dict[str, str] = {}  # internal_id -> concept name (for checkpoint)
+
     for i, concept in enumerate(concepts):
         try:
             concept_internal_id = store.store_or_merge_concept(
@@ -311,8 +409,9 @@ def generate_summaries(
             )
             stored_concepts += 1
 
-            # Create DefinesConcept edges from source chunks to this concept
-            if concept_internal_id and hasattr(store, 'get_chunk_internal_id'):
+            # Collect edge pairs for Phase B (no HTTP calls here)
+            if concept_internal_id:
+                concept_id_to_name[concept_internal_id] = concept.name
                 seen_chunk_ids: set[str] = set()
                 for occ in concept.occurrences:
                     # Extract chunk_id from summary_id format: "summary_{chunk_id}_{level}"
@@ -332,17 +431,17 @@ def generate_summaries(
                         continue
                     seen_chunk_ids.add(source_chunk_id)
 
-                    chunk_internal_id = store.get_chunk_internal_id(source_chunk_id)
-                    if chunk_internal_id:
-                        if store.link_chunk_defines_concept(chunk_internal_id, concept_internal_id):
-                            edges_created += 1
+                    # Look up from cache (0 HTTP calls) instead of get_chunk_internal_id (1 HTTP call each)
+                    cid = chunk_id_cache.get(source_chunk_id)
+                    if cid:
+                        edge_queue.append((cid, concept_internal_id))
 
             # Log progress every 100 concepts
             if (i + 1) % 100 == 0:
-                elapsed = time.monotonic() - phase_start
-                rate = (i + 1) / elapsed if elapsed > 0 else 0
-                logger.info("  Concept storage: %d/%d (%.1f/s, %.1fs elapsed, %d edges)",
-                            i + 1, len(concepts), rate, elapsed, edges_created)
+                elapsed_so_far = time.monotonic() - phase_start
+                rate = (i + 1) / elapsed_so_far if elapsed_so_far > 0 else 0
+                logger.info("  Concept storage: %d/%d (%.1f/s, %.1fs elapsed)",
+                            i + 1, len(concepts), rate, elapsed_so_far)
 
             # Yield CPU periodically during storage
             if i % 20 == 19:
@@ -353,8 +452,217 @@ def generate_summaries(
                 print_warning(f"Failed to store concept {concept.name}: {e}")
 
     elapsed = time.monotonic() - phase_start
-    logger.info("=== PHASE: Concept storage DONE in %.1fs (%d/%d stored, %d edges) ===",
-                elapsed, stored_concepts, len(concepts), edges_created)
+    logger.info("=== PHASE: Concept storage DONE in %.1fs (%d/%d stored, %d edges queued) ===",
+                elapsed, stored_concepts, len(concepts), len(edge_queue))
+
+    # --- Phase B: Create DefinesConcept edges in concept-batched phases ---
+    # Group edges by concept_id so we can throttle by concept count.
+    # With 2500+ concepts, sending all edges rapidly freezes the system.
+    # Instead: process 50 concepts at a time, create their edges, then pause.
+    # Checkpoint/resume: progress is saved after each phase so an aborted run
+    # (CPU spike, crash, Ctrl+C) can be resumed — like a download manager.
+    from collections import defaultdict
+
+    CONCEPT_BATCH_SIZE = 50   # concepts per phase
+    EDGE_BATCH_SIZE = 50      # edges per HTTP request (HelixQL FOR loop limit)
+    PHASE_COOLDOWN = 3        # seconds between concept phases
+
+    edges_by_concept: dict[str, list[str]] = defaultdict(list)
+    for chunk_id, concept_id in edge_queue:
+        edges_by_concept[concept_id].append(chunk_id)
+
+    # Load checkpoint — skip concepts whose edges were already created in a prior run
+    completed_concepts: set[str] = _load_checkpoint(doc_id)
+    if completed_concepts:
+        before = len(edges_by_concept)
+        skipped_edges = 0
+        for cid in list(edges_by_concept.keys()):
+            cname = concept_id_to_name.get(cid, "")
+            if cname in completed_concepts:
+                skipped_edges += len(edges_by_concept.pop(cid))
+        after = len(edges_by_concept)
+        logger.info(
+            "  Checkpoint loaded: %d concepts already done, skipping %d edges "
+            "(%d → %d concepts remaining)",
+            before - after, skipped_edges, before, after,
+        )
+        if not json_output:
+            console.print(
+                f"  [cyan]Resuming edge creation: {before - after} concepts already done, "
+                f"{after} remaining[/cyan]"
+            )
+
+    concept_ids = list(edges_by_concept.keys())
+    total_remaining_edges = sum(len(v) for v in edges_by_concept.values())
+    concept_phases = [
+        concept_ids[i:i + CONCEPT_BATCH_SIZE]
+        for i in range(0, len(concept_ids), CONCEPT_BATCH_SIZE)
+    ]
+
+    logger.info(
+        "=== PHASE: Edge creation START (%d edges, %d concepts, %d phases of %d concepts) ===",
+        total_remaining_edges, len(concept_ids), len(concept_phases), CONCEPT_BATCH_SIZE,
+    )
+    phase_start = time.monotonic()
+    edges_created = 0
+    consecutive_phase_failures = 0
+    cpu_abort = False
+
+    for phase_idx, concept_batch in enumerate(concept_phases):
+        if consecutive_phase_failures >= 3:
+            logger.error("  3 consecutive concept-phase failures — aborting edge creation")
+            if not json_output:
+                print_warning(
+                    f"Aborted edge creation after 3 consecutive phase failures "
+                    f"({edges_created}/{total_remaining_edges} edges created)"
+                )
+            break
+
+        # --- CPU safety check before each concept phase ---
+        cpu_pct = _get_cpu_percent(interval=0.5)
+        if cpu_pct is not None:
+            logger.info("  CPU check before phase %d: %.1f%%", phase_idx + 1, cpu_pct)
+            if cpu_pct > CPU_ABORT_THRESHOLD:
+                # Wait once to see if it cools down
+                logger.warning(
+                    "  CPU %.1f%% > %.0f%% threshold — waiting 10s for cooldown...",
+                    cpu_pct, CPU_ABORT_THRESHOLD,
+                )
+                if not json_output:
+                    console.print(
+                        f"  [yellow]CPU {cpu_pct:.0f}% — pausing 10s to cool down...[/yellow]"
+                    )
+                time.sleep(10)
+                cpu_pct = _get_cpu_percent(interval=1.0)
+                if cpu_pct is not None and cpu_pct > CPU_ABORT_THRESHOLD:
+                    logger.error(
+                        "  CPU still %.1f%% after cooldown — aborting edge creation "
+                        "to prevent system freeze (%d/%d edges created)",
+                        cpu_pct, edges_created, total_remaining_edges,
+                    )
+                    if not json_output:
+                        print_warning(
+                            f"CPU usage {cpu_pct:.0f}% still above {CPU_ABORT_THRESHOLD:.0f}% "
+                            f"after cooldown — aborting edge creation "
+                            f"({edges_created}/{total_remaining_edges} edges created). "
+                            f"Run the same command again to resume."
+                        )
+                    cpu_abort = True
+                    # Save checkpoint before aborting
+                    _save_checkpoint(doc_id, completed_concepts, edges_created, total_remaining_edges)
+                    break
+                else:
+                    logger.info("  CPU cooled to %.1f%% — resuming", cpu_pct or 0)
+
+        # Collect all edges for this concept batch
+        phase_edges = []
+        for cid in concept_batch:
+            for chunk_id in edges_by_concept[cid]:
+                phase_edges.append((chunk_id, cid))
+
+        # Sub-batch edges into HTTP requests (50 edges each)
+        edge_sub_batches = [
+            phase_edges[i:i + EDGE_BATCH_SIZE]
+            for i in range(0, len(phase_edges), EDGE_BATCH_SIZE)
+        ]
+
+        phase_ok = True
+        for sub_idx, sub_batch in enumerate(edge_sub_batches):
+            success = False
+            for attempt in range(4):
+                try:
+                    if hasattr(store, 'batch_link_chunk_defines_concept'):
+                        count = store.batch_link_chunk_defines_concept(sub_batch)
+                    else:
+                        count = sum(1 for c, p in sub_batch if store.link_chunk_defines_concept(c, p))
+                    edges_created += count
+                    success = True
+                    break
+                except ConnectionRefusedError:
+                    delay = 5 * (2 ** attempt)
+                    logger.warning(
+                        "  Phase %d/%d sub-batch %d: connection refused, retry %d in %ds",
+                        phase_idx + 1, len(concept_phases), sub_idx + 1, attempt + 1, delay,
+                    )
+                    time.sleep(delay)
+                except (ConnectionResetError, OSError) as e:
+                    if attempt < 3:
+                        delay = 2 * (2 ** attempt)
+                        logger.warning(
+                            "  Phase %d/%d sub-batch %d: %s, retry %d in %ds",
+                            phase_idx + 1, len(concept_phases), sub_idx + 1,
+                            type(e).__name__, attempt + 1, delay,
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(
+                            "  Phase %d/%d sub-batch %d: %s after %d retries",
+                            phase_idx + 1, len(concept_phases), sub_idx + 1, e, attempt + 1,
+                        )
+                except Exception as e:
+                    logger.error(
+                        "  Phase %d/%d sub-batch %d: unexpected %s: %s (no retry)",
+                        phase_idx + 1, len(concept_phases), sub_idx + 1,
+                        type(e).__name__, e,
+                    )
+                    break
+
+            if not success:
+                phase_ok = False
+
+            # Short pause between sub-batches within a phase
+            time.sleep(0.3)
+
+        if phase_ok:
+            consecutive_phase_failures = 0
+            # Mark these concepts as completed in checkpoint
+            for cid in concept_batch:
+                cname = concept_id_to_name.get(cid, "")
+                if cname:
+                    completed_concepts.add(cname)
+        else:
+            consecutive_phase_failures += 1
+
+        # Save checkpoint after every phase (survives crash/Ctrl+C/CPU abort)
+        _save_checkpoint(doc_id, completed_concepts, edges_created, total_remaining_edges)
+
+        # Log progress after each concept phase
+        elapsed_so_far = time.monotonic() - phase_start
+        logger.info(
+            "  Concept-phase %d/%d done: %d concepts, %d edges this phase, "
+            "%d/%d total edges (%.1fs elapsed) [checkpoint saved]",
+            phase_idx + 1, len(concept_phases), len(concept_batch),
+            len(phase_edges), edges_created, total_remaining_edges, elapsed_so_far,
+        )
+
+        if not json_output:
+            console.print(
+                f"  Edge progress: phase {phase_idx + 1}/{len(concept_phases)} "
+                f"({edges_created}/{total_remaining_edges} edges) [checkpoint saved]"
+            )
+
+        # Cooldown between concept phases — let Helix-DB breathe
+        if phase_idx < len(concept_phases) - 1:
+            logger.info("  Cooling down %ds before next concept phase...", PHASE_COOLDOWN)
+            time.sleep(PHASE_COOLDOWN)
+
+    elapsed = time.monotonic() - phase_start
+
+    # Clean up checkpoint if all edges were created successfully
+    all_done = (not cpu_abort and consecutive_phase_failures < 3
+                and edges_created >= total_remaining_edges)
+    if all_done:
+        _delete_checkpoint(doc_id)
+        logger.info("=== PHASE: Edge creation DONE in %.1fs (%d/%d created, checkpoint cleared) ===",
+                     elapsed, edges_created, total_remaining_edges)
+    else:
+        logger.info("=== PHASE: Edge creation INCOMPLETE in %.1fs (%d/%d created, checkpoint saved) ===",
+                     elapsed, edges_created, total_remaining_edges)
+        if not json_output and not cpu_abort:
+            console.print(
+                f"  [yellow]Edge creation incomplete ({edges_created}/{total_remaining_edges}). "
+                f"Run the same command again to resume.[/yellow]"
+            )
 
     # Output results
     if json_output:
