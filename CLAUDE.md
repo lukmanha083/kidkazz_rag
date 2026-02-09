@@ -40,6 +40,36 @@ helix init
 helix push dev  # Starts on port 6969
 ```
 
+### Helix-DB Deployment (Two-Step Process)
+
+**Important:** `helix push dev` regenerates `.helix/dev/docker-compose.yml` on every run, stripping any custom environment variables. We use custom env vars to limit Helix-DB thread count (see "Thread Limiting" below). Therefore deployment is a two-step process:
+
+```bash
+# Step 1: Compile queries & build image (required after db/queries.hx or db/schema.hx changes)
+helix push dev
+
+# Step 2: Re-add env vars and restart with them
+# Edit .helix/dev/docker-compose.yml to add env vars (see below), fix port to 6969:6969, then:
+docker stop helix-kidkazz_rag-dev_app && docker rm helix-kidkazz_rag-dev_app
+cd .helix/dev && docker compose up -d
+```
+
+**When to use each command:**
+- **Schema/query changes** (`db/queries.hx`, `db/schema.hx`): Must run `helix push dev` first (compiles HQL → Rust, rebuilds Docker image), then Step 2
+- **Just restarting** (no schema changes): `cd .helix/dev && docker compose up -d` (preserves env vars)
+- **Never use `helix push dev` alone** — it strips thread-limiting env vars
+
+**Thread-limiting env vars** (add to `.helix/dev/docker-compose.yml` after each `helix push`):
+```yaml
+environment:
+  # ... existing vars ...
+  - HELIX_CORES_OVERRIDE=2    # Gateway: 2*8=16 threads (default: nproc*8=128)
+  - TOKIO_WORKER_THREADS=2    # Tokio async runtime
+  - RAYON_NUM_THREADS=2        # Rayon parallel compute
+```
+
+Without these, Helix-DB detects 16 cores via `nproc` and spawns 128 worker threads, causing CPU spikes even with Docker CPU limits (cgroups limit CPU time, not thread count).
+
 ### CLI (requires `.[cli]` installed)
 ```bash
 kidkazz ingest markdown file.md --tags "inventory,accounting"

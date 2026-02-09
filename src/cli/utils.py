@@ -113,18 +113,15 @@ def get_embedder(config: CLIConfig, embedder_override: Optional[str] = None) -> 
         return MockEmbedder()
 
 
-def resolve_doc_id(file_path: Path, doc_id: Optional[str] = None) -> str:
-    """Resolve document ID from file path or explicit value.
+def resolve_doc_id(file_path: Path) -> str:
+    """Get document ID from filename stem.
 
     Args:
         file_path: Path to source file
-        doc_id: Explicit document ID (optional)
 
     Returns:
-        Document ID string
+        Document ID string (filename without extension)
     """
-    if doc_id:
-        return doc_id
     return file_path.stem
 
 

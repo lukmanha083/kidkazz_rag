@@ -271,6 +271,13 @@ QUERY LinkChunkDefinesConcept(chunk_id: ID, concept_id: ID) =>
     AddE<DefinesConcept>::From(chunk)::To(concept)
     RETURN chunk
 
+// Batch link chunks to concepts (50-100 edges per call instead of 1)
+QUERY BatchLinkChunkDefinesConcept(edges: [{chunk_id: ID, concept_id: ID}]) =>
+    FOR {chunk_id, concept_id} IN edges {
+        AddE<DefinesConcept>::From(chunk_id)::To(concept_id)
+    }
+    RETURN "Edges added"
+
 // Link chunk to concept it mentions
 QUERY LinkChunkMentionsConcept(chunk_id: ID, concept_id: ID) =>
     chunk <- N<Chunk>(chunk_id)
