@@ -83,12 +83,6 @@ def ingest_markdown(
         help="Path to Markdown file (checks output directory if not found)",
         dir_okay=False,
     ),
-    doc_id: Optional[str] = typer.Option(
-        None,
-        "--doc-id",
-        "-d",
-        help="Document identifier (default: filename)",
-    ),
     title: Optional[str] = typer.Option(
         None,
         "--title",
@@ -172,7 +166,7 @@ def ingest_markdown(
         raise typer.Exit(1)
 
     # Resolve doc_id and title
-    final_doc_id = resolve_doc_id(file, doc_id)
+    final_doc_id = resolve_doc_id(file)
     final_title = resolve_title(file, content, title)
 
     # Parse tags early so they can be shown in dry-run
@@ -457,12 +451,6 @@ def ingest_pdf(
         exists=True,
         dir_okay=False,
         resolve_path=True,
-    ),
-    doc_id: Optional[str] = typer.Option(
-        None,
-        "--doc-id",
-        "-d",
-        help="Document identifier",
     ),
     title: Optional[str] = typer.Option(
         None,

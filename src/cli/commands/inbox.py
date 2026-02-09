@@ -186,7 +186,7 @@ def list_pdfs(
                 console.print(json.dumps(data, indent=2))
             else:
                 table = Table(title="Parsed Markdown Files")
-                table.add_column("Name", style="cyan", max_width=50)
+                table.add_column("Name", style="cyan", no_wrap=True)
                 table.add_column("Size", justify="right")
                 table.add_column("Status", justify="center")
                 table.add_column("Words", justify="right")

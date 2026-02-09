@@ -70,6 +70,7 @@ from .queries import (
     GetTableConcepts,
     GetTablesByDocumentId,
     GetTablesForConcept,
+    BatchLinkChunkDefinesConcept,
     LinkChunkDefinesConcept,
     LinkChunkMentionsConcept,
     LinkChunkTable,
@@ -1385,6 +1386,38 @@ class HelixChunkStore:
 
         return self._extract_node_id(result.data)
 
+    def build_chunk_id_cache(self, doc_id: str) -> dict[str, str]:
+        """Build chunk_id -> internal_id mapping with a single query.
+
+        Instead of calling get_chunk_internal_id() per chunk (1 HTTP call each),
+        this fetches all chunks for a document in one query and builds a lookup
+        dict. For a 660-chunk document, this replaces ~660 HTTP calls with 1.
+
+        Args:
+            doc_id: Document identifier
+
+        Returns:
+            Dictionary mapping user-facing chunk_id to internal Helix node ID
+        """
+        self._ensure_connected()
+
+        query = GetDocumentChunks(doc_id)
+        result = self._execute_query(query)
+
+        cache: dict[str, str] = {}
+        if not result.success:
+            return cache
+
+        for item in result.data or []:
+            node = item.get("node", item) if isinstance(item, dict) else item
+            if isinstance(node, dict):
+                chunk_id = node.get("chunk_id")
+                internal_id = node.get("id")
+                if chunk_id and internal_id:
+                    cache[str(chunk_id)] = str(internal_id)
+
+        return cache
+
     def link_chunk_defines_concept(
         self,
         chunk_internal_id: str,
@@ -1405,6 +1438,24 @@ class HelixChunkStore:
         query = LinkChunkDefinesConcept(chunk_internal_id, concept_internal_id)
         result = self._execute_query(query)
         return result.success
+
+    def batch_link_chunk_defines_concept(
+        self,
+        edges: list[tuple[str, str]],
+    ) -> int:
+        """Batch create DefinesConcept edges in a single HTTP request.
+
+        Args:
+            edges: List of (chunk_internal_id, concept_internal_id) tuples
+
+        Returns:
+            Number of edges created (len of input on success, 0 on failure)
+        """
+        self._ensure_connected()
+        edge_dicts = [{"chunk_id": c, "concept_id": p} for c, p in edges]
+        query = BatchLinkChunkDefinesConcept(edge_dicts)
+        result = self._execute_query(query)
+        return len(edges) if result.success else 0
 
     def link_chunk_mentions_concept(
         self,
