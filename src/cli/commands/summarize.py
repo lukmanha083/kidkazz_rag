@@ -367,9 +367,8 @@ def generate_summaries(
                 logger.info("  Summary storage: %d/%d (%.1f/s, %.1fs elapsed)",
                             i + 1, len(summaries), rate, elapsed)
 
-            # Yield CPU periodically during storage
-            if i % 20 == 19:
-                time.sleep(0.05)
+            # Throttle: sleep after every call to prevent Helix-DB thread explosion
+            time.sleep(0.08)
         except Exception as e:
             logger.error("Failed to store summary %s: %s", summary.summary_id, e)
             if not json_output:
@@ -443,9 +442,16 @@ def generate_summaries(
                 logger.info("  Concept storage: %d/%d (%.1f/s, %.1fs elapsed)",
                             i + 1, len(concepts), rate, elapsed_so_far)
 
-            # Yield CPU periodically during storage
-            if i % 20 == 19:
-                time.sleep(0.05)
+            # Throttle: sleep after every call to cap rate at ~6/s.
+            # Without this, 16+ calls/s causes Helix-DB's 128 threads to spike CPU.
+            time.sleep(0.15)
+
+            # Every 500 concepts, take a longer breather to let Helix-DB catch up
+            if (i + 1) % 500 == 0:
+                logger.info("  Pausing 5s after %d concepts to let Helix-DB settle", i + 1)
+                if not json_output:
+                    console.print(f"  [dim]Pausing 5s after {i + 1} concepts...[/dim]")
+                time.sleep(5)
         except Exception as e:
             logger.error("Failed to store concept %s: %s", concept.name, e)
             if not json_output:
@@ -454,6 +460,15 @@ def generate_summaries(
     elapsed = time.monotonic() - phase_start
     logger.info("=== PHASE: Concept storage DONE in %.1fs (%d/%d stored, %d edges queued) ===",
                 elapsed, stored_concepts, len(concepts), len(edge_queue))
+
+    # --- Mandatory cooldown between Phase A and Phase B ---
+    # After 2000+ concept storage calls, Helix-DB needs time to finish processing.
+    # A fixed 15s pause is more reliable than CPU monitoring (which can't detect
+    # Helix-DB internal thread pressure until the system is already freezing).
+    logger.info("=== Mandatory 15s cooldown before edge creation ===")
+    if not json_output:
+        console.print("  [dim]Cooling down 15s before edge creation...[/dim]")
+    time.sleep(15)
 
     # --- Phase B: Create DefinesConcept edges in concept-batched phases ---
     # Group edges by concept_id so we can throttle by concept count.
@@ -465,7 +480,7 @@ def generate_summaries(
 
     CONCEPT_BATCH_SIZE = 50   # concepts per phase
     EDGE_BATCH_SIZE = 50      # edges per HTTP request (HelixQL FOR loop limit)
-    PHASE_COOLDOWN = 3        # seconds between concept phases
+    PHASE_COOLDOWN = 5        # seconds between concept phases
 
     edges_by_concept: dict[str, list[str]] = defaultdict(list)
     for chunk_id, concept_id in edge_queue:
@@ -610,8 +625,8 @@ def generate_summaries(
             if not success:
                 phase_ok = False
 
-            # Short pause between sub-batches within a phase
-            time.sleep(0.3)
+            # Pause between sub-batches to avoid overwhelming Helix-DB
+            time.sleep(0.5)
 
         if phase_ok:
             consecutive_phase_failures = 0
