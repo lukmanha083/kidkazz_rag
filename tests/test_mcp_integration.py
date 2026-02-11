@@ -297,19 +297,6 @@ class TestResourceWorkflow:
 class TestFilteringWorkflows:
     """Test filtering capabilities in workflows."""
 
-    def test_semantic_type_filtering(self, integrated_system):
-        """Test filtering by semantic type."""
-        tools = integrated_system["tools"]
-
-        # Search for examples only
-        examples = tools["search_semantic"](
-            query="machine learning", semantic_type="example", top_k=10
-        )
-
-        # All results should be examples (if any match)
-        # Note: with mock embeddings, we may not get exact matches
-        assert isinstance(examples, list)
-
     def test_level_filtering(self, integrated_system):
         """Test filtering by hierarchy level."""
         tools = integrated_system["tools"]

@@ -98,7 +98,16 @@ def get_embedder(config: CLIConfig, embedder_override: Optional[str] = None) -> 
     """
     embedder_type = embedder_override or config.embedder_type
 
-    if embedder_type == "openai":
+    if embedder_type == "cohere":
+        try:
+            from src.chunker import CohereEmbedder
+
+            return CohereEmbedder(model_name=config.model_name)
+        except ImportError as err:
+            raise ImportError(
+                "Cohere is not installed. Run: pip install cohere"
+            ) from err
+    elif embedder_type == "openai":
         try:
             from src.chunker import OpenAIEmbedder
 
@@ -111,6 +120,28 @@ def get_embedder(config: CLIConfig, embedder_override: Optional[str] = None) -> 
         from src.chunker.embedder import MockEmbedder
 
         return MockEmbedder()
+
+
+def get_reranker(config: CLIConfig) -> Optional[Any]:
+    """Get reranker instance if enabled in configuration.
+
+    Args:
+        config: CLI configuration
+
+    Returns:
+        CohereReranker instance if enabled, None otherwise
+    """
+    if not config.reranker_enabled:
+        return None
+
+    try:
+        from src.chunker.reranker import CohereReranker
+
+        return CohereReranker(model_name=config.reranker_model)
+    except (ImportError, ValueError) as e:
+        import logging
+        logging.getLogger(__name__).warning("Could not create reranker: %s", e)
+        return None
 
 
 def resolve_doc_id(file_path: Path) -> str:

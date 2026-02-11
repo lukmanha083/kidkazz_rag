@@ -22,6 +22,7 @@ Usage:
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
@@ -70,6 +71,7 @@ from .queries import (
     GetTableConcepts,
     GetTablesByDocumentId,
     GetTablesForConcept,
+    BatchDropChunkConceptEdges,
     BatchLinkChunkDefinesConcept,
     LinkChunkDefinesConcept,
     LinkChunkMentionsConcept,
@@ -1457,6 +1459,29 @@ class HelixChunkStore:
         result = self._execute_query(query)
         return len(edges) if result.success else 0
 
+    def batch_drop_chunk_concept_edges(
+        self,
+        chunk_internal_ids: list[str],
+    ) -> bool:
+        """Batch drop all DefinesConcept edges from chunks.
+
+        Args:
+            chunk_internal_ids: List of internal chunk node IDs
+
+        Returns:
+            True if edges dropped successfully
+        """
+        self._ensure_connected()
+        BATCH_SIZE = 50
+        for i in range(0, len(chunk_internal_ids), BATCH_SIZE):
+            batch = chunk_internal_ids[i:i + BATCH_SIZE]
+            query = BatchDropChunkConceptEdges(batch)
+            result = self._execute_query(query)
+            if not result.success:
+                return False
+            time.sleep(0.08)
+        return True
+
     def link_chunk_mentions_concept(
         self,
         chunk_internal_id: str,
@@ -2255,6 +2280,7 @@ class HelixChunkStore:
         limit: int = 10,
         level: Optional[str] = None,
         document_id: Optional[str] = None,
+        threshold: float = 0.0,
     ) -> list[dict[str, Any]]:
         """
         Search summaries using vector similarity.
@@ -2264,6 +2290,7 @@ class HelixChunkStore:
             limit: Maximum number of results
             level: Optional filter by level
             document_id: Optional filter by document
+            threshold: Minimum similarity score (0.0 to disable)
 
         Returns:
             List of summary dictionaries with scores
@@ -2296,6 +2323,10 @@ class HelixChunkStore:
             else:
                 continue
 
+            # Apply threshold filter early
+            if threshold > 0 and score < threshold:
+                continue
+
             if not vector_id:
                 continue
 
@@ -2325,20 +2356,26 @@ class HelixChunkStore:
 
         return results
 
-    def delete_document_summaries(self, document_id: str) -> bool:
+    def delete_document_summaries(self, document_id: str) -> int:
         """
-        Delete all summaries for a document.
+        Delete all summaries for a document, including linked SummaryVector nodes.
 
-        The HelixQL query returns matching summaries; client drops each one
-        individually since HelixQL doesn't support DELETE WHERE.
+        For each summary: drop embedding edge -> drop vector -> drop summary.
+        This prevents orphaned SummaryVector nodes that pollute the vector index.
 
         Args:
             document_id: Document identifier
 
         Returns:
-            True if deletion succeeded
+            Number of summaries deleted
         """
-        from src.storage.queries import DeleteDocumentSummaries, DeleteSummary
+        from src.storage.queries import (
+            DeleteDocumentSummaries,
+            DeleteSummary,
+            DropSummaryEmbeddingEdge,
+            GetSummaryVector,
+            DropSummaryVector,
+        )
 
         self._ensure_connected()
 
@@ -2346,20 +2383,51 @@ class HelixChunkStore:
         result = self._execute_query(query)
 
         if not result.success:
-            return False
+            return 0
 
-        # Drop each summary individually
+        deleted = 0
         for summary in result.data or []:
-            if isinstance(summary, dict):
-                internal_id = summary.get("id")
-                if internal_id:
-                    try:
-                        drop_query = DeleteSummary(internal_id)
-                        self._client.query(drop_query)
-                    except Exception as e:
-                        logger.warning("Failed to drop summary %s: %s", internal_id, e)
+            if not isinstance(summary, dict):
+                continue
+            internal_id = summary.get("id")
+            if not internal_id:
+                continue
 
-        return True
+            try:
+                # Step 1: Get linked SummaryVector
+                vec_query = GetSummaryVector(internal_id)
+                vec_result = self._execute_query(vec_query)
+                vector_id = None
+                if vec_result.success and vec_result.data:
+                    vector_id = self._extract_node_id(vec_result.data)
+
+                # Step 2: Drop embedding edge
+                try:
+                    edge_query = DropSummaryEmbeddingEdge(internal_id)
+                    self._client.query(edge_query)
+                except Exception as e:
+                    logger.debug("Failed to drop embedding edge for summary %s: %s", internal_id, e)
+
+                # Step 3: Drop the SummaryVector node
+                if vector_id:
+                    try:
+                        drop_vec_query = DropSummaryVector(vector_id)
+                        self._client.query(drop_vec_query)
+                    except Exception as e:
+                        logger.debug("Failed to drop vector %s: %s", vector_id, e)
+
+                # Step 4: Drop the summary node
+                drop_query = DeleteSummary(internal_id)
+                self._client.query(drop_query)
+                deleted += 1
+
+                # Throttle to prevent Helix-DB thread explosion
+                time.sleep(0.08)
+
+            except Exception as e:
+                logger.warning("Failed to delete summary %s: %s", internal_id, e)
+
+        return deleted
 
     def list_summarized_documents(self) -> list[dict[str, Any]]:
         """

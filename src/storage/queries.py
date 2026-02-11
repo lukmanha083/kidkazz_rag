@@ -1086,6 +1086,24 @@ class BatchLinkChunkDefinesConcept(_get_query_base_class()):
         return QueryResult(success=True)
 
 
+class BatchDropChunkConceptEdges(_get_query_base_class()):
+    """Batch drop DefinesConcept edges from chunks.
+
+    Takes a list of chunk internal IDs and drops all DefinesConcept
+    outgoing edges from each chunk in a single HTTP request.
+    """
+
+    def __init__(self, chunk_ids: list[str]) -> None:
+        super().__init__(endpoint="BatchDropChunkConceptEdges")
+        self.chunk_ids = chunk_ids
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"chunk_ids": self.chunk_ids}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True)
+
+
 class LinkChunkMentionsConcept(_get_query_base_class()):
     """Link chunk to concept it mentions.
 
@@ -2379,6 +2397,65 @@ class DeleteSummary(_get_query_base_class()):
 
     def response(self, response: Any) -> QueryResult:
         """Process response."""
+        return QueryResult(success=True)
+
+
+class DropSummaryEmbeddingEdge(_get_query_base_class()):
+    """Drop the SummaryHasEmbedding edge from a summary.
+
+    Maps to HelixQL DropSummaryEmbeddingEdge query.
+    """
+
+    def __init__(self, summary_id: str) -> None:
+        super().__init__(endpoint="DropSummaryEmbeddingEdge")
+        self.summary_id = summary_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"summary_id": self.summary_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True)
+
+
+class GetSummaryVector(_get_query_base_class()):
+    """Get the SummaryVector node linked to a summary via SummaryHasEmbedding edge.
+
+    Maps to HelixQL GetSummaryVector query.
+    """
+
+    def __init__(self, summary_id: str) -> None:
+        super().__init__(endpoint="GetSummaryVector")
+        self.summary_id = summary_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"summary_id": self.summary_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        # HelixQL returns {"vec": [{...}]} or {"vec": {...}}
+        if isinstance(response, dict) and "vec" in response:
+            node = response["vec"]
+            if isinstance(node, list) and len(node) > 0:
+                return QueryResult(success=True, data=node[0])
+            return QueryResult(success=True, data=node)
+        if isinstance(response, list) and len(response) > 0:
+            return QueryResult(success=True, data=response[0])
+        return QueryResult(success=True, data=response)
+
+
+class DropSummaryVector(_get_query_base_class()):
+    """Drop a SummaryVector node by internal ID.
+
+    Maps to HelixQL DropSummaryVector query.
+    """
+
+    def __init__(self, vector_id: str) -> None:
+        super().__init__(endpoint="DropSummaryVector")
+        self.vector_id = vector_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"vector_id": self.vector_id}]
+
+    def response(self, response: Any) -> QueryResult:
         return QueryResult(success=True)
 
 

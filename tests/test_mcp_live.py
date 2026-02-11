@@ -43,10 +43,41 @@ def _check_helix_available():
         return False
 
 
+def _check_vector_search_available():
+    """Check if Helix-DB vector search is operational.
+
+    The vector index can become unavailable after a schema rebuild
+    or data volume corruption, even when non-vector queries work fine.
+    This sends a real 1536-dim OpenAI embedding to verify SearchSimilar works.
+    """
+    if not _check_helix_available():
+        return False
+    try:
+        config = _make_helix_config()
+        state = ServerState(config)
+        vec = state.embedder.embed_text("test")
+        state.store.search_similar(query_embedding=vec, top_k=1)
+        return True
+    except Exception:
+        return False
+
+
+_helix_up = _check_helix_available()
+_vector_search_up = _check_vector_search_available() if _helix_up else False
+
 # Skip all tests if Helix-DB not available
-pytestmark = pytest.mark.skipif(
-    not _check_helix_available(),
-    reason="Helix-DB not running on port 6969",
+pytestmark = [
+    pytest.mark.skipif(
+        not _helix_up,
+        reason="Helix-DB not running on port 6969",
+    ),
+    pytest.mark.helix,
+]
+
+# Decorator for tests that require vector search
+requires_vector_search = pytest.mark.skipif(
+    not _vector_search_up,
+    reason="Helix-DB vector search unavailable (invalid vector dimensions)",
 )
 
 
@@ -89,6 +120,7 @@ class TestListDocuments:
 class TestSemanticSearch:
     """Test semantic search with real OpenAI embeddings."""
 
+    @requires_vector_search
     def test_inventory_query(self, state):
         """Search for inventory-related content."""
         query_embedding = state.embedder.embed_text("FIFO inventory valuation method")
@@ -109,6 +141,7 @@ class TestSemanticSearch:
             logger.info(f"  Top result: {content[:150]}...")
         assert len(content) > 0
 
+    @requires_vector_search
     def test_warehouse_query(self, state):
         """Search for warehouse-related content."""
         query_embedding = state.embedder.embed_text("warehouse layout optimization and picking routes")
@@ -118,6 +151,7 @@ class TestSemanticSearch:
         )
         assert len(results) > 0, "No results for warehouse query"
 
+    @requires_vector_search
     def test_cross_document_search(self, state):
         """Search should return results from both books for shared topics."""
         query_embedding = state.embedder.embed_text("safety stock reorder point")
@@ -175,6 +209,7 @@ class TestConceptSearch:
 class TestSummarySearch:
     """Test summary search with real OpenAI embeddings."""
 
+    @requires_vector_search
     def test_search_summaries(self, state):
         """Search summaries across both books."""
         query_embedding = state.embedder.embed_text("inventory costing methods")
@@ -237,6 +272,7 @@ class TestMCPToolsEndToEnd:
         assert server is not None
         assert server.name == "kidkazz-rag"
 
+    @requires_vector_search
     def test_search_semantic_tool(self, state):
         """Test the search_semantic tool function end-to-end."""
         from src.mcp_server.tools import register_tools
@@ -256,6 +292,7 @@ class TestMCPToolsEndToEnd:
         logger.info(f"  search_semantic returned {len(formatted)} results")
         logger.info(f"  First result keys: {list(first.keys())}")
 
+    @requires_vector_search
     def test_search_summaries_tool(self, state):
         """Test summary search tool end-to-end."""
         from src.mcp_server.formatters import format_summary_search_results

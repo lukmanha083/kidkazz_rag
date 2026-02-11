@@ -358,7 +358,7 @@ def format_summary(summary: dict[str, Any]) -> dict[str, Any]:
         summary: Summary dictionary from storage
 
     Returns:
-        Formatted summary dictionary
+        Formatted summary dictionary with chapter_title extracted from key_points sentinel
     """
     import json
 
@@ -368,17 +368,31 @@ def format_summary(summary: dict[str, Any]) -> dict[str, Any]:
     except json.JSONDecodeError:
         key_points = []
 
-    return {
+    # Extract chapter title from __title__: sentinel in key_points
+    chapter_title = None
+    display_key_points = []
+    for kp in (key_points if isinstance(key_points, list) else []):
+        if isinstance(kp, str) and kp.startswith("__title__:"):
+            chapter_title = kp[len("__title__:"):]
+        else:
+            display_key_points.append(kp)
+
+    result = {
         "summary_id": summary.get("summary_id", ""),
         "content": summary.get("content", ""),
         "level": summary.get("level", ""),
         "source_id": summary.get("source_id", ""),
         "document_id": summary.get("document_id", ""),
         "parent_summary_id": summary.get("parent_summary_id"),
-        "key_points": key_points,
+        "key_points": display_key_points,
         "word_count": summary.get("word_count", 0),
         "created_at": summary.get("created_at", 0),
     }
+
+    if chapter_title:
+        result["chapter_title"] = chapter_title
+
+    return result
 
 
 def format_summary_list(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:

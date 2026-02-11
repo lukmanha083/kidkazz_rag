@@ -351,18 +351,20 @@ class TestInboxConfigCommand:
         # Should show inbox configuration section
         assert "inbox" in result.stdout.lower() or "path" in result.stdout.lower()
 
-    def test_config_set_inbox_path(self, temp_inbox):
+    def test_config_set_inbox_path(self, temp_inbox, tmp_path, monkeypatch):
         """Test setting inbox path."""
         from src.cli.main import app
 
+        monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["config", "set", "inbox_path", str(temp_inbox)])
 
         assert result.exit_code == 0
 
-    def test_config_set_post_action(self):
+    def test_config_set_post_action(self, tmp_path, monkeypatch):
         """Test setting post_action configuration."""
         from src.cli.main import app
 
+        monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["config", "set", "post_action", "move"])
 
         assert result.exit_code == 0

@@ -439,6 +439,12 @@ class SectionSummaryOutput(BaseModel):
 class ChapterSummaryOutput(BaseModel):
     """LLM output for chapter-level summary."""
 
+    chapter_title: str = Field(
+        default="",
+        description="The chapter title or heading exactly as it appears in the source material "
+                    "(e.g., 'Chapter 2: Safety Stock', 'Part III: Cost Allocation'). "
+                    "If no explicit chapter title is found, infer a short descriptive title.",
+    )
     summary: str = Field(
         description="3-5 sentence summary of the chapter's main topics and themes"
     )
@@ -629,6 +635,10 @@ class DocumentSummarizer:
             "Given the summaries of individual sections, create an overall chapter summary "
             "that captures the main themes and learning objectives. "
             "Synthesize the key concepts into a coherent overview.\n\n"
+            "Extract the chapter title/number exactly as it appears in the source material "
+            "(e.g., 'Chapter 2: Safety Stock', 'Part III: Cost Allocation'). "
+            "If no explicit chapter title is provided, infer a short descriptive title from the content. "
+            "Begin the summary by identifying which chapter this is.\n\n"
             "Also extract the most important CONCEPTS from this chapter:\n"
             "- Terms: vocabulary and definitions\n"
             "- Methods: techniques and procedures\n"
@@ -643,7 +653,8 @@ class DocumentSummarizer:
             "You are summarizing an entire textbook or technical document. "
             "Given the chapter summaries, create a comprehensive document overview "
             "that explains what the document covers, its purpose, and main themes. "
-            "This should help readers understand if this document is relevant to their needs.\n\n"
+            "This should help readers understand if this document is relevant to their needs. "
+            "Reference chapters by their actual titles when mentioning specific topics.\n\n"
             "Also extract the most important CONCEPTS from this document:\n"
             "- Terms: key vocabulary and definitions\n"
             "- Methods: important techniques and procedures\n"
@@ -653,6 +664,40 @@ class DocumentSummarizer:
             "Focus on the concepts that are most central to the document's subject matter "
             "and appear across multiple chapters."
         )
+
+    # ========================================================================
+    # Helper: Chapter title extraction from key_points sentinel
+    # ========================================================================
+
+    @staticmethod
+    def _extract_chapter_title(summary: "Summary") -> Optional[str]:
+        """Extract chapter title from key_points sentinel value.
+
+        Returns the chapter title if stored via __title__: sentinel, else None.
+        """
+        for kp in summary.key_points:
+            if isinstance(kp, str) and kp.startswith("__title__:"):
+                return kp[len("__title__:"):]
+        return None
+
+    @staticmethod
+    def _get_display_key_points(summary: "Summary") -> list[str]:
+        """Get key_points with title sentinel filtered out."""
+        return [
+            kp for kp in summary.key_points
+            if not (isinstance(kp, str) and kp.startswith("__title__:"))
+        ]
+
+    @staticmethod
+    def _format_chapter_for_doc_context(summary: "Summary", index: int) -> str:
+        """Format a chapter summary for document-level LLM context.
+
+        Uses actual chapter title if available, otherwise falls back to generic numbering.
+        """
+        title = DocumentSummarizer._extract_chapter_title(summary)
+        display_kps = DocumentSummarizer._get_display_key_points(summary)
+        header = title if title else f"Chapter {index + 1}"
+        return f"{header}:\n{summary.content}\nKey points: {', '.join(display_kps)}"
 
     # ========================================================================
     # Helper: Format table for LLM context
@@ -720,13 +765,20 @@ class DocumentSummarizer:
             for c in result.concepts
         ]
 
+        key_points = list(result.key_points)
+
+        # Store chapter title as sentinel in key_points (no DB schema change needed)
+        chapter_title = getattr(result, "chapter_title", None)
+        if chapter_title and level == "chapter":
+            key_points.insert(0, f"__title__:{chapter_title}")
+
         return Summary(
             summary_id=summary_id,
             content=result.summary,
             level=level,
             source_id=source_id,
             document_id=document_id,
-            key_points=result.key_points,
+            key_points=key_points,
             concepts=concepts,
         )
 
@@ -872,7 +924,7 @@ class DocumentSummarizer:
     ) -> Summary:
         """Generate document-level summary."""
         chapter_context = "\n\n".join(
-            f"Chapter {i+1}:\n{s.content}\nKey points: {', '.join(s.key_points)}"
+            self._format_chapter_for_doc_context(s, i)
             for i, s in enumerate(chapter_summaries)
         )
 

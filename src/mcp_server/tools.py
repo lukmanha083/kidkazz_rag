@@ -71,12 +71,16 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         logger.info(f"search_semantic: query='{query_preview}', top_k={top_k}, tags={tags}")
 
         # Generate query embedding server-side
-        query_embedding = state.embedder.embed_text(query)
+        query_embedding = state.embedder.embed_query(query)
+
+        # Fetch more candidates when reranking
+        reranker = state.reranker
+        fetch_k = top_k * 4 if reranker else top_k
 
         # Search storage
         results = state.store.search_similar(
             query_embedding=query_embedding,
-            top_k=top_k,
+            top_k=fetch_k,
             doc_id=doc_id,
             level=level,
             semantic_type=semantic_type,
@@ -87,6 +91,10 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             has_math=has_math,
             header_level=header_level,
         )
+
+        # Rerank if enabled
+        if reranker and results:
+            results = reranker.rerank_chunks(query, results, top_n=top_k)
 
         logger.info(f"search_semantic: found {len(results)} results")
         return format_search_results(results)
@@ -648,7 +656,7 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             return []
 
         # Embed query for vector search
-        query_embedding = state.embedder.embed_text(query)
+        query_embedding = state.embedder.embed_query(query)
         results = state.table_store.search_tables(
             query_embedding=query_embedding,
             top_k=top_k,
@@ -866,14 +874,22 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         logger.info(f"search_summaries: query='{displayed_query}', top_k={top_k}, level={level}, doc_id={doc_id}")
 
         # Embed query for vector search
-        query_embedding = state.embedder.embed_text(query)
+        query_embedding = state.embedder.embed_query(query)
+
+        # Fetch more candidates when reranking
+        reranker = state.reranker
+        fetch_k = top_k * 4 if reranker else top_k
 
         results = state.store.search_summaries(
             query_embedding=query_embedding,
-            limit=top_k,
+            limit=fetch_k,
             level=level,
             document_id=doc_id,
         )
+
+        # Rerank if enabled
+        if reranker and results:
+            results = reranker.rerank_summaries(query, results, top_n=top_k)
 
         logger.info(f"search_summaries: found {len(results)} results")
         return format_summary_search_results(results)

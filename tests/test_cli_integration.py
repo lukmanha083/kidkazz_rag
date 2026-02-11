@@ -61,10 +61,9 @@ Machine learning is powerful.
 @pytest.fixture
 def populated_store(sample_markdown):
     """Ingest sample document and return store."""
-    # Run ingest command
+    # Run ingest command (doc_id auto-derived from filename "sample")
     result = runner.invoke(app, [
         "ingest", "markdown", str(sample_markdown),
-        "--doc-id", "test_doc",
         "--title", "Test Document",
     ])
     # Return the file for cleanup context
@@ -78,12 +77,12 @@ class TestIngestWorkflow:
         """Test ingesting markdown creates chunks."""
         result = runner.invoke(app, [
             "ingest", "markdown", str(sample_markdown),
-            "--doc-id", "workflow_test",
             "--json",
         ])
         assert result.exit_code == 0
         assert "chunks" in result.output
-        assert "workflow_test" in result.output
+        # doc_id is auto-derived from filename stem ("sample")
+        assert "sample" in result.output
 
     def test_ingest_with_custom_sizes(self, sample_markdown):
         """Test ingesting with custom chunk sizes."""
@@ -109,10 +108,9 @@ class TestSearchWorkflow:
 
     def test_semantic_search_returns_results(self, sample_markdown):
         """Test semantic search after ingestion."""
-        # First ingest
+        # First ingest (doc_id auto-derived from filename)
         runner.invoke(app, [
             "ingest", "markdown", str(sample_markdown),
-            "--doc-id", "search_test",
         ])
 
         # Then search
@@ -124,10 +122,9 @@ class TestSearchWorkflow:
 
     def test_keyword_search_finds_content(self, sample_markdown):
         """Test keyword search finds specific content."""
-        # First ingest
+        # First ingest (doc_id auto-derived from filename)
         runner.invoke(app, [
             "ingest", "markdown", str(sample_markdown),
-            "--doc-id", "keyword_test",
         ])
 
         # Then search
@@ -143,10 +140,9 @@ class TestDocumentManagement:
 
     def test_list_shows_ingested_document(self, sample_markdown):
         """Test docs list shows ingested document."""
-        # Ingest
+        # Ingest (doc_id auto-derived from filename)
         runner.invoke(app, [
             "ingest", "markdown", str(sample_markdown),
-            "--doc-id", "list_test",
         ])
 
         # List
@@ -156,12 +152,12 @@ class TestDocumentManagement:
 
     def test_stats_shows_chunk_counts(self, sample_markdown):
         """Test docs stats shows chunk information."""
-        doc_id = "stats_test"
+        # doc_id is auto-derived from filename stem ("sample")
+        doc_id = sample_markdown.stem
 
         # Ingest
         runner.invoke(app, [
             "ingest", "markdown", str(sample_markdown),
-            "--doc-id", doc_id,
         ])
 
         # Stats - may fail if store doesn't persist

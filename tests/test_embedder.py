@@ -7,6 +7,8 @@ import pytest
 
 from src.chunker.chunker import Chunk
 from src.chunker.embedder import (
+    CohereEmbedder,
+    COHERE_VALID_DIMS,
     EmbeddedChunk,
     MockEmbedder,
     OpenAIEmbedder,
@@ -459,3 +461,186 @@ class TestOpenAIEmbedder:
             "text-embedding-ada-002": 1536,
         }
         assert OPENAI_MODEL_DIMENSIONS == expected
+
+
+class TestCohereEmbedder:
+    """Tests for CohereEmbedder class."""
+
+    @pytest.fixture
+    def mock_cohere_client(self):
+        """Create a mock Cohere client."""
+        mock_client = MagicMock()
+
+        def create_embed(texts, model, input_type, embedding_types, output_dimension):
+            mock_response = MagicMock()
+            embeddings = []
+            for text in texts:
+                emb = [0.1 * ((hash(text) + j) % 10) for j in range(output_dimension)]
+                embeddings.append(emb)
+            mock_response.embeddings.float_ = embeddings
+            return mock_response
+
+        mock_client.embed = MagicMock(side_effect=create_embed)
+        return mock_client
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-cohere-key"})
+    def test_initialization(self):
+        """Should initialize with correct defaults."""
+        embedder = CohereEmbedder()
+        assert embedder.model_name == "embed-v4.0"
+        assert embedder.get_embedding_dim() == 1536
+        assert embedder.api_key == "test-cohere-key"
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "", "CO_API_KEY": ""}, clear=True)
+    def test_no_api_key_raises(self):
+        """Should raise ValueError when no API key is set."""
+        with pytest.raises(ValueError, match="COHERE_API_KEY not set"):
+            CohereEmbedder()
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_invalid_dimension_raises(self):
+        """Should raise ValueError for invalid embedding dimension."""
+        with pytest.raises(ValueError, match="embedding_dim must be one of"):
+            CohereEmbedder(embedding_dim=999)
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_valid_dimensions(self):
+        """Should accept all valid Matryoshka dimensions."""
+        for dim in COHERE_VALID_DIMS:
+            embedder = CohereEmbedder(embedding_dim=dim)
+            assert embedder.get_embedding_dim() == dim
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_co_api_key_fallback(self):
+        """Should fall back to CO_API_KEY env var."""
+        with patch.dict(os.environ, {"COHERE_API_KEY": "", "CO_API_KEY": "co-key"}):
+            embedder = CohereEmbedder()
+            assert embedder.api_key == "co-key"
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_text_returns_correct_dimension(self, mock_cohere_client):
+        """Should return embedding of correct dimension."""
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        result = embedder.embed_text("Hello world")
+        assert len(result) == 1536
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_text_uses_search_document(self, mock_cohere_client):
+        """embed_text should use input_type='search_document'."""
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        embedder.embed_text("test text")
+
+        call_kwargs = mock_cohere_client.embed.call_args
+        assert call_kwargs[1]["input_type"] == "search_document"
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_query_uses_search_query(self, mock_cohere_client):
+        """embed_query should use input_type='search_query'."""
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        embedder.embed_query("test query")
+
+        call_kwargs = mock_cohere_client.embed.call_args
+        assert call_kwargs[1]["input_type"] == "search_query"
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_text_empty_returns_zero_vector(self):
+        """Should return zero vector for empty text without API call."""
+        embedder = CohereEmbedder(embedding_dim=256)
+        result = embedder.embed_text("")
+        assert result == [0.0] * 256
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_query_empty_returns_zero_vector(self):
+        """Should return zero vector for empty query without API call."""
+        embedder = CohereEmbedder(embedding_dim=256)
+        result = embedder.embed_query("   ")
+        assert result == [0.0] * 256
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_texts_batching(self, mock_cohere_client):
+        """Should batch texts and return embeddings."""
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        texts = ["Text 1", "Text 2", "Text 3"]
+        results = list(embedder.embed_texts(texts))
+
+        assert len(results) == 3
+        for r in results:
+            assert len(r) == 1536
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_texts_handles_empty_strings(self, mock_cohere_client):
+        """Should return zero vectors for empty strings in batch."""
+        embedder = CohereEmbedder(embedding_dim=256)
+        embedder._client = mock_cohere_client
+
+        texts = ["Text 1", "", "Text 3"]
+        results = list(embedder.embed_texts(texts))
+
+        assert len(results) == 3
+        assert results[1] == [0.0] * 256
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_texts_empty_list(self, mock_cohere_client):
+        """Should handle empty text list."""
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        results = list(embedder.embed_texts([]))
+        assert results == []
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_chunks(self, mock_cohere_client):
+        """Should embed multiple chunks."""
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        chunks = [
+            Chunk(id="c1", content="First", level=2, token_count=5),
+            Chunk(id="c2", content="Second", level=2, token_count=5),
+        ]
+        results = embedder.embed_chunks(chunks)
+
+        assert len(results) == 2
+        assert all(isinstance(r, EmbeddedChunk) for r in results)
+        assert results[0].model_name == "embed-v4.0"
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_chunks_empty_list(self, mock_cohere_client):
+        """Should handle empty chunk list."""
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        results = embedder.embed_chunks([])
+        assert results == []
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_lazy_client_initialization(self):
+        """Client should be lazily initialized."""
+        embedder = CohereEmbedder()
+        assert embedder._client is None
+
+
+class TestEmbedQueryAliases:
+    """Tests for embed_query() on Mock and OpenAI embedders."""
+
+    def test_mock_embed_query_is_alias(self):
+        """MockEmbedder.embed_query should return same as embed_text."""
+        embedder = MockEmbedder(embedding_dim=10)
+        text = "test query"
+        assert embedder.embed_query(text) == embedder.embed_text(text)
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    def test_openai_embed_query_is_alias(self, ):
+        """OpenAIEmbedder.embed_query should be an alias for embed_text."""
+        embedder = OpenAIEmbedder()
+        # Just check the method exists and is callable
+        assert hasattr(embedder, "embed_query")
+        assert callable(embedder.embed_query)

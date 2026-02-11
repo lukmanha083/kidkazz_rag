@@ -28,10 +28,12 @@ class MCPServerConfig:
     store_type: Literal["mock", "helix"] = "mock"
     helix_port: int = 6969
     helix_local: bool = True
-    embedder_type: Literal["mock", "openai"] = "openai"
+    embedder_type: Literal["mock", "openai", "cohere"] = "openai"
     model_name: str = "text-embedding-3-small"
     cache_dir: Optional[Path] = None
     log_level: str = "INFO"
+    reranker_enabled: bool = False
+    reranker_model: str = "rerank-v3.5"
 
     def create_store(self) -> Any:
         """Create storage instance based on configuration.
@@ -60,20 +62,40 @@ class MCPServerConfig:
         """Create embedder instance based on configuration.
 
         Returns:
-            MockEmbedder or OpenAIEmbedder instance
+            MockEmbedder, OpenAIEmbedder, or CohereEmbedder instance
 
         Raises:
             ImportError: If required dependencies are not installed
-            ValueError: If OpenAI API key is not set
+            ValueError: If API key is not set
         """
         if self.embedder_type == "mock":
             from src.chunker import MockEmbedder
 
             return MockEmbedder(model_name=self.model_name)
+        elif self.embedder_type == "cohere":
+            from src.chunker import CohereEmbedder
+
+            return CohereEmbedder(model_name=self.model_name)
         else:
             from src.chunker import OpenAIEmbedder
 
             return OpenAIEmbedder(model_name=self.model_name)
+
+    def create_reranker(self) -> Any:
+        """Create reranker instance if enabled.
+
+        Returns:
+            CohereReranker instance or None
+        """
+        if not self.reranker_enabled:
+            return None
+
+        try:
+            from src.chunker.reranker import CohereReranker
+
+            return CohereReranker(model_name=self.reranker_model)
+        except (ImportError, ValueError):
+            return None
 
     @classmethod
     def from_env(cls) -> "MCPServerConfig":
@@ -105,6 +127,7 @@ class MCPServerConfig:
         # Extract settings from TOML structure
         storage = config_data.get("storage", {})
         embeddings = config_data.get("embeddings", {})
+        reranker = config_data.get("reranker", {})
 
         return cls(
             store_type=storage.get("store_type", "mock"),  # type: ignore
@@ -114,6 +137,8 @@ class MCPServerConfig:
             model_name=embeddings.get("model_name", "text-embedding-3-small"),
             cache_dir=None,
             log_level=os.getenv("KIDKAZZ_LOG_LEVEL", "INFO"),
+            reranker_enabled=reranker.get("enabled", False),
+            reranker_model=reranker.get("model", "rerank-v3.5"),
         )
 
 
@@ -134,7 +159,7 @@ class LazyEmbedder:
         self._embedder: Any = None
 
     def embed_text(self, text: str) -> list[float]:
-        """Embed text into a vector.
+        """Embed text into a vector (for document ingestion).
 
         Args:
             text: Text to embed
@@ -144,6 +169,17 @@ class LazyEmbedder:
         """
         if self._embedder is None:
             self._embedder = self._config.create_embedder()
+        return self._embedder.embed_text(text)
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed text as a search query.
+
+        Uses search_query input_type for Cohere, alias for embed_text on others.
+        """
+        if self._embedder is None:
+            self._embedder = self._config.create_embedder()
+        if hasattr(self._embedder, "embed_query"):
+            return self._embedder.embed_query(text)
         return self._embedder.embed_text(text)
 
     @property
@@ -169,6 +205,7 @@ class ServerState:
         self._store: Any = None
         self._embedder: Optional[LazyEmbedder] = None
         self._table_store: Any = None
+        self._reranker: Any = None
 
     @property
     def config(self) -> MCPServerConfig:
@@ -188,6 +225,13 @@ class ServerState:
         if self._embedder is None:
             self._embedder = LazyEmbedder(self._config)
         return self._embedder
+
+    @property
+    def reranker(self) -> Any:
+        """Get reranker instance (lazy-loaded, None if disabled)."""
+        if self._reranker is None and self._config.reranker_enabled:
+            self._reranker = self._config.create_reranker()
+        return self._reranker
 
     @property
     def table_store(self) -> Any:

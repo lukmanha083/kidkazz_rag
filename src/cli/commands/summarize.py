@@ -144,6 +144,35 @@ def _parse_key_points(value) -> list:
     return []
 
 
+def _extract_chapter_title_from_summary(summary: dict) -> str | None:
+    """Extract chapter title from summary's key_points __title__: sentinel."""
+    key_points = _parse_key_points(summary.get("key_points"))
+    for kp in key_points:
+        if isinstance(kp, str) and kp.startswith("__title__:"):
+            return kp[len("__title__:"):]
+    return None
+
+
+def _get_display_key_points_from_summary(summary: dict) -> list[str]:
+    """Get key_points with the title sentinel filtered out."""
+    key_points = _parse_key_points(summary.get("key_points"))
+    return [kp for kp in key_points if not (isinstance(kp, str) and kp.startswith("__title__:"))]
+
+
+def _chapter_sort_key(summary: dict) -> tuple[int, str]:
+    """Sort key for ordering chapters by source_id numeric suffix.
+
+    Extracts the trailing number from source_id (e.g., 'inv_l1_5' -> 5).
+    Falls back to alphabetical sorting if no number found.
+    """
+    source_id = summary.get("source_id", "")
+    import re
+    match = re.search(r"(\d+)$", source_id)
+    if match:
+        return (int(match.group(1)), source_id)
+    return (999999, source_id)
+
+
 def _get_store(config: CLIConfig):
     """Get storage instance."""
     from src.cli.commands.ingest import get_store
@@ -225,17 +254,30 @@ def generate_summaries(
     doc_title = doc.get("title", doc_id)
 
     # Check for existing summaries
-    if not force:
-        existing = store.get_document_summaries(doc_id)
-        if existing:
-            if json_output:
-                print_json({"status": "exists", "count": len(existing)})
-            else:
-                print_warning(
-                    f"Document already has {len(existing)} summaries. "
-                    "Use --force to regenerate."
-                )
-            return
+    existing = store.get_document_summaries(doc_id)
+    if existing and not force:
+        if json_output:
+            print_json({"status": "exists", "count": len(existing)})
+        else:
+            print_warning(
+                f"Document already has {len(existing)} summaries. "
+                "Use --force to regenerate."
+            )
+        return
+
+    # On --force, delete old summaries (and their SummaryVector nodes) first
+    if force and existing:
+        if not json_output:
+            console.print(f"[yellow]Deleting {len(existing)} existing summaries...[/yellow]")
+        logger.info("=== PHASE: Deleting %d existing summaries for %s ===", len(existing), doc_id)
+        phase_start_del = time.monotonic()
+        deleted = store.delete_document_summaries(doc_id)
+        elapsed_del = time.monotonic() - phase_start_del
+        logger.info("=== PHASE: Deleted %d summaries in %.1fs ===", deleted, elapsed_del)
+        if not json_output:
+            console.print(f"  Deleted {deleted} summaries in {elapsed_del:.1f}s")
+        # Brief cooldown to let Helix-DB settle
+        time.sleep(3)
 
     # Get chunks for document
     chunks_result = store.get_document_chunks(doc_id)
@@ -469,6 +511,21 @@ def generate_summaries(
     if not json_output:
         console.print("  [dim]Cooling down 15s before edge creation...[/dim]")
     time.sleep(15)
+
+    # --- Drop existing DefinesConcept edges when --force ---
+    # Prevents duplicate edges when re-running summarize on already-summarized docs.
+    if force and chunk_id_cache and hasattr(store, 'batch_drop_chunk_concept_edges'):
+        internal_ids = list(chunk_id_cache.values())
+        logger.info("=== PHASE: Dropping existing DefinesConcept edges (%d chunks) ===", len(internal_ids))
+        if not json_output:
+            console.print(f"  [dim]Dropping existing DefinesConcept edges from {len(internal_ids)} chunks...[/dim]")
+        try:
+            store.batch_drop_chunk_concept_edges(internal_ids)
+            logger.info("  DefinesConcept edges dropped successfully")
+        except Exception as e:
+            logger.warning("  Failed to drop DefinesConcept edges: %s (continuing anyway)", e)
+        # Brief cooldown after edge drops
+        time.sleep(3)
 
     # --- Phase B: Create DefinesConcept edges in concept-batched phases ---
     # Group edges by concept_id so we can throttle by concept count.
@@ -761,6 +818,13 @@ def show_summary(
             print_warning(f"No summaries found for document: {doc_id}")
         return
 
+    # Sort chapters by source_id numeric suffix for consistent ordering
+    if level_filter == "chapter" or level_filter is None:
+        summaries = sorted(summaries, key=lambda s: (
+            {"document": 0, "chapter": 1, "section": 2}.get(s.get("level", ""), 3),
+            _chapter_sort_key(s) if s.get("level") == "chapter" else (0, ""),
+        ))
+
     if json_output:
         print_json({
             "doc_id": doc_id,
@@ -769,7 +833,8 @@ def show_summary(
                     "summary_id": s.get("summary_id"),
                     "level": s.get("level"),
                     "content": s.get("content"),
-                    "key_points": _parse_key_points(s.get("key_points")),
+                    "chapter_title": _extract_chapter_title_from_summary(s),
+                    "key_points": _get_display_key_points_from_summary(s),
                     "word_count": s.get("word_count"),
                 }
                 for s in summaries
@@ -779,11 +844,18 @@ def show_summary(
         for summary in summaries:
             level_name = summary.get("level", "unknown").title()
             content = summary.get("content", "")
-            key_points = _parse_key_points(summary.get("key_points"))
+            key_points = _get_display_key_points_from_summary(summary)
+
+            # Use chapter title if available
+            chapter_title = _extract_chapter_title_from_summary(summary)
+            if chapter_title and summary.get("level") == "chapter":
+                panel_title = f"[bold]{chapter_title}[/bold]"
+            else:
+                panel_title = f"[bold]{level_name} Summary[/bold]"
 
             panel = Panel(
                 content,
-                title=f"[bold]{level_name} Summary[/bold]",
+                title=panel_title,
                 border_style="blue" if summary.get("level") == "document" else "green",
             )
             console.print(panel)
@@ -861,6 +933,17 @@ def search_summaries(
         "-n",
         help="Maximum results",
     ),
+    threshold: float = typer.Option(
+        0.3,
+        "--threshold",
+        "-t",
+        help="Minimum similarity score (0.0 to disable)",
+    ),
+    rerank: bool = typer.Option(
+        False,
+        "--rerank",
+        help="Rerank results using Cohere Rerank v3.5",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -872,7 +955,7 @@ def search_summaries(
 
     Examples:
         kidkazz summarize search "inventory valuation methods"
-        kidkazz summarize search "FIFO" --level chapter
+        kidkazz summarize search "FIFO" --level chapter --threshold 0.3
         kidkazz summarize search "cost accounting" --doc inventory_accounting
     """
     config = CLIConfig.load()
@@ -890,16 +973,34 @@ def search_summaries(
             console.print(f"[red]Error: {e}[/red]")
             return
 
+    # Determine if reranking is active
+    use_rerank = rerank or config.reranker_enabled
+    reranker = None
+    if use_rerank:
+        from src.cli.utils import get_reranker
+        reranker = get_reranker(config)
+
+    # Fetch more candidates when reranking
+    fetch_limit = limit * 4 if reranker else limit
+
     # Generate query embedding
-    query_embedding = embedder.embed_text(query)
+    if hasattr(embedder, "embed_query"):
+        query_embedding = embedder.embed_query(query)
+    else:
+        query_embedding = embedder.embed_text(query)
 
     # Search summaries
     results = store.search_summaries(
         query_embedding=query_embedding,
-        limit=limit,
+        limit=fetch_limit,
         level=level,
         document_id=doc_id,
+        threshold=threshold,
     )
+
+    # Rerank if enabled
+    if reranker and results:
+        results = reranker.rerank_summaries(query, results, top_n=limit)
 
     if not results:
         if json_output:
@@ -1053,12 +1154,18 @@ def show_hierarchy(
             f"[bold]Document Summary[/bold]\n{doc_summary.get('content', '')[:100]}..."
         )
 
-        # Add chapters
-        chapters = [s for s in summaries if s.get("level") == "chapter"]
+        # Add chapters (sorted by source_id numeric suffix)
+        chapters = sorted(
+            [s for s in summaries if s.get("level") == "chapter"],
+            key=_chapter_sort_key,
+        )
         for chapter in chapters:
-            chapter_node = doc_node.add(
-                f"[green]Chapter[/green]\n{chapter.get('content', '')[:80]}..."
-            )
+            chapter_title = _extract_chapter_title_from_summary(chapter)
+            if chapter_title:
+                chapter_label = f"[green]{chapter_title}[/green]\n{chapter.get('content', '')[:80]}..."
+            else:
+                chapter_label = f"[green]Chapter[/green]\n{chapter.get('content', '')[:80]}..."
+            chapter_node = doc_node.add(chapter_label)
 
             # Add sections under this chapter
             sections = [

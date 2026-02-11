@@ -426,6 +426,15 @@ QUERY UpdateConceptWithDefinition(concept_id: String, source_documents: String, 
     })
     RETURN concept
 
+// ========== CONCEPT EDGE DELETION ==========
+
+// Batch drop DefinesConcept edges from chunks (for deduplication)
+QUERY BatchDropChunkConceptEdges(chunk_ids: [ID]) =>
+    FOR chunk_id IN chunk_ids {
+        DROP N<Chunk>(chunk_id)::OutE<DefinesConcept>
+    }
+    RETURN "Edges removed"
+
 // ========== CONCEPT DELETION ==========
 
 // Delete a concept
@@ -716,6 +725,16 @@ QUERY DeleteSummary(summary_id: ID) =>
 QUERY DropSummaryEmbeddingEdge(summary_id: ID) =>
     DROP N<Summary>(summary_id)::OutE<SummaryHasEmbedding>
     RETURN "Removed summary embedding edge"
+
+// Get summary vector node linked to a summary
+QUERY GetSummaryVector(summary_id: ID) =>
+    vec <- N<Summary>(summary_id)::Out<SummaryHasEmbedding>
+    RETURN vec
+
+// Drop a summary vector by internal ID
+QUERY DropSummaryVector(vector_id: ID) =>
+    DROP V<SummaryVector>(vector_id)
+    RETURN "Removed summary vector"
 
 // Delete all summaries for a document - maps to Python DeleteDocumentSummaries
 // Note: This returns summaries for client to drop individually since HelixQL

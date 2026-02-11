@@ -100,6 +100,10 @@ class MockEmbedder:
 
         return embedding
 
+    def embed_query(self, text: str) -> list[float]:
+        """Generate embedding for a search query (alias for embed_text)."""
+        return self.embed_text(text)
+
     def embed_texts(
         self,
         texts: list[str],
@@ -209,6 +213,10 @@ class OpenAIEmbedder:
         )
         return response.data[0].embedding
 
+    def embed_query(self, text: str) -> list[float]:
+        """Generate embedding for a search query (alias for embed_text)."""
+        return self.embed_text(text)
+
     def embed_texts(
         self,
         texts: list[str],
@@ -281,6 +289,135 @@ class OpenAIEmbedder:
         Returns:
             List of EmbeddedChunks with embeddings
         """
+        if not chunks:
+            return []
+
+        texts = [chunk.content for chunk in chunks]
+        embeddings = list(self.embed_texts(texts, batch_size=batch_size))
+
+        return [
+            EmbeddedChunk(
+                chunk=chunk,
+                embedding=embedding,
+                model_name=self.model_name,
+            )
+            for chunk, embedding in zip(chunks, embeddings, strict=True)
+        ]
+
+
+COHERE_VALID_DIMS = {256, 512, 1024, 1536}
+
+
+class CohereEmbedder:
+    """Cohere Embed v4 embedder with Matryoshka dimension support.
+
+    Uses separate input_type for documents vs queries as required by Cohere.
+    """
+
+    DEFAULT_MODEL = "embed-v4.0"
+
+    def __init__(
+        self,
+        model_name: str = DEFAULT_MODEL,
+        api_key: Optional[str] = None,
+        embedding_dim: int = 1536,
+    ):
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        self.model_name = model_name
+        self._embedding_dim = embedding_dim
+        self.api_key = api_key or os.environ.get("COHERE_API_KEY") or os.environ.get("CO_API_KEY")
+        self._client = None
+
+        if not self.api_key:
+            raise ValueError(
+                "COHERE_API_KEY not set. Add it to .env file or pass api_key parameter."
+            )
+
+        if embedding_dim not in COHERE_VALID_DIMS:
+            raise ValueError(
+                f"embedding_dim must be one of {sorted(COHERE_VALID_DIMS)}, got {embedding_dim}"
+            )
+
+    @property
+    def client(self):
+        """Lazy-load Cohere client."""
+        if self._client is None:
+            import cohere
+            self._client = cohere.ClientV2(api_key=self.api_key)
+        return self._client
+
+    def get_embedding_dim(self) -> int:
+        return self._embedding_dim
+
+    def _embed_batch(self, texts: list[str], input_type: str) -> list[list[float]]:
+        """Call Cohere embed API for a batch of texts."""
+        response = self.client.embed(
+            texts=texts,
+            model=self.model_name,
+            input_type=input_type,
+            embedding_types=["float"],
+            output_dimension=self._embedding_dim,
+        )
+        return [list(v) for v in response.embeddings.float_]
+
+    def embed_text(self, text: str) -> list[float]:
+        """Embed text as a document (for ingestion/storage)."""
+        if not text.strip():
+            return [0.0] * self._embedding_dim
+        return self._embed_batch([text], input_type="search_document")[0]
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed text as a search query (for retrieval)."""
+        if not text.strip():
+            return [0.0] * self._embedding_dim
+        return self._embed_batch([text], input_type="search_query")[0]
+
+    def embed_texts(
+        self,
+        texts: list[str],
+        batch_size: int = 96,
+    ) -> Iterator[list[float]]:
+        """Embed multiple texts as documents in batches."""
+        if not texts:
+            return
+
+        zero_vector = [0.0] * self._embedding_dim
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+
+            non_empty_indices = [j for j, t in enumerate(batch) if t.strip()]
+            non_empty_texts = [batch[j] for j in non_empty_indices]
+
+            embeddings_map: dict[int, list[float]] = {}
+            if non_empty_texts:
+                results = self._embed_batch(non_empty_texts, input_type="search_document")
+                for idx, emb in zip(non_empty_indices, results, strict=True):
+                    embeddings_map[idx] = emb
+
+            for j in range(len(batch)):
+                if j in embeddings_map:
+                    yield embeddings_map[j]
+                else:
+                    yield zero_vector
+
+    def embed_chunk(self, chunk: Chunk) -> EmbeddedChunk:
+        """Embed a single chunk as a document."""
+        return EmbeddedChunk(
+            chunk=chunk,
+            embedding=self.embed_text(chunk.content),
+            model_name=self.model_name,
+        )
+
+    def embed_chunks(
+        self,
+        chunks: list[Chunk],
+        batch_size: int = 96,
+        show_progress: bool = False,  # noqa: ARG002 - API compatibility
+    ) -> list[EmbeddedChunk]:
+        """Embed multiple chunks as documents."""
         if not chunks:
             return []
 

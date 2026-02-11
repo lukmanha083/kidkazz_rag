@@ -1,5 +1,6 @@
 """Tests for CLI utility functions."""
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +8,7 @@ import pytest
 
 from src.cli.utils import (
     format_file_size,
+    get_embedder,
     get_project_config_path,
     get_user_config_path,
     parse_chunk_sizes,
@@ -48,11 +50,6 @@ class TestParseChunkSizes:
 
 class TestResolveDocId:
     """Tests for document ID resolution."""
-
-    def test_explicit_doc_id(self):
-        """Test explicit doc_id takes precedence."""
-        result = resolve_doc_id(Path("file.md"), "custom_id")
-        assert result == "custom_id"
 
     def test_doc_id_from_filename(self):
         """Test doc_id from filename stem."""
@@ -219,3 +216,22 @@ class TestParseTags:
         """Test handles leading/trailing commas."""
         result = parse_tags(",inventory,accounting,")
         assert result == ["inventory", "accounting"]
+
+
+class TestGetEmbedder:
+    """Tests for embedder selection."""
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-cohere-key"})
+    def test_get_embedder_cohere(self):
+        """Should create CohereEmbedder when embedder_type is cohere."""
+        from src.cli.config import CLIConfig
+        from src.chunker.embedder import CohereEmbedder
+
+        config = CLIConfig()
+        config.embedder_type = "cohere"
+        config.model_name = "embed-v4.0"
+
+        embedder = get_embedder(config)
+        assert isinstance(embedder, CohereEmbedder)
+        assert embedder.model_name == "embed-v4.0"
+

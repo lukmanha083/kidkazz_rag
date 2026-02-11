@@ -62,6 +62,10 @@ class CLIConfig:
     cloud_remote: str = ""
     cloud_path: str = "kidkazz_inbox"
 
+    # Reranker settings
+    reranker_enabled: bool = False
+    reranker_model: str = "rerank-v3.5"
+
     # Summarization settings (includes concept extraction)
     summarization_enabled: bool = False
     summarization_provider: str = "openai/gpt-4o-mini"
@@ -180,6 +184,16 @@ class CLIConfig:
                 self.cloud_path = cloud_sync["path"]
                 self._sources["cloud_path"] = source
 
+        # Reranker settings
+        if "reranker" in data:
+            reranker = data["reranker"]
+            if "enabled" in reranker:
+                self.reranker_enabled = bool(reranker["enabled"])
+                self._sources["reranker_enabled"] = source
+            if "model" in reranker:
+                self.reranker_model = reranker["model"]
+                self._sources["reranker_model"] = source
+
         # Summarization settings (concept extraction is part of summarization)
         if "summarization" in data:
             summarization = data["summarization"]
@@ -215,6 +229,8 @@ class CLIConfig:
             "KIDKAZZ_PROCESSED_DIR": ("processed_dir", str),
             "KIDKAZZ_CLOUD_REMOTE": ("cloud_remote", str),
             "KIDKAZZ_CLOUD_PATH": ("cloud_path", str),
+            "KIDKAZZ_RERANKER_ENABLED": ("reranker_enabled", lambda x: x.lower() in ("true", "1", "yes")),
+            "KIDKAZZ_RERANKER_MODEL": ("reranker_model", str),
         }
 
         for env_var, (attr, converter) in env_mappings.items():
@@ -258,6 +274,10 @@ class CLIConfig:
             "cloud_sync": {
                 "remote": self.cloud_remote,
                 "path": self.cloud_path,
+            },
+            "reranker": {
+                "enabled": self.reranker_enabled,
+                "model": self.reranker_model,
             },
         }
 
@@ -310,6 +330,8 @@ class CLIConfig:
             "processed_dir": ("processed_dir", str),
             "cloud_remote": ("cloud_remote", str),
             "cloud_path": ("cloud_path", str),
+            "reranker_enabled": ("reranker_enabled", lambda x: x.lower() in ("true", "1", "yes") if isinstance(x, str) else bool(x)),
+            "reranker_model": ("reranker_model", str),
         }
 
         if key not in key_mapping:

@@ -129,9 +129,13 @@ class TestDocsCommands:
 
     def test_docs_list_empty(self):
         """Test docs list on empty store."""
-        result = runner.invoke(app, ["docs", "list", "--json"])
-        assert result.exit_code == 0
-        assert "[]" in result.output or "No documents" in result.output
+        with patch.dict(os.environ, {
+            "KIDKAZZ_EMBEDDER_TYPE": "mock",
+            "KIDKAZZ_STORE_TYPE": "mock",
+        }):
+            result = runner.invoke(app, ["docs", "list", "--json"])
+            assert result.exit_code == 0
+            assert "[]" in result.output or "No documents" in result.output
 
     def test_docs_stats_nonexistent(self):
         """Test docs stats for nonexistent document."""

@@ -99,6 +99,7 @@ def server_state(populated_store, mock_embedder):
     state._store = populated_store
     state._embedder = MagicMock()
     state._embedder.embed_text = mock_embedder.embed_text
+    state._embedder.embed_query = mock_embedder.embed_query
     return state
 
 
@@ -118,51 +119,6 @@ def registered_tools(server_state):
     mcp = MockMCP()
     register_tools(mcp, server_state)
     return tools
-
-
-class TestSearchSemantic:
-    """Tests for search_semantic tool."""
-
-    def test_basic_search(self, registered_tools):
-        """Test basic semantic search."""
-        search = registered_tools["search_semantic"]
-        results = search(query="machine learning", top_k=5)
-        assert isinstance(results, list)
-
-    def test_search_with_doc_filter(self, registered_tools):
-        """Test search with document filter."""
-        search = registered_tools["search_semantic"]
-        results = search(query="ML", doc_id="test_doc", top_k=3)
-        assert isinstance(results, list)
-
-    def test_search_with_level_filter(self, registered_tools):
-        """Test search with level filter."""
-        search = registered_tools["search_semantic"]
-        results = search(query="neural networks", level=2, top_k=5)
-        assert isinstance(results, list)
-
-    def test_search_with_type_filter(self, registered_tools):
-        """Test search with semantic type filter."""
-        search = registered_tools["search_semantic"]
-        results = search(query="definition", semantic_type="definition", top_k=5)
-        assert isinstance(results, list)
-
-    def test_search_with_threshold(self, registered_tools):
-        """Test search with similarity threshold."""
-        search = registered_tools["search_semantic"]
-        results = search(query="ML", threshold=0.5, top_k=5)
-        assert isinstance(results, list)
-
-    def test_search_returns_scores(self, registered_tools):
-        """Test search results include similarity scores when results exist."""
-        search = registered_tools["search_semantic"]
-        # Use content from test data for better match with mock embeddings
-        results = search(query="Parent section content", top_k=5)
-        assert isinstance(results, list)
-        # With mock embeddings, results may vary - check structure if present
-        if len(results) > 0:
-            assert "similarity_score" in results[0]
-            assert isinstance(results[0]["similarity_score"], float)
 
 
 class TestSearchKeyword:

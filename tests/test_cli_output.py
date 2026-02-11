@@ -6,6 +6,8 @@ from unittest.mock import patch
 import pytest
 
 from src.cli.output import (
+    _build_content_flags,
+    _shorten_doc_id,
     console,
     print_chunks_preview,
     print_db_status,
@@ -40,6 +42,57 @@ class TestPrintFunctions:
     def test_print_info_runs(self):
         """Test print_info executes without error."""
         print_info("Test info")
+
+
+class TestHelperFunctions:
+    """Tests for _shorten_doc_id and _build_content_flags helpers."""
+
+    def test_shorten_doc_id_strips_z_library(self):
+        """Test _shorten_doc_id strips _Z-Library suffix."""
+        result = _shorten_doc_id("Inventory_Accounting_A_Comprehensive_Guide_Steven_M_Bragg_Z-Library")
+        assert "Z-Library" not in result
+        assert result.startswith("Inventory Accounting")
+
+    def test_shorten_doc_id_replaces_underscores(self):
+        """Test _shorten_doc_id replaces underscores with spaces."""
+        result = _shorten_doc_id("My_Great_Book")
+        assert result == "My Great Book"
+
+    def test_shorten_doc_id_truncates_long(self):
+        """Test _shorten_doc_id truncates long names."""
+        result = _shorten_doc_id("A" * 100, max_len=20)
+        assert len(result) == 20
+        assert result.endswith("\u2026")
+
+    def test_shorten_doc_id_empty(self):
+        """Test _shorten_doc_id handles empty string."""
+        assert _shorten_doc_id("") == ""
+
+    def test_shorten_doc_id_none(self):
+        """Test _shorten_doc_id handles None."""
+        assert _shorten_doc_id(None) == ""
+
+    def test_build_content_flags_all(self):
+        """Test _build_content_flags with all flags set."""
+        result = _build_content_flags({"has_table": True, "has_code": True, "has_math": True})
+        assert "[TABLE]" in result
+        assert "[CODE]" in result
+        assert "[MATH]" in result
+
+    def test_build_content_flags_none(self):
+        """Test _build_content_flags with no flags."""
+        result = _build_content_flags({"has_table": False, "has_code": False, "has_math": False})
+        assert result == ""
+
+    def test_build_content_flags_partial(self):
+        """Test _build_content_flags with some flags."""
+        result = _build_content_flags({"has_table": True})
+        assert result == "[TABLE]"
+
+    def test_build_content_flags_missing_keys(self):
+        """Test _build_content_flags with missing keys."""
+        result = _build_content_flags({})
+        assert result == ""
 
 
 class TestPrintSearchResults:
@@ -91,17 +144,103 @@ class TestPrintSearchResults:
         ]
         print_search_results(results, show_context=True)
 
-    def test_long_content_truncation(self):
-        """Test long content is truncated."""
+    def test_long_content_shown_by_default(self):
+        """Test long content is shown in full (up to 2000 chars) by default."""
+        long_content = "x" * 500
         results = [
             {
                 "chunk_id": "long_chunk",
-                "content": "x" * 500,
+                "content": long_content,
                 "level": 1,
                 "semantic_type": "narrative",
                 "similarity_score": 0.5,
             }
         ]
+        buf = StringIO()
+        with console.capture() as capture:
+            print_search_results(results)
+        output = capture.get()
+        # 500 chars should NOT be truncated (default limit is 2000)
+        assert "..." not in output or output.count("x") >= 490
+
+    def test_compact_mode_truncation(self):
+        """Test compact mode truncates to 300 chars."""
+        long_content = "x" * 500
+        results = [
+            {
+                "chunk_id": "long_chunk",
+                "content": long_content,
+                "level": 1,
+                "semantic_type": "narrative",
+                "similarity_score": 0.5,
+            }
+        ]
+        with console.capture() as capture:
+            print_search_results(results, compact=True)
+        output = capture.get()
+        # Should be truncated — full 500 x's should NOT appear
+        assert output.count("x") < 500
+
+    def test_result_with_citation(self):
+        """Test citation metadata is displayed."""
+        results = [
+            {
+                "chunk_id": "test_chunk",
+                "content": "Test content",
+                "level": 2,
+                "semantic_type": "definition",
+                "similarity_score": 0.9,
+                "document_id": "My_Book_Z-Library",
+                "section_path": ["Chapter 1", "Section A"],
+                "header_text": "Understanding Costs",
+                "topic_tags": ["cost", "overhead"],
+                "has_table": True,
+                "has_code": False,
+                "has_math": False,
+            }
+        ]
+        with console.capture() as capture:
+            print_search_results(results)
+        output = capture.get()
+        assert "My Book" in output
+        assert "Chapter 1" in output
+        assert "Section A" in output
+        assert "Understanding Costs" in output
+        assert "cost" in output
+        assert "[TABLE]" in output
+
+    def test_result_with_content_flags_in_subtitle(self):
+        """Test content flags appear in panel subtitle."""
+        results = [
+            {
+                "chunk_id": "test_chunk",
+                "content": "Test",
+                "level": 2,
+                "semantic_type": "narrative",
+                "similarity_score": 0.5,
+                "has_table": False,
+                "has_code": True,
+                "has_math": True,
+            }
+        ]
+        with console.capture() as capture:
+            print_search_results(results)
+        output = capture.get()
+        assert "[CODE]" in output
+        assert "[MATH]" in output
+
+    def test_rich_markup_in_content_escaped(self):
+        """Test that Rich markup in content does not crash."""
+        results = [
+            {
+                "chunk_id": "markup_chunk",
+                "content": "[bold]This has [red]markup[/red][/bold]",
+                "level": 2,
+                "semantic_type": "narrative",
+                "similarity_score": 0.5,
+            }
+        ]
+        # Should not raise
         print_search_results(results)
 
 

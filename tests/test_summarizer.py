@@ -188,12 +188,25 @@ class TestPydanticModels:
         from src.chunker.summarizer import ChapterSummaryOutput
 
         output = ChapterSummaryOutput(
+            chapter_title="Chapter 3: Inventory Valuation",
             summary="This chapter introduces key concepts.",
             key_points=["Concept 1", "Concept 2", "Concept 3"],
         )
 
         assert "chapter" in output.summary.lower()
         assert len(output.key_points) == 3
+        assert output.chapter_title == "Chapter 3: Inventory Valuation"
+
+    def test_chapter_summary_output_default_title(self):
+        """ChapterSummaryOutput should default chapter_title to empty string."""
+        from src.chunker.summarizer import ChapterSummaryOutput
+
+        output = ChapterSummaryOutput(
+            summary="This chapter covers methods.",
+            key_points=["Method A"],
+        )
+
+        assert output.chapter_title == ""
 
     def test_document_summary_output(self):
         """DocumentSummaryOutput should validate correctly."""
@@ -288,6 +301,7 @@ class TestDocumentSummarizer:
 
         mock_client = MagicMock()
         mock_client.create.return_value = ChapterSummaryOutput(
+            chapter_title="Chapter 5: Inventory Valuation",
             summary="This chapter covers inventory valuation methods including FIFO and LIFO.",
             key_points=["FIFO", "LIFO", "Weighted Average"],
         )
@@ -324,6 +338,9 @@ class TestDocumentSummarizer:
 
         assert chapter_summary.level == "chapter"
         assert "inventory" in chapter_summary.content.lower()
+        # Chapter title should be stored as sentinel in key_points
+        assert any(kp.startswith("__title__:") for kp in chapter_summary.key_points)
+        assert "__title__:Chapter 5: Inventory Valuation" in chapter_summary.key_points
 
     @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
     @patch("src.chunker.summarizer.instructor")
@@ -343,7 +360,11 @@ class TestDocumentSummarizer:
         mock_client = MagicMock()
         mock_client.create.side_effect = [
             # Chapter summary (1 LLM call)
-            ChapterSummaryOutput(summary="Chapter summary", key_points=["C", "D"]),
+            ChapterSummaryOutput(
+                chapter_title="Chapter 1: Methods",
+                summary="Chapter summary",
+                key_points=["C", "D"],
+            ),
             # Document summary (1 LLM call)
             DocumentSummaryOutput(summary="Document summary", key_points=["E", "F", "G"]),
         ]
@@ -447,3 +468,265 @@ class TestSummaryStorageQueries:
         params = query.query()
 
         assert params[0]["document_id"] == "doc1"
+
+
+class TestChapterTitleExtraction:
+    """Tests for chapter title extraction helpers."""
+
+    def test_extract_chapter_title_from_key_points(self):
+        """Should extract chapter title from __title__: sentinel."""
+        from src.chunker.summarizer import DocumentSummarizer, Summary
+
+        summary = Summary(
+            summary_id="test",
+            content="Summary content",
+            level="chapter",
+            source_id="ch1",
+            document_id="doc1",
+            key_points=["__title__:Chapter 2: Safety Stock", "Point A", "Point B"],
+        )
+        title = DocumentSummarizer._extract_chapter_title(summary)
+        assert title == "Chapter 2: Safety Stock"
+
+    def test_extract_chapter_title_returns_none_when_missing(self):
+        """Should return None when no title sentinel present."""
+        from src.chunker.summarizer import DocumentSummarizer, Summary
+
+        summary = Summary(
+            summary_id="test",
+            content="Summary content",
+            level="chapter",
+            source_id="ch1",
+            document_id="doc1",
+            key_points=["Point A", "Point B"],
+        )
+        title = DocumentSummarizer._extract_chapter_title(summary)
+        assert title is None
+
+    def test_get_display_key_points_filters_sentinel(self):
+        """Should filter out __title__: sentinel from key_points."""
+        from src.chunker.summarizer import DocumentSummarizer, Summary
+
+        summary = Summary(
+            summary_id="test",
+            content="Summary content",
+            level="chapter",
+            source_id="ch1",
+            document_id="doc1",
+            key_points=["__title__:Chapter 3: FIFO", "Point A", "Point B"],
+        )
+        display = DocumentSummarizer._get_display_key_points(summary)
+        assert display == ["Point A", "Point B"]
+
+    def test_format_chapter_for_doc_context_with_title(self):
+        """Should use actual title instead of generic 'Chapter N'."""
+        from src.chunker.summarizer import DocumentSummarizer, Summary
+
+        summary = Summary(
+            summary_id="test",
+            content="This chapter covers cost methods.",
+            level="chapter",
+            source_id="ch1",
+            document_id="doc1",
+            key_points=["__title__:Chapter 5: Cost Methods", "FIFO", "LIFO"],
+        )
+        context = DocumentSummarizer._format_chapter_for_doc_context(summary, 0)
+        assert context.startswith("Chapter 5: Cost Methods:")
+        assert "FIFO" in context
+        assert "__title__" not in context
+
+    def test_format_chapter_for_doc_context_without_title(self):
+        """Should fall back to generic 'Chapter N' when no title."""
+        from src.chunker.summarizer import DocumentSummarizer, Summary
+
+        summary = Summary(
+            summary_id="test",
+            content="Content here.",
+            level="chapter",
+            source_id="ch1",
+            document_id="doc1",
+            key_points=["Point A"],
+        )
+        context = DocumentSummarizer._format_chapter_for_doc_context(summary, 2)
+        assert context.startswith("Chapter 3:")
+
+    def test_result_to_summary_stores_title_sentinel(self):
+        """_result_to_summary should store chapter_title as sentinel in key_points."""
+        from src.chunker.summarizer import ChapterSummaryOutput, DocumentSummarizer
+
+        output = ChapterSummaryOutput(
+            chapter_title="Chapter 1: Introduction",
+            summary="Introduction to the topic.",
+            key_points=["Overview", "Scope"],
+        )
+
+        # Need a real summarizer instance
+        with patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True), \
+             patch("src.chunker.summarizer.instructor") as mock_instructor:
+            mock_instructor.from_provider.return_value = MagicMock()
+            summarizer = DocumentSummarizer()
+
+        summary = summarizer._result_to_summary(
+            result=output,
+            summary_id="summary_ch1_chapter",
+            level="chapter",
+            source_id="ch1",
+            document_id="doc1",
+        )
+
+        assert "__title__:Chapter 1: Introduction" in summary.key_points
+        assert "Overview" in summary.key_points
+        assert "Scope" in summary.key_points
+
+    def test_result_to_summary_no_title_for_non_chapter(self):
+        """_result_to_summary should not store title sentinel for non-chapter levels."""
+        from src.chunker.summarizer import DocumentSummaryOutput, DocumentSummarizer
+
+        output = DocumentSummaryOutput(
+            summary="Document overview.",
+            key_points=["Topic 1", "Topic 2"],
+        )
+
+        with patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True), \
+             patch("src.chunker.summarizer.instructor") as mock_instructor:
+            mock_instructor.from_provider.return_value = MagicMock()
+            summarizer = DocumentSummarizer()
+
+        summary = summarizer._result_to_summary(
+            result=output,
+            summary_id="summary_doc1_document",
+            level="document",
+            source_id="doc1",
+            document_id="doc1",
+        )
+
+        assert not any(kp.startswith("__title__:") for kp in summary.key_points)
+
+
+class TestCLIChapterHelpers:
+    """Tests for CLI chapter title/sorting helpers."""
+
+    def test_extract_chapter_title_from_summary_dict(self):
+        """Should extract title from summary dict key_points."""
+        from src.cli.commands.summarize import _extract_chapter_title_from_summary
+
+        summary = {
+            "key_points": ["__title__:Chapter 4: Warehousing", "Point A"],
+        }
+        assert _extract_chapter_title_from_summary(summary) == "Chapter 4: Warehousing"
+
+    def test_extract_chapter_title_from_summary_dict_json_string(self):
+        """Should handle key_points stored as JSON string."""
+        import json
+        from src.cli.commands.summarize import _extract_chapter_title_from_summary
+
+        summary = {
+            "key_points": json.dumps(["__title__:Part II: Methods", "Point B"]),
+        }
+        assert _extract_chapter_title_from_summary(summary) == "Part II: Methods"
+
+    def test_extract_chapter_title_returns_none_when_missing(self):
+        """Should return None when no title sentinel."""
+        from src.cli.commands.summarize import _extract_chapter_title_from_summary
+
+        summary = {"key_points": ["Point A", "Point B"]}
+        assert _extract_chapter_title_from_summary(summary) is None
+
+    def test_get_display_key_points_filters_sentinel(self):
+        """Should filter out title sentinel from display."""
+        from src.cli.commands.summarize import _get_display_key_points_from_summary
+
+        summary = {
+            "key_points": ["__title__:Chapter 1: Intro", "FIFO", "LIFO"],
+        }
+        result = _get_display_key_points_from_summary(summary)
+        assert result == ["FIFO", "LIFO"]
+
+    def test_chapter_sort_key_numeric(self):
+        """Should extract trailing number from source_id."""
+        from src.cli.commands.summarize import _chapter_sort_key
+
+        assert _chapter_sort_key({"source_id": "inv_l1_5"})[0] == 5
+        assert _chapter_sort_key({"source_id": "inv_l1_12"})[0] == 12
+        assert _chapter_sort_key({"source_id": "wh_l1_0"})[0] == 0
+
+    def test_chapter_sort_key_no_number(self):
+        """Should fall back to high number for non-numeric source_ids."""
+        from src.cli.commands.summarize import _chapter_sort_key
+
+        assert _chapter_sort_key({"source_id": "abc"})[0] == 999999
+
+    def test_chapter_sort_key_ordering(self):
+        """Chapters should sort by numeric suffix."""
+        from src.cli.commands.summarize import _chapter_sort_key
+
+        chapters = [
+            {"source_id": "inv_l1_10"},
+            {"source_id": "inv_l1_2"},
+            {"source_id": "inv_l1_1"},
+            {"source_id": "inv_l1_5"},
+        ]
+        sorted_chapters = sorted(chapters, key=_chapter_sort_key)
+        assert [c["source_id"] for c in sorted_chapters] == [
+            "inv_l1_1", "inv_l1_2", "inv_l1_5", "inv_l1_10"
+        ]
+
+
+class TestMCPFormatterChapterTitle:
+    """Tests for MCP formatter chapter title extraction."""
+
+    def test_format_summary_extracts_chapter_title(self):
+        """Should extract chapter_title from key_points sentinel."""
+        from src.mcp_server.formatters import format_summary
+
+        summary = {
+            "summary_id": "s1",
+            "content": "Chapter content",
+            "level": "chapter",
+            "source_id": "ch1",
+            "document_id": "doc1",
+            "key_points": ["__title__:Chapter 2: Costs", "Point A", "Point B"],
+            "word_count": 10,
+            "created_at": 0,
+        }
+        result = format_summary(summary)
+        assert result["chapter_title"] == "Chapter 2: Costs"
+        assert result["key_points"] == ["Point A", "Point B"]
+        assert "__title__" not in str(result["key_points"])
+
+    def test_format_summary_no_title_when_absent(self):
+        """Should not include chapter_title when no sentinel present."""
+        from src.mcp_server.formatters import format_summary
+
+        summary = {
+            "summary_id": "s1",
+            "content": "Content",
+            "level": "document",
+            "source_id": "doc1",
+            "document_id": "doc1",
+            "key_points": ["Point A"],
+            "word_count": 5,
+            "created_at": 0,
+        }
+        result = format_summary(summary)
+        assert "chapter_title" not in result
+        assert result["key_points"] == ["Point A"]
+
+    def test_format_summary_handles_json_string_key_points(self):
+        """Should handle key_points as JSON string."""
+        import json
+        from src.mcp_server.formatters import format_summary
+
+        summary = {
+            "summary_id": "s1",
+            "content": "Content",
+            "level": "chapter",
+            "source_id": "ch1",
+            "document_id": "doc1",
+            "key_points": json.dumps(["__title__:Part I: Basics", "Intro"]),
+            "word_count": 5,
+            "created_at": 0,
+        }
+        result = format_summary(summary)
+        assert result["chapter_title"] == "Part I: Basics"
+        assert result["key_points"] == ["Intro"]

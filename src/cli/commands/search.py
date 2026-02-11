@@ -7,7 +7,7 @@ import typer
 from ..config import CLIConfig
 from ..output import console, print_json, print_search_results, print_warning
 from ..progress import spinner
-from ..utils import get_embedder, get_store, parse_tags
+from ..utils import get_embedder, get_reranker, get_store, parse_tags
 
 app = typer.Typer(help="Search commands")
 
@@ -63,6 +63,16 @@ def search_semantic(
         "--show-parent",
         help="Include parent chunk",
     ),
+    compact: bool = typer.Option(
+        False,
+        "--compact",
+        help="Show truncated snippets instead of full content",
+    ),
+    rerank: bool = typer.Option(
+        False,
+        "--rerank",
+        help="Rerank results using Cohere Rerank v3.5",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -90,14 +100,24 @@ def search_semantic(
     # Parse tags
     tag_list = parse_tags(tags)
 
+    # Determine if reranking is active (CLI flag or config)
+    use_rerank = rerank or config.reranker_enabled
+    reranker = get_reranker(config) if use_rerank else None
+
     # Generate query embedding
     with spinner("Generating query embedding"):
-        query_embedding = embedder.embed_text(query)
+        if hasattr(embedder, "embed_query"):
+            query_embedding = embedder.embed_query(query)
+        else:
+            query_embedding = embedder.embed_text(query)
+
+    # Fetch more candidates when reranking
+    fetch_k = top_k * 4 if reranker else top_k
 
     # Search
     results = store.search_similar(
         query_embedding=query_embedding,
-        top_k=top_k,
+        top_k=fetch_k,
         doc_id=doc_id,
         level=level,
         semantic_type=semantic_type,
@@ -105,17 +125,30 @@ def search_semantic(
         tags=tag_list,
     )
 
+    # Rerank if enabled
+    if reranker and results:
+        with spinner("Reranking results"):
+            results = reranker.rerank_chunks(query, results, top_n=top_k)
+
     # Format results
     formatted = []
     for ec, score in results:
         chunk = ec.chunk
+        meta = getattr(chunk, "metadata", {}) or {}
         result = {
             "chunk_id": chunk.id,
             "content": chunk.content,
             "level": chunk.level,
-            "semantic_type": getattr(chunk, "semantic_type", "unknown"),
+            "semantic_type": meta.get("semantic_type") or getattr(chunk, "semantic_type", "unknown"),
             "similarity_score": round(score, 4),
             "token_count": chunk.token_count,
+            "document_id": meta.get("document_id", ""),
+            "header_text": meta.get("header_text", ""),
+            "header_level": meta.get("header_level"),
+            "topic_tags": meta.get("topic_tags", []),
+            "has_table": meta.get("has_table", False),
+            "has_code": meta.get("has_code", False),
+            "has_math": meta.get("has_math", False),
         }
 
         # Add section path if available
@@ -143,7 +176,7 @@ def search_semantic(
             print_warning(f"No results found for: {query}")
         else:
             console.print(f"\n[bold]Search results for:[/bold] {query}\n")
-            print_search_results(formatted, show_context=show_context)
+            print_search_results(formatted, show_context=show_context, compact=compact)
 
 
 @app.command("keyword")

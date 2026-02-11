@@ -1,8 +1,10 @@
 """Database management commands."""
 
+import logging
 import re
 import subprocess
 import time
+from collections import defaultdict
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -20,6 +22,8 @@ from ..output import (
     print_warning,
 )
 from ..utils import get_store
+
+logger = logging.getLogger(__name__)
 
 CONTAINER_NAME = "helix-kidkazz_rag-dev_app"
 
@@ -285,9 +289,23 @@ def deploy_helix(
             print_error(str(e))
         raise typer.Exit(1)
 
-    # Step 2: Run helix push dev
+    # Step 2: Stop and remove existing container (prevents name conflict)
     if not json_output:
-        console.print("[bold]Step 1/4:[/bold] Compiling queries and building image...")
+        console.print("[bold]Step 1/5:[/bold] Stopping existing container...")
+    subprocess.run(
+        ["docker", "stop", CONTAINER_NAME],
+        capture_output=True,
+        timeout=30,
+    )
+    subprocess.run(
+        ["docker", "rm", CONTAINER_NAME],
+        capture_output=True,
+        timeout=30,
+    )
+
+    # Step 3: Run helix push dev
+    if not json_output:
+        console.print("[bold]Step 2/5:[/bold] Compiling queries and building image...")
     try:
         proc = subprocess.run(
             ["helix", "push", "dev"],
@@ -311,9 +329,9 @@ def deploy_helix(
             print_error(msg)
         raise typer.Exit(1)
 
-    # Step 3: Patch docker-compose.yml
+    # Step 4: Patch docker-compose.yml
     if not json_output:
-        console.print("[bold]Step 2/4:[/bold] Patching docker-compose.yml...")
+        console.print("[bold]Step 3/5:[/bold] Patching docker-compose.yml...")
     compose_file = helix_dir / "docker-compose.yml"
     if not compose_file.exists():
         msg = f"docker-compose.yml not found at {compose_file}"
@@ -327,9 +345,9 @@ def deploy_helix(
     result["port"] = port
     result["env_vars"] = THREAD_LIMIT_VARS
 
-    # Step 4: Stop and remove old container
+    # Step 5: Stop/remove container that helix push dev started (it uses un-patched config)
     if not json_output:
-        console.print("[bold]Step 3/4:[/bold] Restarting container...")
+        console.print("[bold]Step 4/5:[/bold] Restarting container with patched config...")
     subprocess.run(
         ["docker", "stop", CONTAINER_NAME],
         capture_output=True,
@@ -340,8 +358,6 @@ def deploy_helix(
         capture_output=True,
         timeout=30,
     )
-
-    # Step 5: Start new container
     proc = subprocess.run(
         ["docker", "compose", "up", "-d"],
         cwd=helix_dir,
@@ -359,7 +375,7 @@ def deploy_helix(
 
     # Step 6: Wait for health check
     if not json_output:
-        console.print("[bold]Step 4/4:[/bold] Waiting for Helix-DB to be ready...")
+        console.print("[bold]Step 5/5:[/bold] Waiting for Helix-DB to be ready...")
     if _wait_for_helix(port):
         result["status"] = "deployed"
         if json_output:
@@ -458,3 +474,385 @@ def restart_helix(
             print_json(result)
         else:
             print_warning(f"Helix-DB started but health check timed out (port {port})")
+
+
+@app.command("dedup-edges")
+def dedup_edges(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Report duplicates without modifying anything",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON",
+    ),
+) -> None:
+    """Deduplicate DefinesConcept edges across all documents.
+
+    Scans all concepts, collects unique (chunk, concept) edge pairs,
+    drops all existing DefinesConcept edges, and re-creates only unique ones.
+
+    Examples:
+        kidkazz db dedup-edges --dry-run   # Preview duplicate count
+        kidkazz db dedup-edges             # Clean up duplicates
+    """
+    config = CLIConfig.load()
+    store = get_store(config)
+
+    # Step 1: List all concepts
+    if not json_output:
+        console.print("[bold]Step 1/4:[/bold] Scanning concepts and edges...")
+    concepts = store.list_concepts()
+    if not concepts:
+        if json_output:
+            print_json({"status": "no_concepts", "total_edges": 0, "duplicates": 0})
+        else:
+            console.print("[yellow]No concepts found[/yellow]")
+        return
+
+    # Step 2: For each concept, get definition chunks and collect unique edges
+    unique_edges: set[tuple[str, str]] = set()
+    total_edge_count = 0
+    chunks_with_edges: set[str] = set()
+
+    for i, concept in enumerate(concepts):
+        concept_id = concept.get("concept_id")
+        if not concept_id:
+            continue
+
+        internal_id = concept.get("id")
+        if not internal_id:
+            continue
+
+        # Get chunks that define this concept (via edge traversal)
+        try:
+            def_chunks = store.get_concept_definition_chunks(concept_id)
+        except Exception as e:
+            logger.warning("Failed to get definition chunks for %s: %s", concept_id, e)
+            continue
+
+        for chunk in def_chunks:
+            chunk_internal_id = chunk.get("id")
+            if chunk_internal_id:
+                total_edge_count += 1
+                unique_edges.add((str(chunk_internal_id), str(internal_id)))
+                chunks_with_edges.add(str(chunk_internal_id))
+
+        # Log progress every 200 concepts
+        if (i + 1) % 200 == 0:
+            if not json_output:
+                console.print(f"  Scanned {i + 1}/{len(concepts)} concepts...")
+            time.sleep(0.5)
+
+        # Throttle individual requests
+        time.sleep(0.08)
+
+    duplicate_count = total_edge_count - len(unique_edges)
+
+    if not json_output:
+        console.print(f"\n[bold]Edge scan results:[/bold]")
+        console.print(f"  Concepts scanned: {len(concepts)}")
+        console.print(f"  Total edges: {total_edge_count}")
+        console.print(f"  Unique edges: {len(unique_edges)}")
+        console.print(f"  Duplicates: {duplicate_count}")
+        console.print(f"  Chunks with edges: {len(chunks_with_edges)}")
+
+    if duplicate_count == 0:
+        if json_output:
+            print_json({
+                "status": "clean",
+                "concepts": len(concepts),
+                "total_edges": total_edge_count,
+                "unique_edges": len(unique_edges),
+                "duplicates": 0,
+            })
+        else:
+            print_success("No duplicate edges found!")
+        return
+
+    if dry_run:
+        if json_output:
+            print_json({
+                "status": "dry_run",
+                "concepts": len(concepts),
+                "total_edges": total_edge_count,
+                "unique_edges": len(unique_edges),
+                "duplicates": duplicate_count,
+                "chunks_with_edges": len(chunks_with_edges),
+            })
+        else:
+            console.print(f"\n[yellow]Dry run — no changes made. "
+                          f"Run without --dry-run to remove {duplicate_count} duplicates.[/yellow]")
+        return
+
+    # Step 3: Drop all DefinesConcept edges from affected chunks
+    if not json_output:
+        console.print(f"\n[bold]Step 2/4:[/bold] Dropping all DefinesConcept edges from {len(chunks_with_edges)} chunks...")
+
+    if not hasattr(store, 'batch_drop_chunk_concept_edges'):
+        msg = "Store does not support batch_drop_chunk_concept_edges"
+        if json_output:
+            print_json({"status": "error", "error": msg})
+        else:
+            print_error(msg)
+        raise typer.Exit(1)
+
+    try:
+        store.batch_drop_chunk_concept_edges(list(chunks_with_edges))
+    except Exception as e:
+        msg = f"Failed to drop edges: {e}"
+        if json_output:
+            print_json({"status": "error", "error": msg})
+        else:
+            print_error(msg)
+        raise typer.Exit(1)
+
+    if not json_output:
+        console.print("  Edges dropped successfully")
+
+    # Brief cooldown
+    time.sleep(3)
+
+    # Step 4: Re-create only unique edges
+    if not json_output:
+        console.print(f"[bold]Step 3/4:[/bold] Re-creating {len(unique_edges)} unique edges...")
+
+    edges_list = list(unique_edges)
+    BATCH_SIZE = 50
+    edges_created = 0
+
+    for i in range(0, len(edges_list), BATCH_SIZE):
+        batch = edges_list[i:i + BATCH_SIZE]
+        try:
+            if hasattr(store, 'batch_link_chunk_defines_concept'):
+                count = store.batch_link_chunk_defines_concept(batch)
+                edges_created += count
+            else:
+                for chunk_id, concept_id in batch:
+                    if store.link_chunk_defines_concept(chunk_id, concept_id):
+                        edges_created += 1
+        except Exception as e:
+            logger.error("Failed to create edge batch at offset %d: %s", i, e)
+            if not json_output:
+                print_warning(f"Failed batch at offset {i}: {e}")
+
+        # Throttle
+        time.sleep(0.5)
+
+        # Progress every 10 batches
+        if ((i // BATCH_SIZE) + 1) % 10 == 0 and not json_output:
+            console.print(f"  Created {edges_created}/{len(unique_edges)} edges...")
+
+    if not json_output:
+        console.print(f"\n[bold]Step 4/4:[/bold] Verification")
+        console.print(f"  Edges before: {total_edge_count}")
+        console.print(f"  Edges after: {edges_created}")
+        console.print(f"  Duplicates removed: {total_edge_count - edges_created}")
+
+    if json_output:
+        print_json({
+            "status": "deduped",
+            "concepts": len(concepts),
+            "edges_before": total_edge_count,
+            "edges_after": edges_created,
+            "duplicates_removed": total_edge_count - edges_created,
+        })
+    else:
+        print_success(
+            f"Deduplication complete: {total_edge_count} -> {edges_created} edges "
+            f"({total_edge_count - edges_created} duplicates removed)"
+        )
+
+
+@app.command("dedup-summaries")
+def dedup_summaries(
+    doc: str = typer.Option(
+        None,
+        "--doc",
+        "-d",
+        help="Only dedup summaries for a specific document",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Report duplicates without modifying anything",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON",
+    ),
+) -> None:
+    """Deduplicate summary nodes (keep newest, delete rest with full vector cleanup).
+
+    When `kidkazz summarize generate --force` is run multiple times without
+    deleting old summaries first, duplicate Summary + SummaryVector nodes
+    accumulate. This command identifies duplicates by summary_id and removes
+    them with full cleanup (edge + vector + node).
+
+    Examples:
+        kidkazz db dedup-summaries --dry-run          # Preview duplicate count
+        kidkazz db dedup-summaries                     # Clean up all duplicates
+        kidkazz db dedup-summaries --doc inventory_accounting  # Single doc
+    """
+    from src.storage.queries import (
+        DeleteSummary,
+        DropSummaryEmbeddingEdge,
+        GetSummaryVector,
+        DropSummaryVector,
+    )
+
+    config = CLIConfig.load()
+    store = get_store(config)
+
+    # Step 1: Fetch all summaries (or for a single doc)
+    if not json_output:
+        console.print("[bold]Step 1/3:[/bold] Scanning summaries...")
+
+    if doc:
+        summaries = store.get_document_summaries(doc)
+    else:
+        # Use ListSummarizedDocuments which returns all summaries
+        from src.storage.queries import ListSummarizedDocuments
+        store._ensure_connected()
+        q = ListSummarizedDocuments()
+        result = store._execute_query(q)
+        summaries = result.data or [] if result.success else []
+
+    if not summaries:
+        if json_output:
+            print_json({"status": "no_summaries", "total": 0, "duplicates": 0})
+        else:
+            console.print("[yellow]No summaries found[/yellow]")
+        return
+
+    # Step 2: Group by summary_id, identify duplicates
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for s in summaries:
+        if isinstance(s, dict) and s.get("summary_id"):
+            groups[s["summary_id"]].append(s)
+
+    total_summaries = sum(len(v) for v in groups.values())
+    unique_count = len(groups)
+    duplicate_count = total_summaries - unique_count
+
+    # Identify which nodes to delete (keep newest per group by created_at)
+    to_delete: list[dict] = []
+    for summary_id, copies in groups.items():
+        if len(copies) <= 1:
+            continue
+        # Sort by created_at descending (newest first), keep the first
+        copies.sort(key=lambda s: s.get("created_at", 0), reverse=True)
+        to_delete.extend(copies[1:])  # all except newest
+
+    if not json_output:
+        console.print(f"\n[bold]Summary scan results:[/bold]")
+        console.print(f"  Total summary nodes: {total_summaries}")
+        console.print(f"  Unique summary_ids: {unique_count}")
+        console.print(f"  Duplicate nodes to delete: {len(to_delete)}")
+        if doc:
+            console.print(f"  Filtered to document: {doc}")
+
+    if len(to_delete) == 0:
+        if json_output:
+            print_json({
+                "status": "clean",
+                "total": total_summaries,
+                "unique": unique_count,
+                "duplicates": 0,
+            })
+        else:
+            print_success("No duplicate summaries found!")
+        return
+
+    if dry_run:
+        if json_output:
+            print_json({
+                "status": "dry_run",
+                "total": total_summaries,
+                "unique": unique_count,
+                "duplicates": len(to_delete),
+            })
+        else:
+            console.print(f"\n[yellow]Dry run — no changes made. "
+                          f"Run without --dry-run to remove {len(to_delete)} duplicates.[/yellow]")
+        return
+
+    # Step 3: Delete duplicates with full SummaryVector cleanup
+    if not json_output:
+        console.print(f"\n[bold]Step 2/3:[/bold] Deleting {len(to_delete)} duplicate summaries...")
+
+    store._ensure_connected()
+    deleted = 0
+    errors = 0
+
+    for i, summary in enumerate(to_delete):
+        internal_id = summary.get("id")
+        if not internal_id:
+            errors += 1
+            continue
+
+        try:
+            # Step A: Get linked SummaryVector
+            vec_query = GetSummaryVector(internal_id)
+            vec_result = store._execute_query(vec_query)
+            vector_id = None
+            if vec_result.success and vec_result.data:
+                vector_id = store._extract_node_id(vec_result.data)
+
+            # Step B: Drop embedding edge
+            try:
+                edge_query = DropSummaryEmbeddingEdge(internal_id)
+                store._client.query(edge_query)
+            except Exception:
+                pass  # Edge may not exist
+
+            # Step C: Drop the SummaryVector node
+            if vector_id:
+                try:
+                    drop_vec_query = DropSummaryVector(vector_id)
+                    store._client.query(drop_vec_query)
+                except Exception:
+                    pass  # Vector may already be gone
+
+            # Step D: Drop the summary node
+            drop_query = DeleteSummary(internal_id)
+            store._client.query(drop_query)
+            deleted += 1
+
+            # Throttle
+            time.sleep(0.08)
+
+        except Exception as e:
+            logger.warning("Failed to delete summary %s: %s", internal_id, e)
+            errors += 1
+
+        # Progress every 100 deletions
+        if (i + 1) % 100 == 0 and not json_output:
+            console.print(f"  Deleted {deleted}/{len(to_delete)}...")
+
+    if not json_output:
+        console.print(f"\n[bold]Step 3/3:[/bold] Verification")
+        console.print(f"  Summaries before: {total_summaries}")
+        console.print(f"  Duplicates deleted: {deleted}")
+        console.print(f"  Expected remaining: {total_summaries - deleted}")
+        if errors:
+            console.print(f"  Errors: {errors}")
+
+    if json_output:
+        print_json({
+            "status": "deduped",
+            "total_before": total_summaries,
+            "duplicates_deleted": deleted,
+            "expected_remaining": total_summaries - deleted,
+            "errors": errors,
+        })
+    else:
+        print_success(
+            f"Deduplication complete: {total_summaries} -> {total_summaries - deleted} summaries "
+            f"({deleted} duplicates removed)"
+        )

@@ -15,14 +15,46 @@ from rich.text import Text
 console = Console()
 
 
+def _shorten_doc_id(doc_id: str, max_len: int = 50) -> str:
+    """Shorten a document ID for display.
+
+    Strips ``_Z-Library`` suffix, replaces underscores with spaces,
+    and truncates to *max_len* characters.
+    """
+    if not doc_id:
+        return ""
+    name = doc_id.removesuffix("_Z-Library")
+    name = name.replace("_", " ")
+    if len(name) > max_len:
+        name = name[: max_len - 1] + "\u2026"
+    return name
+
+
+def _build_content_flags(result: dict[str, Any]) -> str:
+    """Return content-flag indicators like ``[TABLE] [CODE]``."""
+    flags: list[str] = []
+    if result.get("has_table"):
+        flags.append("[TABLE]")
+    if result.get("has_code"):
+        flags.append("[CODE]")
+    if result.get("has_math"):
+        flags.append("[MATH]")
+    return " ".join(flags)
+
+
 def print_search_results(
     results: list[dict[str, Any]],
     show_context: bool = False,
+    compact: bool = False,
 ) -> None:
     """Print search results in rich format."""
     if not results:
         console.print("[yellow]No results found.[/yellow]")
         return
+
+    content_limit = 300 if compact else 2000
+    context_limit = 200 if compact else 500
+    parent_limit = 100 if compact else 300
 
     for i, result in enumerate(results, 1):
         score = result.get("similarity_score", 0)
@@ -32,7 +64,10 @@ def print_search_results(
         semantic_type = result.get("semantic_type", "unknown")
 
         # Truncate content for display
-        display_content = content[:300] + "..." if len(content) > 300 else content
+        if len(content) > content_limit:
+            display_content = content[:content_limit] + "..."
+        else:
+            display_content = content
 
         # Color based on score
         if score >= 0.8:
@@ -47,24 +82,60 @@ def print_search_results(
         if score > 0:
             title += f" [{score_color}]{score:.3f}[/{score_color}]"
 
+        # Build subtitle with content flags
+        subtitle = f"Level {level} | {semantic_type}"
+        flags = _build_content_flags(result)
+        if flags:
+            subtitle += f" {flags}"
+
         panel = Panel(
-            display_content,
+            Text(display_content),
             title=title,
-            subtitle=f"Level {level} | {semantic_type}",
+            subtitle=subtitle,
             border_style="blue",
         )
         console.print(panel)
 
+        # Citation block
+        citation_lines: list[str] = []
+        doc_id = result.get("document_id")
+        if doc_id:
+            citation_lines.append(f"Source: {_shorten_doc_id(doc_id)}")
+        section_path = result.get("section_path")
+        if section_path:
+            if isinstance(section_path, list):
+                citation_lines.append(f"Section: {' > '.join(section_path)}")
+            else:
+                citation_lines.append(f"Section: {section_path}")
+        header_text = result.get("header_text")
+        if header_text:
+            citation_lines.append(f'Header: "{header_text}"')
+        topic_tags = result.get("topic_tags")
+        if topic_tags:
+            if isinstance(topic_tags, list):
+                citation_lines.append(f"Tags: {', '.join(topic_tags)}")
+            elif isinstance(topic_tags, str) and topic_tags:
+                citation_lines.append(f"Tags: {topic_tags}")
+        if citation_lines:
+            for line in citation_lines:
+                console.print(f"  [dim]{line}[/dim]")
+
         # Show context if requested
         if show_context and "context" in result:
-            console.print("  [dim]Context:[/dim]")
-            for ctx in result["context"][:2]:
-                ctx_preview = ctx[:100] + "..." if len(ctx) > 100 else ctx
-                console.print(f"    [dim]{ctx_preview}[/dim]")
+            ctx_list = result["context"][:2]
+            labels = ["before", "after"]
+            for idx, ctx in enumerate(ctx_list):
+                label = labels[idx] if idx < len(labels) else "context"
+                ctx_preview = ctx[:context_limit] + "..." if len(ctx) > context_limit else ctx
+                console.print(f"  [dim]{label}: {ctx_preview}[/dim]")
 
         # Show parent if available
         if "parent" in result:
-            parent_preview = result["parent"][:100] + "..." if len(result["parent"]) > 100 else result["parent"]
+            parent_preview = (
+                result["parent"][:parent_limit] + "..."
+                if len(result["parent"]) > parent_limit
+                else result["parent"]
+            )
             console.print(f"  [dim]Parent: {parent_preview}[/dim]")
 
 
