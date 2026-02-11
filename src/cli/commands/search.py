@@ -54,9 +54,9 @@ def search_semantic(
         help="Minimum similarity score (0.0-1.0)",
     ),
     show_context: bool = typer.Option(
-        False,
-        "--show-context",
-        help="Include surrounding chunks",
+        True,
+        "--show-context/--no-context",
+        help="Include surrounding chunks (default: on)",
     ),
     show_parent: bool = typer.Option(
         False,
