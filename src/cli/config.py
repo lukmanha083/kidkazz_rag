@@ -74,6 +74,8 @@ class CLIConfig:
 
     # Source tracking (which config file each setting came from)
     _sources: dict[str, str] = field(default_factory=dict)
+    # Raw TOML data for get_extra() lookups
+    _raw_data: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def load(cls) -> "CLIConfig":
@@ -103,6 +105,7 @@ class CLIConfig:
         try:
             with open(path, "rb") as f:
                 data = tomllib.load(f)
+            self._raw_data.update(data)
             self._apply_settings(data, source)
         except Exception:
             pass  # Ignore malformed config files
@@ -242,6 +245,22 @@ class CLIConfig:
     def get_source(self, key: str) -> str:
         """Get the source of a configuration value."""
         return self._sources.get(key, "default")
+
+    def get_extra(self, section: str, key: str, default: Any = None) -> Any:
+        """Get an arbitrary value from the raw TOML config.
+
+        Useful for reading config keys not mapped to CLIConfig fields,
+        such as [inbox].return_images.
+
+        Args:
+            section: TOML section name (e.g., "inbox").
+            key: Key within the section.
+            default: Default value if not found.
+
+        Returns:
+            The config value or default.
+        """
+        return self._raw_data.get(section, {}).get(key, default)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for saving."""

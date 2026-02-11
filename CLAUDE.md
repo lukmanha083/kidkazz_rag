@@ -82,7 +82,7 @@ kidkazz inbox list --output         # List parsed markdown (status + quality)
 kidkazz inbox sync --dry-run        # Preview cloud sync
 kidkazz inbox parse                 # Parse PDFs with Reducto.ai
 kidkazz config show
-kidkazz summarize generate doc_id   # Generate summaries + extract concepts (includes table parsing)
+kidkazz summarize generate doc_id   # Generate summaries + extract concepts
 kidkazz summarize show doc_id       # Show document summary
 kidkazz summarize search "query"    # Search summaries semantically
 kidkazz summarize list              # List documents with summaries
@@ -100,17 +100,6 @@ kidkazz summarize list              # List documents with summaries
   - Header-aware prompts (includes header_text, header_level in context)
   - Semantic type filtering via `filter_chunks_by_semantic_type()`
   - Header hierarchy relationship inference via `infer_relationships_from_headers()`
-
-- **`src/chunker/table_parser.py`** - Markdown table parsing into structured form:
-  - `ParsedTable` dataclass with columns, rows, types, context
-  - `parse_markdown_table()` for extracting tables from chunks
-  - `to_markdown_kv()` for LLM-friendly format (60.7% accuracy)
-  - `infer_column_types()` for detecting text/numeric/date columns
-
-- **`src/chunker/table_summarizer.py`** - LLM-powered table summarization:
-  - `TableSummary` dataclass for storing summaries with embeddings
-  - `TableSummarizer` class with Anthropic/OpenAI support
-  - Key column/value extraction for retrieval hints
 
 - **`src/chunker/extractive.py`** - Local extractive summarization (no LLM required):
   - `extractive_summarize()`: TextRank via sumy for key sentence extraction
@@ -130,18 +119,14 @@ kidkazz summarize list              # List documents with summaries
     - < 50 chapters: Sequential (simple, no overhead)
     - 50-500 chapters: Async with rate limiting (parallel, respects limits)
     - > 500 chapters: OpenAI Batch API (50% cheaper, higher limits)
-  - **Table parsing integration**: Chunks with `has_table=True` get structured table data (columns, rows, types) for better concept extraction
   - Checkpointing for resume-from-failure (chapter/document phases only)
   - `generate_all_summaries()` for full hierarchical summarization + concept extraction
 
-- **`src/storage/table_store.py`** - Multi-vector table storage:
-  - Embed summaries for retrieval, store raw markdown for synthesis
-  - `search_tables()` with cosine similarity ranking
-  - `link_table_to_concept()` for graph-based retrieval
-
 - **`src/chunker/embedder.py`** - Embedder implementations:
-  - `OpenAIEmbedder`: API-based, 1536/3072 dims (default)
+  - `CohereEmbedder`: Cohere Embed v4 with Matryoshka dims (256/512/1024/1536), multimodal support
+  - `OpenAIEmbedder`: API-based, 1536/3072 dims
   - `MockEmbedder`: Testing
+  - `embed_multimodal()`: Fused text+image embedding via Cohere (shared vector space)
 
 - **`src/storage/`** - Protocol-based storage with `ChunkStoreProtocol`:
   - `MockChunkStore`: In-memory for testing
@@ -150,10 +135,9 @@ kidkazz summarize list              # List documents with summaries
 - **`src/mcp_server/`** - FastMCP server exposing 25+ search tools and 4 resource endpoints for Claude Code integration:
   - Chunk tools: `search_semantic` (with filters: has_table, has_code, has_math, header_level), `search_keyword`, `get_chunk`, `get_context_window`, `get_parent`, `get_children`, `get_siblings`, `list_documents`, `get_document_chunks`, `get_document_stats`
   - Concept tools: `search_concepts`, `get_concept`, `get_related_concepts`, `get_concept_chunks`, `explain_concept_with_context`
-  - Table tools: `search_tables`, `get_table`, `get_tables_for_concept`, `list_tables`
   - Summary tools: `get_document_summary`, `get_chapter_summaries`, `get_section_summaries`, `search_summaries`, `get_summary_hierarchy`, `list_summarized_documents`
 
-- **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`, `concepts`, `tables`, `summarize`
+- **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`, `concepts`, `summarize`
 
 - **`src/pdf_inbox/`** - PDF lifecycle management with Reducto.ai integration and optional rclone cloud sync
 
@@ -189,12 +173,13 @@ The `search_semantic` MCP tool supports filtering by content flags:
 - `has_math: bool` - Only chunks containing math expressions
 - `header_level: int` - Only chunks at specific header level (1-6)
 
-### Table Storage
-Tables use in-memory multi-vector storage (`TableStore`):
-- Summaries are embedded for semantic search
-- Raw markdown is stored for LLM synthesis
-- Concept-table relationships are tracked for graph traversal
-- **Note**: Table storage is currently in-memory only, not persisted to Helix-DB
+### Multimodal Image Embedding
+Tables and figures from PDFs are embedded as images using Cohere Embed v4's multimodal capability:
+- Reducto's `return_images=["figure", "table"]` renders blocks as PNG images
+- During `kidkazz inbox parse`, images are downloaded to `~/.kidkazz/images/<doc_id>/`
+- During `kidkazz ingest markdown --images-dir`, chunks with image markers get fused text+image embeddings
+- Text queries naturally match image embeddings (shared 1536-dim vector space)
+- The `has_table` metadata flag remains for search filtering
 
 ### Document Summarization
 Hierarchical summaries use a tiered approach - local extractive for sections, LLM for chapters/documents:

@@ -226,12 +226,19 @@ class TestQualityInParseCommand:
     def test_parse_with_quality_check_default(self, cli_runner):
         """Test that parse command includes quality check by default."""
         from src.cli.main import app
+        from src.pdf_converter.reducto_client import ParseResult
 
         with patch("src.pdf_converter.reducto_client.ReductoClient") as mock_client:
             # Mock successful parse - returns markdown string directly
             mock_instance = MagicMock()
             good_content = "# Test Document\n\nThis is a test document with enough content to pass quality checks.\n" * 50
             mock_instance.parse_pdf.return_value = good_content
+            # Also mock parse_pdf_with_images for when return_images is configured
+            mock_instance.parse_pdf_with_images.return_value = ParseResult(
+                source_path=Path("test.pdf"),
+                markdown=good_content,
+                success=True,
+            )
             mock_client.return_value = mock_instance
 
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -260,11 +267,18 @@ class TestQualityInParseCommand:
     def test_parse_no_quality_check(self, cli_runner):
         """Test parse command with quality check disabled."""
         from src.cli.main import app
+        from src.pdf_converter.reducto_client import ParseResult
 
         with patch("src.pdf_converter.reducto_client.ReductoClient") as mock_client:
             # Mock returns short/poor content that would fail quality check
             mock_instance = MagicMock()
             mock_instance.parse_pdf.return_value = "Short content"
+            # Also mock parse_pdf_with_images for when return_images is configured
+            mock_instance.parse_pdf_with_images.return_value = ParseResult(
+                source_path=Path("test.pdf"),
+                markdown="Short content",
+                success=True,
+            )
             mock_client.return_value = mock_instance
 
             with tempfile.TemporaryDirectory() as tmpdir:

@@ -49,16 +49,6 @@ except ImportError:
     openai = None  # type: ignore
     OPENAI_AVAILABLE = False
 
-# Optional import for table parsing
-try:
-    from src.chunker.table_parser import parse_markdown_table, ParsedTable
-
-    TABLE_PARSING_AVAILABLE = True
-except ImportError:
-    parse_markdown_table = None  # type: ignore
-    ParsedTable = None  # type: ignore
-    TABLE_PARSING_AVAILABLE = False
-
 # Optional import for extractive summarization (section-level)
 try:
     from src.chunker.extractive import (
@@ -698,45 +688,6 @@ class DocumentSummarizer:
         display_kps = DocumentSummarizer._get_display_key_points(summary)
         header = title if title else f"Chapter {index + 1}"
         return f"{header}:\n{summary.content}\nKey points: {', '.join(display_kps)}"
-
-    # ========================================================================
-    # Helper: Format table for LLM context
-    # ========================================================================
-
-    def _format_table_context(self, chunk_content: str, chunk_id: str) -> Optional[str]:
-        """Parse and format table data for better LLM understanding.
-
-        Args:
-            chunk_content: Raw chunk content that may contain a table
-            chunk_id: Chunk identifier
-
-        Returns:
-            Formatted table context string, or None if no table found
-        """
-        if not TABLE_PARSING_AVAILABLE or parse_markdown_table is None:
-            return None
-
-        try:
-            parsed = parse_markdown_table(chunk_content, chunk_id)
-            if not parsed:
-                return None
-
-            # Build structured table context
-            lines = [
-                "\n--- STRUCTURED TABLE DATA ---",
-                f"Columns: {', '.join(parsed.column_names)}",
-                f"Column types: {', '.join(parsed.column_types)}",
-                f"Rows: {parsed.row_count}",
-                "",
-                "Table in key-value format (easier to understand):",
-                parsed.to_markdown_kv(),
-                "--- END TABLE DATA ---\n",
-            ]
-            return "\n".join(lines)
-
-        except Exception as e:
-            logger.debug(f"Table parsing failed for {chunk_id}: {e}")
-            return None
 
     # ========================================================================
     # Helper: Convert LLM output to Summary

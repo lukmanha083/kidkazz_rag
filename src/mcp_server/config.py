@@ -204,7 +204,6 @@ class ServerState:
         self._config = config or MCPServerConfig.from_env()
         self._store: Any = None
         self._embedder: Optional[LazyEmbedder] = None
-        self._table_store: Any = None
         self._reranker: Any = None
 
     @property
@@ -233,15 +232,3 @@ class ServerState:
             self._reranker = self._config.create_reranker()
         return self._reranker
 
-    @property
-    def table_store(self) -> Any:
-        """Get table store instance (lazy-loaded).
-
-        The table store is now integrated into the chunk store (both
-        HelixChunkStore and MockChunkStore have table methods).
-
-        Returns:
-            ChunkStore instance (which has table methods)
-        """
-        # Table methods are now part of the chunk store
-        return self.store

@@ -6,7 +6,9 @@ Supports:
 """
 
 import os
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Iterator, Optional
 
 from .chunker import Chunk
@@ -403,6 +405,54 @@ class CohereEmbedder:
                 else:
                     yield zero_vector
 
+    def embed_multimodal(
+        self,
+        text: str,
+        image_path: Path,
+        input_type: str = "search_document",
+    ) -> list[float]:
+        """Create fused text+image embedding using Cohere Embed v4.
+
+        Uses the multimodal `inputs` parameter to combine text and image
+        into a single vector in the same embedding space as text-only vectors.
+
+        Args:
+            text: Text content to embed alongside the image.
+            image_path: Path to the image file (PNG, JPG).
+            input_type: Cohere input type (search_document or search_query).
+
+        Returns:
+            Fused embedding vector as list of floats.
+        """
+        import base64
+
+        image_data = image_path.read_bytes()
+        b64 = base64.b64encode(image_data).decode("utf-8")
+
+        suffix = image_path.suffix.lower().lstrip(".")
+        mime = {
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+        }.get(suffix, "image/png")
+        data_uri = f"data:{mime};base64,{b64}"
+
+        response = self.client.embed(
+            model=self.model_name,
+            input_type=input_type,
+            inputs=[
+                {
+                    "content": [
+                        {"type": "text", "text": text},
+                        {"type": "image_url", "image_url": {"url": data_uri}},
+                    ]
+                }
+            ],
+            embedding_types=["float"],
+            output_dimension=self._embedding_dim,
+        )
+        return list(response.embeddings.float_[0])
+
     def embed_chunk(self, chunk: Chunk) -> EmbeddedChunk:
         """Embed a single chunk as a document."""
         return EmbeddedChunk(
@@ -416,22 +466,79 @@ class CohereEmbedder:
         chunks: list[Chunk],
         batch_size: int = 96,
         show_progress: bool = False,  # noqa: ARG002 - API compatibility
+        image_map: Optional[dict[str, Path]] = None,
     ) -> list[EmbeddedChunk]:
-        """Embed multiple chunks as documents."""
+        """Embed multiple chunks as documents.
+
+        If image_map is provided, chunks whose content contains image markers
+        (![type](path)) will get fused text+image embeddings via embed_multimodal().
+        Other chunks use standard text embedding.
+
+        Args:
+            chunks: List of chunks to embed.
+            batch_size: Batch size for text-only API calls.
+            show_progress: Progress indicator (reserved for future).
+            image_map: Optional mapping of image keys to local paths.
+
+        Returns:
+            List of EmbeddedChunks with embeddings.
+        """
         if not chunks:
             return []
 
-        texts = [chunk.content for chunk in chunks]
-        embeddings = list(self.embed_texts(texts, batch_size=batch_size))
+        if not image_map:
+            # Fast path: all text-only
+            texts = [chunk.content for chunk in chunks]
+            embeddings = list(self.embed_texts(texts, batch_size=batch_size))
+            return [
+                EmbeddedChunk(
+                    chunk=chunk,
+                    embedding=embedding,
+                    model_name=self.model_name,
+                )
+                for chunk, embedding in zip(chunks, embeddings, strict=True)
+            ]
 
-        return [
-            EmbeddedChunk(
-                chunk=chunk,
-                embedding=embedding,
-                model_name=self.model_name,
+        # Separate chunks with/without images
+        results: list[EmbeddedChunk] = [None] * len(chunks)  # type: ignore[list-item]
+        text_only_indices: list[int] = []
+        text_only_contents: list[str] = []
+
+        image_pattern = re.compile(r"!\[.*?\]\((.+?)\)")
+
+        for i, chunk in enumerate(chunks):
+            match = image_pattern.search(chunk.content)
+            if match:
+                image_path = Path(match.group(1))
+                if image_path.exists():
+                    # Strip image marker from text for cleaner embedding
+                    clean_text = image_pattern.sub("", chunk.content).strip()
+                    embedding = self.embed_multimodal(
+                        clean_text or chunk.content, image_path
+                    )
+                    results[i] = EmbeddedChunk(
+                        chunk=chunk,
+                        embedding=embedding,
+                        model_name=self.model_name,
+                    )
+                    continue
+            # No image or image file not found — use text embedding
+            text_only_indices.append(i)
+            text_only_contents.append(chunk.content)
+
+        # Batch embed text-only chunks
+        if text_only_contents:
+            text_embeddings = list(
+                self.embed_texts(text_only_contents, batch_size=batch_size)
             )
-            for chunk, embedding in zip(chunks, embeddings, strict=True)
-        ]
+            for idx, embedding in zip(text_only_indices, text_embeddings, strict=True):
+                results[idx] = EmbeddedChunk(
+                    chunk=chunks[idx],
+                    embedding=embedding,
+                    model_name=self.model_name,
+                )
+
+        return results
 
 
 def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:

@@ -124,6 +124,11 @@ def ingest_markdown(
         "--dry-run",
         help="Show chunks without storing",
     ),
+    images_dir: Optional[Path] = typer.Option(
+        None,
+        "--images-dir",
+        help="Directory with block images for multimodal embedding (e.g., ~/.kidkazz/images/<doc_id>)",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -139,6 +144,11 @@ def ingest_markdown(
     File resolution:
         If file is not found in current directory, the output directory
         (configured in .kidkazz.toml) will be checked automatically.
+
+    Multimodal embedding:
+        Use --images-dir to provide block images extracted during PDF parsing.
+        Chunks containing image markers will get fused text+image embeddings
+        via Cohere Embed v4 (requires cohere embedder).
     """
     config = CLIConfig.load()
 
@@ -220,7 +230,24 @@ def ingest_markdown(
             except (ImportError, ValueError) as e:
                 print_error(str(e))
                 raise typer.Exit(1) from None
-            embedded_chunks = embedder_instance.embed_chunks(chunks, batch_size=32)
+
+            # Build image_map if images directory provided
+            embed_kwargs: dict = {"batch_size": 32}
+            if images_dir and images_dir.exists():
+                from pathlib import Path as _Path
+
+                image_files = {
+                    f.stem: f
+                    for f in images_dir.iterdir()
+                    if f.suffix.lower() in (".png", ".jpg", ".jpeg")
+                }
+                if image_files and hasattr(embedder_instance, "embed_multimodal"):
+                    embed_kwargs["image_map"] = image_files
+                    print_info(
+                        f"Found {len(image_files)} images for multimodal embedding"
+                    )
+
+            embedded_chunks = embedder_instance.embed_chunks(chunks, **embed_kwargs)
             tracker.complete("Generating embeddings...")
 
             # Stage 3: Store in database

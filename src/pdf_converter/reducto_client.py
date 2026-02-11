@@ -7,7 +7,7 @@ PDF documents to markdown format.
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -66,6 +66,7 @@ class ReductoConfig:
     chunk_mode: str = "variable"
     table_format: str = "md"
     raw_output: bool = True  # Default to human-readable output
+    return_images: Optional[list[str]] = None  # ["figure", "table"] to get block images
 
     @classmethod
     def from_env(cls, env_var: str = "REDUCTO_API_KEY") -> "ReductoConfig":
@@ -103,6 +104,7 @@ class ParseResult:
     markdown: str
     success: bool
     error_message: Optional[str] = None
+    image_map: dict[str, Path] = field(default_factory=dict)
 
     @property
     def output_filename(self) -> str:
@@ -165,6 +167,58 @@ class ReductoClient:
             FileNotFoundError: If PDF file doesn't exist.
             ReductoAPIError: If API call fails.
         """
+        response = self._parse_pdf_raw(pdf_path)
+        return self._response_to_markdown(response)
+
+    def parse_pdf_with_images(
+        self, pdf_path: Path, doc_id: str, images_dir: Path
+    ) -> ParseResult:
+        """Parse PDF, download block images, return ParseResult with image_map.
+
+        Args:
+            pdf_path: Path to the PDF file.
+            doc_id: Document identifier for organizing images.
+            images_dir: Base directory for storing downloaded images.
+
+        Returns:
+            ParseResult with markdown content and image_map.
+        """
+        try:
+            response = self._parse_pdf_raw(pdf_path)
+
+            image_map: dict[str, Path] = {}
+            if self.config.return_images:
+                image_map = self.download_block_images(response, doc_id, images_dir)
+
+            markdown = self._response_to_markdown(response, image_map=image_map)
+
+            return ParseResult(
+                source_path=pdf_path,
+                markdown=markdown,
+                success=True,
+                image_map=image_map,
+            )
+        except Exception as e:
+            return ParseResult(
+                source_path=pdf_path,
+                markdown="",
+                success=False,
+                error_message=str(e),
+            )
+
+    def _parse_pdf_raw(self, pdf_path: Path):
+        """Parse PDF and return raw Reducto API response.
+
+        Args:
+            pdf_path: Path to the PDF file.
+
+        Returns:
+            Raw Reducto API response object.
+
+        Raises:
+            FileNotFoundError: If PDF file doesn't exist.
+            ReductoAPIError: If API call fails.
+        """
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
@@ -195,20 +249,83 @@ class ReductoClient:
                     chunking=Chunking(chunk_mode=self.config.chunk_mode)
                 )
 
+            # Add return_images option if configured
+            if self.config.return_images:
+                parse_kwargs.setdefault("options", {})
+                parse_kwargs["options"]["return_images"] = self.config.return_images
+
             logger.debug("Calling Reducto parse API...")
             response = self.client.parse.run(**parse_kwargs)
             logger.debug("Parse API call complete")
 
-            return self._response_to_markdown(response)
+            return response
         except Exception as e:
             logger.error("Reducto API error: %s", str(e))
             raise ReductoAPIError(str(e)) from e
 
-    def _response_to_markdown(self, response) -> str:
+    def download_block_images(
+        self, response, doc_id: str, images_dir: Path
+    ) -> dict[str, Path]:
+        """Download images from Reducto response blocks.
+
+        Reducto's return_images option renders Table/Figure blocks as PNG
+        images with presigned S3 URLs (~1hr expiry). This method downloads
+        them to local storage for persistent use.
+
+        Args:
+            response: Raw Reducto API response.
+            doc_id: Document identifier for organizing images.
+            images_dir: Base directory for storing images.
+
+        Returns:
+            Mapping of "chunk{idx}_block{idx}" -> local image path.
+        """
+        import httpx
+
+        doc_images_dir = images_dir / doc_id
+        doc_images_dir.mkdir(parents=True, exist_ok=True)
+
+        image_map: dict[str, Path] = {}
+        result = response.result
+
+        chunks = None
+        if hasattr(result, "chunks") and result.chunks:
+            chunks = result.chunks
+
+        if not chunks:
+            return image_map
+
+        for chunk_idx, chunk in enumerate(chunks):
+            blocks = getattr(chunk, "blocks", None) or []
+            for block_idx, block in enumerate(blocks):
+                if isinstance(block, dict):
+                    image_url = block.get("image_url")
+                else:
+                    image_url = getattr(block, "image_url", None)
+
+                if image_url:
+                    key = f"chunk{chunk_idx}_block{block_idx}"
+                    local_path = doc_images_dir / f"{key}.png"
+                    try:
+                        resp = httpx.get(image_url, timeout=60.0)
+                        resp.raise_for_status()
+                        local_path.write_bytes(resp.content)
+                        image_map[key] = local_path
+                        logger.debug("Downloaded image: %s", key)
+                    except Exception as e:
+                        logger.warning("Failed to download image %s: %s", key, e)
+
+        logger.info("Downloaded %d images for doc %s", len(image_map), doc_id)
+        return image_map
+
+    def _response_to_markdown(
+        self, response, image_map: Optional[dict[str, Path]] = None
+    ) -> str:
         """Convert Reducto API response to markdown string.
 
         Args:
             response: Response from Reducto parse API.
+            image_map: Optional mapping of chunk/block keys to local image paths.
 
         Returns:
             Markdown content as string.
@@ -222,13 +339,15 @@ class ReductoClient:
 
             if self.config.raw_output:
                 # Join chunks into continuous readable markdown
-                return self._chunks_to_markdown(result.chunks)
+                return self._chunks_to_markdown(result.chunks, image_map=image_map)
             else:
                 # Keep chunked format for embedding pipeline
                 # Still process headers from block metadata
                 processed = [
-                    self._process_chunk_with_headers(chunk)
-                    for chunk in result.chunks
+                    self._process_chunk_with_headers(
+                        chunk, chunk_idx=i, image_map=image_map
+                    )
+                    for i, chunk in enumerate(result.chunks)
                 ]
                 return "\n\n---\n\n".join(p for p in processed if p)
         elif hasattr(result, "content"):
@@ -269,11 +388,15 @@ class ReductoClient:
                     self._log_response_structure_from_dicts(chunks)
 
                     if self.config.raw_output:
-                        return self._chunks_to_markdown_from_dicts(chunks)
+                        return self._chunks_to_markdown_from_dicts(
+                            chunks, image_map=image_map
+                        )
                     else:
                         processed = [
-                            self._process_chunk_with_headers_from_dict(chunk)
-                            for chunk in chunks
+                            self._process_chunk_with_headers_from_dict(
+                                chunk, chunk_idx=i, image_map=image_map
+                            )
+                            for i, chunk in enumerate(chunks)
                         ]
                         return "\n\n---\n\n".join(p for p in processed if p)
                 else:
@@ -371,16 +494,25 @@ class ReductoClient:
         if block_types:
             logger.debug("Block types: %s", block_types)
 
-    def _chunks_to_markdown_from_dicts(self, chunks: list[dict]) -> str:
+    def _chunks_to_markdown_from_dicts(
+        self, chunks: list[dict], image_map: Optional[dict[str, Path]] = None
+    ) -> str:
         """Convert dict chunks to continuous readable markdown."""
         parts = []
-        for chunk in chunks:
-            chunk_content = self._process_chunk_with_headers_from_dict(chunk)
+        for i, chunk in enumerate(chunks):
+            chunk_content = self._process_chunk_with_headers_from_dict(
+                chunk, chunk_idx=i, image_map=image_map
+            )
             if chunk_content:
                 parts.append(chunk_content)
         return "\n\n".join(parts)
 
-    def _process_chunk_with_headers_from_dict(self, chunk: dict) -> str:
+    def _process_chunk_with_headers_from_dict(
+        self,
+        chunk: dict,
+        chunk_idx: int = 0,
+        image_map: Optional[dict[str, Path]] = None,
+    ) -> str:
         """Process a dict chunk, reconstructing markdown headers from block metadata."""
         blocks = chunk.get("blocks", []) or []
 
@@ -389,11 +521,17 @@ class ReductoClient:
             return content.strip() if content else ""
 
         processed_parts = []
-        for block in blocks:
+        for block_idx, block in enumerate(blocks):
             block_type = block.get("type")
             block_content = block.get("content", "")
 
             if not block_content:
+                # Still check for image even without text content
+                if image_map:
+                    key = f"chunk{chunk_idx}_block{block_idx}"
+                    if key in image_map:
+                        label = block_type or "image"
+                        processed_parts.append(f"![{label}]({image_map[key]})")
                 continue
 
             block_content = block_content.strip()
@@ -409,32 +547,50 @@ class ReductoClient:
             else:
                 processed_parts.append(block_content)
 
+            # Append image marker if this block has a downloaded image
+            if image_map:
+                key = f"chunk{chunk_idx}_block{block_idx}"
+                if key in image_map:
+                    label = block_type or "image"
+                    processed_parts.append(f"![{label}]({image_map[key]})")
+
         if processed_parts:
             return "\n\n".join(processed_parts)
 
         content = chunk.get("content", "")
         return content.strip() if content else ""
 
-    def _chunks_to_markdown(self, chunks) -> str:
+    def _chunks_to_markdown(
+        self, chunks, image_map: Optional[dict[str, Path]] = None
+    ) -> str:
         """Convert chunks to continuous readable markdown.
 
         Merges chunks intelligently, reconstructing header syntax from
         block metadata and creating a smooth document flow.
         """
         parts = []
-        for chunk in chunks:
-            chunk_content = self._process_chunk_with_headers(chunk)
+        for i, chunk in enumerate(chunks):
+            chunk_content = self._process_chunk_with_headers(
+                chunk, chunk_idx=i, image_map=image_map
+            )
             if chunk_content:
                 parts.append(chunk_content)
 
         # Join with double newlines to create continuous flow
         return "\n\n".join(parts)
 
-    def _process_chunk_with_headers(self, chunk) -> str:
+    def _process_chunk_with_headers(
+        self,
+        chunk,
+        chunk_idx: int = 0,
+        image_map: Optional[dict[str, Path]] = None,
+    ) -> str:
         """Process a single chunk, reconstructing markdown headers from block metadata.
 
         Args:
             chunk: A Reducto chunk object with content and optional blocks.
+            chunk_idx: Index of this chunk in the response (for image_map lookup).
+            image_map: Optional mapping of chunk/block keys to local image paths.
 
         Returns:
             Processed markdown string with headers properly formatted.
@@ -447,7 +603,7 @@ class ReductoClient:
 
         # Process blocks to reconstruct markdown
         processed_parts = []
-        for block in blocks:
+        for block_idx, block in enumerate(blocks):
             # Blocks can be dicts (from Reducto API) or objects (from mocks)
             if isinstance(block, dict):
                 block_type = block.get("type")
@@ -459,6 +615,12 @@ class ReductoClient:
                 block_level = getattr(block, "level", None)
 
             if not block_content:
+                # Still check for image even without text content
+                if image_map:
+                    key = f"chunk{chunk_idx}_block{block_idx}"
+                    if key in image_map:
+                        label = block_type or "image"
+                        processed_parts.append(f"![{label}]({image_map[key]})")
                 continue
 
             block_content = block_content.strip()
@@ -476,6 +638,13 @@ class ReductoClient:
             else:
                 # Non-header content - use as-is
                 processed_parts.append(block_content)
+
+            # Append image marker if this block has a downloaded image
+            if image_map:
+                key = f"chunk{chunk_idx}_block{block_idx}"
+                if key in image_map:
+                    label = block_type or "image"
+                    processed_parts.append(f"![{label}]({image_map[key]})")
 
         if processed_parts:
             return "\n\n".join(processed_parts)

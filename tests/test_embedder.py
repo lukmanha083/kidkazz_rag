@@ -1,6 +1,9 @@
 """Tests for embedding generation."""
 
 import os
+import struct
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -626,6 +629,103 @@ class TestCohereEmbedder:
         """Client should be lazily initialized."""
         embedder = CohereEmbedder()
         assert embedder._client is None
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_multimodal(self, mock_cohere_client):
+        """Should create fused text+image embedding."""
+        # Create a minimal 1x1 red PNG image
+        def _create_test_png(path: Path) -> None:
+            # Minimal valid PNG: 1x1 red pixel
+            import zlib
+
+            raw_data = b"\x00\xff\x00\x00\xff"  # filter byte + RGBA (no alpha → RGB)
+            raw_data = b"\x00\xff\x00\x00"  # filter byte + RGB
+            compressed = zlib.compress(raw_data)
+
+            def chunk(chunk_type: bytes, data: bytes) -> bytes:
+                import struct
+                c = chunk_type + data
+                crc = zlib.crc32(c) & 0xFFFFFFFF
+                return struct.pack(">I", len(data)) + c + struct.pack(">I", crc)
+
+            png = b"\x89PNG\r\n\x1a\n"
+            png += chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+            png += chunk(b"IDAT", compressed)
+            png += chunk(b"IEND", b"")
+            path.write_bytes(png)
+
+        # Override mock to handle inputs param (multimodal API)
+        def multimodal_embed(**kwargs):
+            mock_response = MagicMock()
+            dim = kwargs.get("output_dimension", 1536)
+            mock_response.embeddings.float_ = [[0.1] * dim]
+            return mock_response
+
+        mock_cohere_client.embed = MagicMock(side_effect=multimodal_embed)
+
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            test_png = Path(f.name)
+            _create_test_png(test_png)
+
+        try:
+            result = embedder.embed_multimodal("A table showing inventory costs", test_png)
+            assert len(result) == 1536
+            # Verify inputs param was used (not texts)
+            call_kwargs = mock_cohere_client.embed.call_args[1]
+            assert "inputs" in call_kwargs
+            assert call_kwargs["inputs"][0]["content"][0]["type"] == "text"
+            assert call_kwargs["inputs"][0]["content"][1]["type"] == "image_url"
+        finally:
+            test_png.unlink()
+
+    @patch.dict(os.environ, {"COHERE_API_KEY": "test-key"})
+    def test_embed_chunks_with_image_map(self, mock_cohere_client):
+        """Should use multimodal embedding for chunks with image markers."""
+
+        def flexible_embed(**kwargs):
+            mock_response = MagicMock()
+            dim = kwargs.get("output_dimension", 1536)
+            if "texts" in kwargs:
+                n = len(kwargs["texts"])
+                mock_response.embeddings.float_ = [[0.1] * dim for _ in range(n)]
+            elif "inputs" in kwargs:
+                n = len(kwargs["inputs"])
+                mock_response.embeddings.float_ = [[0.2] * dim for _ in range(n)]
+            return mock_response
+
+        mock_cohere_client.embed = MagicMock(side_effect=flexible_embed)
+
+        embedder = CohereEmbedder()
+        embedder._client = mock_cohere_client
+
+        # Create a test image
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            test_png = Path(f.name)
+            test_png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
+
+        try:
+            chunks = [
+                Chunk(id="c1", content="Text only chunk", level=2, token_count=3),
+                Chunk(
+                    id="c2",
+                    content=f"Table chunk\n\n![Table]({test_png})",
+                    level=2,
+                    token_count=5,
+                ),
+            ]
+            image_map = {"test": test_png}
+            results = embedder.embed_chunks(chunks, image_map=image_map)
+
+            assert len(results) == 2
+            # c1 should be text-only (0.1 values)
+            assert results[0].embedding[0] == pytest.approx(0.1)
+            # c2 should be multimodal (0.2 values) since it has image marker
+            assert results[1].embedding[0] == pytest.approx(0.2)
+        finally:
+            test_png.unlink()
 
 
 class TestEmbedQueryAliases:

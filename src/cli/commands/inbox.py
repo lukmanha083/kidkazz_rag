@@ -945,6 +945,15 @@ def parse(
 
         client = ReductoClient(reducto_config)
 
+        # Check if return_images is configured in .kidkazz.toml
+        return_images = config.get_extra("inbox", "return_images", default=None)
+        images_base = config.get_extra("inbox", "images_path", default="~/.kidkazz/images")
+        images_base_path = Path(images_base).expanduser()
+
+        if return_images:
+            reducto_config.return_images = return_images
+            console.print(f"[dim]Image capture enabled: {return_images}[/dim]")
+
         # Parse PDFs with progress bar
         console.print(f"[bold]Parsing {len(pdf_files)} PDF(s) with Reducto.ai...[/bold]")
         if agentic:
@@ -965,7 +974,28 @@ def parse(
 
                 for pdf_file in pdf_files:
                     progress.update(task, description=f"[cyan]{pdf_file.name}[/cyan]")
-                    markdown = client.parse_pdf(pdf_file)
+
+                    if return_images:
+                        doc_id = slugify_filename(pdf_file.stem)
+                        parse_result = client.parse_pdf_with_images(
+                            pdf_file, doc_id, images_base_path
+                        )
+                        if not parse_result.success:
+                            console.print(
+                                f"[red]Failed: {pdf_file.name}: "
+                                f"{parse_result.error_message}[/red]"
+                            )
+                            progress.advance(task)
+                            continue
+                        markdown = parse_result.markdown
+                        if parse_result.image_map:
+                            console.print(
+                                f"[dim]  Downloaded {len(parse_result.image_map)} "
+                                f"images for {pdf_file.name}[/dim]"
+                            )
+                    else:
+                        markdown = client.parse_pdf(pdf_file)
+
                     results.append((pdf_file, markdown))
                     progress.advance(task)
 
