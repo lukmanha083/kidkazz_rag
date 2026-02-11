@@ -71,7 +71,7 @@ def search_semantic(
     rerank: bool = typer.Option(
         False,
         "--rerank",
-        help="Rerank results using Cohere Rerank v3.5",
+        help="Rerank results using Cohere Rerank v3.5 (auto-enabled when [reranker] enabled=true in config)",
     ),
     json_output: bool = typer.Option(
         False,

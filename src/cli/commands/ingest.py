@@ -231,14 +231,21 @@ def ingest_markdown(
                 print_error(str(e))
                 raise typer.Exit(1) from None
 
-            # Build image_map if images directory provided
+            # Build image_map: use explicit --images-dir, or auto-detect from config
             embed_kwargs: dict = {"batch_size": 32}
-            if images_dir and images_dir.exists():
-                from pathlib import Path as _Path
+            resolved_images_dir = images_dir
+            if resolved_images_dir is None:
+                # Auto-detect: check config images_path / doc_id
+                cfg_images_path = config.get_extra("inbox", "images_path")
+                if cfg_images_path:
+                    auto_dir = Path(cfg_images_path).expanduser() / final_doc_id
+                    if auto_dir.exists() and any(auto_dir.iterdir()):
+                        resolved_images_dir = auto_dir
 
+            if resolved_images_dir and resolved_images_dir.exists():
                 image_files = {
                     f.stem: f
-                    for f in images_dir.iterdir()
+                    for f in resolved_images_dir.iterdir()
                     if f.suffix.lower() in (".png", ".jpg", ".jpeg")
                 }
                 if image_files and hasattr(embedder_instance, "embed_multimodal"):
