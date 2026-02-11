@@ -1,10 +1,12 @@
 # Plan: Header Metadata & Table Processing Enhancement
 
+> **Status:** Phase 1 (Header-Aware Concept Extraction) is **implemented**. Phase 2 (Advanced Table Processing) has been **superseded** by multimodal image embedding via Cohere Embed v4 — tables and figures are now embedded as images directly into the same 1536-dim vector space as text, eliminating the need for separate table parsing, summarization, and storage infrastructure. See the main `CLAUDE.md` for current architecture.
+
 ## Overview
 
 This document outlines the implementation plan for enhancing KidKazz RAG with:
-1. **Header-aware concept extraction** - Leverage header metadata for smarter concept extraction and relationship inference
-2. **Advanced table processing** - Extract, summarize, and embed tables for improved semantic search
+1. **Header-aware concept extraction** - Leverage header metadata for smarter concept extraction and relationship inference (IMPLEMENTED)
+2. **Advanced table processing** - ~~Extract, summarize, and embed tables for improved semantic search~~ SUPERSEDED by multimodal image embedding
 
 ## Research Summary
 

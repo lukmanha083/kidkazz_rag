@@ -65,9 +65,9 @@ reducto parse ./inbox/           # Batch process directory
 | Option | Values | Description |
 |--------|--------|-------------|
 | `chunking.chunk_mode` | variable, section, page, block | How to chunk output |
-| `table_output_format` | html, json, md, csv, dynamic | Table formatting |
 | `extraction_mode` | ocr, hybrid | Processing mode |
 | `agentic` | true/false | AI-enhanced accuracy (2x credits) |
+| `return_images` | figure, table | Extract block images as PNGs |
 
 ## Implementation Plan
 
@@ -107,7 +107,7 @@ class ReductoConfig:
     api_key: str
     agentic: bool = False
     chunk_mode: str = "variable"
-    table_format: str = "md"
+    return_images: list[str] | None = None  # e.g., ["figure", "table"]
 
     @classmethod
     def from_env(cls) -> "ReductoConfig":
@@ -133,12 +133,14 @@ class ReductoClient:
 
     def parse_pdf(self, pdf_path: Path) -> str:
         """Parse PDF and return markdown content."""
-        response = self.client.parse.run(
-            input=str(pdf_path),
-            enhance={"agentic": self.config.agentic},
-            retrieval={"chunking": {"chunk_mode": self.config.chunk_mode}},
-            formatting={"table_output_format": self.config.table_format},
-        )
+        parse_kwargs = {
+            "input": str(pdf_path),
+            "enhance": {"agentic": self.config.agentic},
+            "retrieval": {"chunking": {"chunk_mode": self.config.chunk_mode}},
+        }
+        if self.config.return_images:
+            parse_kwargs["options"] = {"return_images": self.config.return_images}
+        response = self.client.parse.run(**parse_kwargs)
         return self._response_to_markdown(response)
 
     def _response_to_markdown(self, response) -> str:
@@ -309,7 +311,10 @@ tests/
 [reducto]
 agentic = false
 chunk_mode = "variable"
-table_format = "md"
+
+[inbox]
+return_images = ["figure", "table"]
+images_path = "~/.kidkazz/images"
 
 [cloud_sync]
 remote = "gdrive"

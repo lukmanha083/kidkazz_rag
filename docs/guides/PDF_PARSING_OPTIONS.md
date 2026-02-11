@@ -83,12 +83,10 @@ kidkazz inbox parse --chunk-mode block
 | Semantic search | Basic | Good | Good |
 | Keyword search | Basic | Good | Good |
 | Header metadata | No | Partial | **Full** |
-| Table extraction | No | Partial | **Full** |
+| Multimodal image embedding | No | Partial | **Full** |
 | Graph traversal | No | Good | **Best** |
 | Concept extraction | Basic | Good | **Best** |
 | Precise citations | No | No | **Yes** |
-| `search_tables` MCP tool | No | Limited | **Full** |
-| `get_tables_for_concept` | No | Limited | **Full** |
 
 ## Agentic Mode Explained
 
@@ -196,21 +194,19 @@ Files with quality score below 0.80 may benefit from re-parsing with `--agentic`
 
 ## Feature Integration
 
-### Block Mode + Table Tools
+### Block Mode + Multimodal Image Embedding
 
-With block mode, tables are properly isolated and indexed:
+With block mode and `return_images` configured, table and figure images are extracted and embedded alongside text using Cohere Embed v4's multimodal capability:
 
 ```bash
-# Parse with block mode
+# Parse with block mode (images auto-downloaded to ~/.kidkazz/images/)
 kidkazz inbox parse --chunk-mode block
 
-# Ingest with table extraction
-kidkazz ingest markdown output/document.md --extract-tables
-
-# Use table tools
-kidkazz tables list
-kidkazz tables search "inventory valuation methods"
+# Ingest with multimodal embeddings
+kidkazz ingest markdown output/document.md --images-dir ~/.kidkazz/images/document/
 ```
+
+Text queries naturally match image embeddings since they share the same 1536-dim vector space.
 
 ### Block Mode + Concept Extraction
 
@@ -233,11 +229,11 @@ These MCP tools work best with block-mode parsed documents:
 
 | Tool | Block Mode Benefit |
 |------|-------------------|
-| `search_tables` | Tables properly isolated with metadata |
-| `get_table` | Full table structure preserved |
-| `get_tables_for_concept` | Accurate table-concept links |
+| `search_semantic` | Multimodal image embeddings for table/figure chunks |
 | `get_context_window` | Precise chunk boundaries |
 | `get_parent` / `get_children` | Accurate graph relationships |
+| `search_concepts` | Header-aware concept extraction |
+| `search_summaries` | Hierarchical document summaries |
 
 ## Troubleshooting
 
@@ -248,12 +244,13 @@ If quality scores are consistently low:
 2. Use `--agentic` flag
 3. Consider alternative PDF source
 
-### Missing Tables
+### Missing Table/Figure Images
 
-If tables aren't detected:
-1. Ensure `--chunk-mode block` is used
-2. Use `--agentic` for complex table layouts
-3. Check if tables use images instead of text
+If table or figure images aren't being extracted:
+1. Ensure `return_images = ["figure", "table"]` is in `.kidkazz.toml` under `[inbox]`
+2. Ensure `--chunk-mode block` is used
+3. Use `--agentic` for complex table layouts
+4. Check `~/.kidkazz/images/<doc_id>/` for downloaded images
 
 ### Incorrect Headers
 

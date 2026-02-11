@@ -20,7 +20,8 @@ pip install -e ".[all]"
 cp .env.example .env
 # Edit .env and add:
 # - REDUCTO_API_KEY (for PDF parsing)
-# - OPENAI_API_KEY (for embeddings)
+# - CO_API_KEY (for Cohere embeddings + reranking)
+# - OPENAI_API_KEY (optional, for summarization LLM)
 ```
 
 ### 3. Initialize
@@ -38,12 +39,14 @@ PDF Document
 [1. Drop into inbox]     cp document.pdf ~/.kidkazz/inbox/
      ↓
 [2. Parse with Reducto]  kidkazz inbox parse
-     ↓
+     ↓  (images extracted to ~/.kidkazz/images/<doc_id>/)
 [3. Ingest markdown]     kidkazz ingest markdown ~/.kidkazz/output/document.md
+     ↓  (multimodal: text + table/figure images → fused vectors)
+[4. Generate summaries]  kidkazz summarize generate <doc_id>
+     ↓  (hierarchical summaries + concept extraction)
+[5. Search/Query]        kidkazz search semantic "your query"
      ↓
-[4. Search/Query]        kidkazz search semantic "your query"
-     ↓
-[5. Chat via MCP]        Configure .mcp.json for Claude Code
+[6. Chat via MCP]        Configure .mcp.json for Claude Code
 ```
 
 ### Step 1: Add PDFs to Inbox
@@ -80,11 +83,30 @@ kidkazz ingest markdown ~/.kidkazz/output/textbook.md \
 # With tags for filtered search
 kidkazz ingest markdown textbook.md --tags inventory,accounting
 
+# With multimodal image embeddings (table/figure images)
+kidkazz ingest markdown textbook.md --images-dir ~/.kidkazz/images/textbook/
+
 # Batch ingest a directory
 kidkazz ingest batch ./docs --pattern "*.md"
 ```
 
-### Step 4: Search and Retrieve
+### Step 4: Generate Summaries & Extract Concepts
+
+```bash
+# Generate hierarchical summaries + extract concepts
+kidkazz summarize generate textbook
+
+# View document summary
+kidkazz summarize show textbook
+
+# Search summaries
+kidkazz summarize search "inventory valuation"
+
+# Search concepts across documents
+kidkazz concepts search "FIFO"
+```
+
+### Step 5: Search and Retrieve
 
 ```bash
 # Semantic search (vector similarity)
@@ -103,7 +125,7 @@ kidkazz docs list
 kidkazz docs stats textbook
 ```
 
-### Step 5: Set Up MCP for Claude Code
+### Step 6: Set Up MCP for Claude Code
 
 Create `.mcp.json` in your project root:
 
@@ -117,7 +139,7 @@ Create `.mcp.json` in your project root:
       "cwd": "/path/to/kidkazz_rag",
       "env": {
         "KIDKAZZ_STORE_TYPE": "mock",
-        "KIDKAZZ_EMBEDDER_TYPE": "openai"
+        "KIDKAZZ_EMBEDDER_TYPE": "cohere"
       }
     }
   }
@@ -137,7 +159,7 @@ For production with Helix-DB:
       "env": {
         "KIDKAZZ_STORE_TYPE": "helix",
         "KIDKAZZ_HELIX_PORT": "6969",
-        "KIDKAZZ_EMBEDDER_TYPE": "openai"
+        "KIDKAZZ_EMBEDDER_TYPE": "cohere"
       }
     }
   }
@@ -153,6 +175,7 @@ Claude Code will automatically start the MCP server and provide access to search
 ```bash
 kidkazz ingest markdown <file>              # Ingest markdown file
 kidkazz ingest markdown <file> --tags a,b   # With tags
+kidkazz ingest markdown <file> --images-dir <path>  # With multimodal images
 kidkazz ingest markdown <file> --dry-run    # Preview
 kidkazz ingest batch <dir> --pattern "*.md" # Batch ingest
 ```
@@ -185,6 +208,17 @@ kidkazz inbox parse                         # Parse all PDFs
 kidkazz inbox parse --agentic               # High-accuracy mode
 kidkazz inbox sync                          # Backup to cloud (rclone)
 kidkazz inbox clear --completed             # Clean up
+```
+
+### Summarize & Concepts
+
+```bash
+kidkazz summarize generate <doc_id>         # Generate summaries + concepts
+kidkazz summarize show <doc_id>             # Show document summary
+kidkazz summarize search "query"            # Search summaries
+kidkazz summarize list                      # List summarized documents
+kidkazz concepts search "concept name"      # Search concept graph
+kidkazz concepts list --doc-id <doc_id>     # List concepts for document
 ```
 
 ### Database
@@ -234,8 +268,10 @@ When connected via MCP, Claude Code can use:
 | `list_documents` | List all documents |
 | `get_document_stats` | Document statistics |
 | `search_concepts` | Search concept graph |
-| `search_tables` | Search tables semantically |
+| `get_related_concepts` | Get related concepts |
 | `search_summaries` | Search document summaries |
+| `get_document_summary` | Get document-level summary |
+| `get_summary_hierarchy` | Get full summary tree |
 
 ## Configuration
 
@@ -244,27 +280,34 @@ When connected via MCP, Claude Code can use:
 ```bash
 KIDKAZZ_STORE_TYPE=mock|helix
 KIDKAZZ_HELIX_PORT=6969
-KIDKAZZ_EMBEDDER_TYPE=openai|mock
-KIDKAZZ_MODEL_NAME=text-embedding-3-small
+KIDKAZZ_EMBEDDER_TYPE=cohere|openai|mock
+KIDKAZZ_MODEL_NAME=embed-v4.0
 REDUCTO_API_KEY=your_key
-OPENAI_API_KEY=your_key
+CO_API_KEY=your_key          # Cohere (embeddings + reranking)
+OPENAI_API_KEY=your_key      # OpenAI (optional, for summarization LLM)
 ```
 
 ### Config File (.kidkazz.toml)
 
 ```toml
 [storage]
-store_type = "mock"
+store_type = "helix"
 helix_port = 6969
 
 [embeddings]
-embedder_type = "openai"
-model_name = "text-embedding-3-small"
+embedder_type = "cohere"
+model_name = "embed-v4.0"        # Multimodal: text + image → single vector
+
+[reranker]
+enabled = true
+model = "rerank-v3.5"
 
 [inbox]
 path = "~/.kidkazz/inbox"
 output_path = "~/.kidkazz/output"
-post_action = "delete"
+post_action = "move"
+return_images = ["figure", "table"]   # Extract table/figure images from PDFs
+images_path = "~/.kidkazz/images"
 ```
 
 ## Troubleshooting
@@ -272,7 +315,8 @@ post_action = "delete"
 | Issue | Solution |
 |-------|----------|
 | REDUCTO_API_KEY not set | Add to `.env` file |
-| OPENAI_API_KEY not set | Add to `.env` file |
+| CO_API_KEY not set | Add to `.env` file (Cohere embeddings) |
+| OPENAI_API_KEY not set | Add to `.env` file (optional, for summarization) |
 | No search results | Ingest documents first |
 | MCP server not starting | Check `.mcp.json` path |
 | Helix connection refused | Run `helix push dev` |

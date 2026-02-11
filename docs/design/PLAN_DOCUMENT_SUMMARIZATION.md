@@ -212,7 +212,7 @@ kidkazz summarize search "inventory methods"
 ## Critical Files
 
 - `src/chunker/summarizer.py` - Core summarizer (follow `concept_extractor.py` pattern)
-- `src/storage/client.py` - Storage methods (follow table storage pattern)
+- `src/storage/client.py` - Storage methods (follow existing query patterns)
 - `src/storage/queries.py` - Query classes (follow existing patterns)
 - `db/schema.hx` - Helix schema
 - `src/cli/commands/summarize.py` - CLI (follow `concepts.py` pattern)
