@@ -17,6 +17,7 @@ from ..output import (
     console,
     print_db_status,
     print_error,
+    print_info,
     print_json,
     print_success,
     print_warning,
@@ -474,6 +475,134 @@ def restart_helix(
             print_json(result)
         else:
             print_warning(f"Helix-DB started but health check timed out (port {port})")
+
+
+@app.command("reset")
+def reset_helix(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Skip confirmation prompt",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON",
+    ),
+) -> None:
+    """Stop Helix-DB, destroy container, and wipe data volume for a clean start.
+
+    This performs a full teardown:
+      1. Stop the running Helix container
+      2. Remove the container
+      3. Remove the Docker network
+      4. Wipe the data volume (.helix/.volumes/dev/) using a Docker alpine
+         container (volume is root-owned)
+
+    After reset, run `kidkazz db deploy` to rebuild and start fresh.
+
+    Examples:
+        kidkazz db reset              # Interactive confirmation
+        kidkazz db reset --force      # Skip confirmation
+    """
+    # Find project root / .helix/dev/
+    try:
+        helix_dir = _find_helix_dir()
+    except FileNotFoundError as e:
+        if json_output:
+            print_json({"status": "error", "error": str(e)})
+        else:
+            print_error(str(e))
+        raise typer.Exit(1)
+
+    volumes_dir = helix_dir.parent / ".volumes" / "dev"
+
+    # Confirm
+    if not force and not json_output:
+        console.print(
+            "[bold red]This will destroy the Helix container and wipe ALL data.[/bold red]\n"
+            f"  Container: {CONTAINER_NAME}\n"
+            f"  Volume:    {volumes_dir}"
+        )
+        if not confirm("Proceed with full reset?"):
+            print_warning("Reset cancelled")
+            return
+
+    steps_done = []
+
+    # Step 1: docker compose down (stops container + removes container + network)
+    if not json_output:
+        console.print("[bold]Step 1/2:[/bold] Stopping and removing container...")
+    proc = subprocess.run(
+        ["docker", "compose", "down"],
+        cwd=helix_dir,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if proc.returncode == 0:
+        steps_done.append("container_removed")
+        if not json_output:
+            print_info("Container and network removed")
+    else:
+        # Fallback: try stop + rm directly (compose file may be missing/broken)
+        subprocess.run(
+            ["docker", "stop", CONTAINER_NAME],
+            capture_output=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["docker", "rm", CONTAINER_NAME],
+            capture_output=True,
+            timeout=30,
+        )
+        steps_done.append("container_removed_fallback")
+        if not json_output:
+            print_info("Container removed (fallback)")
+
+    # Step 2: Wipe data volume using Docker alpine (root-owned files)
+    if not json_output:
+        console.print("[bold]Step 2/2:[/bold] Wiping data volume...")
+
+    if volumes_dir.exists():
+        # Volume is root-owned (created by Docker), use alpine container to delete
+        abs_vol = str(volumes_dir.resolve())
+        proc = subprocess.run(
+            [
+                "docker", "run", "--rm",
+                "-v", f"{abs_vol}:/data",
+                "alpine",
+                "rm", "-rf", "/data/user",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            steps_done.append("volume_wiped")
+            if not json_output:
+                print_info(f"Volume wiped: {volumes_dir}")
+        else:
+            err = proc.stderr.strip()
+            if json_output:
+                print_json({"status": "error", "step": "wipe_volume", "error": err})
+            else:
+                print_error(f"Failed to wipe volume: {err}")
+            raise typer.Exit(1)
+    else:
+        steps_done.append("volume_not_found")
+        if not json_output:
+            print_info("Volume directory not found (already clean)")
+
+    # Done
+    if json_output:
+        print_json({"status": "reset", "steps": steps_done})
+    else:
+        print_success(
+            "Helix-DB reset complete. Run 'kidkazz db deploy' to start fresh."
+        )
 
 
 @app.command("dedup-edges")
