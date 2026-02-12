@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from .config import ServerState
 from .formatters import (
+    extract_chunk_images,
     format_chunk,
     format_chunk_list,
     format_concept,
@@ -13,6 +14,7 @@ from .formatters import (
     format_document,
     format_document_stats,
     format_optional_chunk,
+    format_search_result,
     format_search_results,
     format_summary,
     format_summary_hierarchy,
@@ -43,8 +45,10 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         has_table: Optional[bool] = None,
         has_code: Optional[bool] = None,
         has_math: Optional[bool] = None,
+        has_image: Optional[bool] = None,
         header_level: Optional[int] = None,
-    ) -> list[dict[str, Any]]:
+        include_images: bool = False,
+    ) -> list:
         """Search for document chunks semantically similar to the query.
 
         Args:
@@ -58,10 +62,17 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             has_table: Filter to chunks containing tables (optional)
             has_code: Filter to chunks containing code blocks (optional)
             has_math: Filter to chunks containing math equations (optional)
+            has_image: Filter to chunks containing images (optional)
             header_level: Filter to chunks with specific header level 1-6 (optional)
+            include_images: Return actual image data (PNG/JPG) alongside text results.
+                When True, chunks with images will have ImageContent blocks interleaved
+                with their text metadata. Use this when you need to see table/figure images.
+                (default: False)
 
         Returns:
-            List of matching chunks with content, metadata, and similarity scores
+            List of matching chunks with content, metadata, and similarity scores.
+            When include_images=True, Image objects are interleaved after each chunk
+            that contains images.
         """
         query_preview = query[:50] + "..." if len(query) > 50 else query
         logger.info(f"search_semantic: query='{query_preview}', top_k={top_k}, tags={tags}")
@@ -85,6 +96,7 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             has_table=has_table,
             has_code=has_code,
             has_math=has_math,
+            has_image=has_image,
             header_level=header_level,
         )
 
@@ -93,7 +105,16 @@ def register_tools(mcp: Any, state: ServerState) -> None:
             results = reranker.rerank_chunks(query, results, top_n=top_k)
 
         logger.info(f"search_semantic: found {len(results)} results")
-        return format_search_results(results)
+
+        if not include_images:
+            return format_search_results(results)
+
+        # Mixed response: text metadata interleaved with images
+        mixed: list = []
+        for ec, score in results:
+            mixed.append(format_search_result(ec, score))
+            mixed.extend(extract_chunk_images(ec.chunk.content))
+        return mixed
 
     @mcp.tool()
     def search_keyword(
@@ -212,6 +233,35 @@ def register_tools(mcp: Any, state: ServerState) -> None:
 
         logger.info(f"get_siblings: found {len(results)} siblings")
         return format_chunk_list(results)
+
+    @mcp.tool()
+    def get_chunk_images(chunk_id: str) -> list:
+        """Get actual images (PNG/JPG) embedded in a chunk.
+
+        Use this after finding a chunk with has_image=True to see the actual
+        table or figure images. Returns ImageContent blocks that Claude can
+        view directly.
+
+        Args:
+            chunk_id: Unique identifier of the chunk (e.g., "textbook_l2_42")
+
+        Returns:
+            List containing metadata dict and Image objects for each image
+            found in the chunk. Returns error dict if chunk not found.
+        """
+        logger.info(f"get_chunk_images: chunk_id={chunk_id}")
+
+        result = state.store.get_chunk(chunk_id)
+        if result is None:
+            return [{"error": f"Chunk '{chunk_id}' not found"}]
+
+        images = extract_chunk_images(result.chunk.content)
+        if not images:
+            return [{"chunk_id": chunk_id, "images_found": 0}]
+
+        response: list = [{"chunk_id": chunk_id, "images_found": len(images)}]
+        response.extend(images)
+        return response
 
     @mcp.tool()
     def list_documents(

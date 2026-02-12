@@ -140,6 +140,7 @@ class ChunkStoreProtocol(Protocol):
         has_table: Optional[bool] = None,
         has_code: Optional[bool] = None,
         has_math: Optional[bool] = None,
+        has_image: Optional[bool] = None,
         header_level: Optional[int] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """Find similar chunks by vector search."""
@@ -632,6 +633,7 @@ class HelixChunkStore:
         has_table: Optional[bool] = None,
         has_code: Optional[bool] = None,
         has_math: Optional[bool] = None,
+        has_image: Optional[bool] = None,
         header_level: Optional[int] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
@@ -648,6 +650,7 @@ class HelixChunkStore:
             has_table: Filter to chunks containing tables (post-filtered)
             has_code: Filter to chunks containing code (post-filtered)
             has_math: Filter to chunks containing math (post-filtered)
+            has_image: Filter to chunks containing images (post-filtered)
             header_level: Filter by header level 1-6 (post-filtered)
 
         Returns:
@@ -752,6 +755,8 @@ class HelixChunkStore:
             if has_code is not None and bool(node.get("has_code", 0)) != has_code:
                 continue
             if has_math is not None and bool(node.get("has_math", 0)) != has_math:
+                continue
+            if has_image is not None and bool(node.get("has_image", 0)) != has_image:
                 continue
 
             # Apply header_level filter

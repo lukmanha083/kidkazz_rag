@@ -1,8 +1,34 @@
 """Response formatters for MCP outputs."""
 
+import re
+from pathlib import Path
 from typing import Any, Optional
 
 from src.chunker import EmbeddedChunk
+
+IMAGE_MARKER_RE = re.compile(r"!\[.*?\]\((.+?)\)")
+
+
+def extract_chunk_images(content: str) -> list:
+    """Extract FastMCP Image objects from chunk content image markers.
+
+    Scans for markdown image syntax ![alt](path) and returns Image objects
+    for paths that exist on disk.
+
+    Args:
+        content: Chunk text content with potential image markers
+
+    Returns:
+        List of Image objects for valid, existing image paths
+    """
+    from mcp.server.fastmcp.utilities.types import Image
+
+    images = []
+    for match in IMAGE_MARKER_RE.finditer(content):
+        image_path = Path(match.group(1)).expanduser()
+        if image_path.exists() and image_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
+            images.append(Image(path=str(image_path)))
+    return images
 
 
 def format_chunk(ec: EmbeddedChunk) -> dict[str, Any]:
@@ -45,6 +71,7 @@ def format_chunk(ec: EmbeddedChunk) -> dict[str, Any]:
         "has_code": meta.get("has_code", False),
         "has_math": meta.get("has_math", False),
         "has_list": meta.get("has_list", False),
+        "has_image": meta.get("has_image", bool(IMAGE_MARKER_RE.search(chunk.content))),
         # Header metadata (from Reducto block mode)
         "header_text": meta.get("header_text"),
         "header_level": meta.get("header_level"),

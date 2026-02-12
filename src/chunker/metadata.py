@@ -80,6 +80,7 @@ class ChunkMetadata:
     has_code: bool = False
     has_math: bool = False
     has_list: bool = False
+    has_image: bool = False
 
     # Header/block metadata (from Reducto block mode)
     header_text: Optional[str] = None  # The actual header text if this is a header block
@@ -107,6 +108,7 @@ class ChunkMetadata:
             "has_code": self.has_code,
             "has_math": self.has_math,
             "has_list": self.has_list,
+            "has_image": self.has_image,
             "header_text": self.header_text,
             "header_level": self.header_level,
             "block_type": self.block_type,
@@ -214,6 +216,7 @@ def detect_content_features(content: str) -> dict[str, bool]:
         "has_code": bool(re.search(r"```|`[^`]+`", content)),
         "has_math": bool(re.search(r"\$\$|\$[^$]+\$|\\\\?\[|\\\\?\(", content)),
         "has_list": bool(re.search(r"^[\s]*[-*+]\s|^[\s]*\d+\.\s", content, re.MULTILINE)),
+        "has_image": bool(re.search(r"!\[.*?\]\(.+?\)", content)),
     }
 
 
@@ -291,6 +294,7 @@ def enrich_chunk_metadata(
         has_code=content_features["has_code"],
         has_math=content_features["has_math"],
         has_list=content_features["has_list"],
+        has_image=content_features["has_image"],
         header_text=header_info.get("header_text"),
         header_level=header_info.get("header_level"),
         block_type=header_info.get("block_type"),

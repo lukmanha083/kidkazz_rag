@@ -94,7 +94,7 @@ kidkazz summarize list              # List documents with summaries
 
 ### Core Modules
 
-- **`src/chunker/`** - Hierarchical chunking with graph relationships (parent/child/sibling). Chunks maintain metadata: semantic type, section paths, special content flags (has_table, has_code, has_math), and header metadata (header_text, header_level, block_type) for improved semantic search.
+- **`src/chunker/`** - Hierarchical chunking with graph relationships (parent/child/sibling). Chunks maintain metadata: semantic type, section paths, special content flags (has_table, has_code, has_math, has_image), and header metadata (header_text, header_level, block_type) for improved semantic search.
 
 - **`src/chunker/concept_extractor.py`** - LLM-powered concept extraction using Instructor. Features:
   - Header-aware prompts (includes header_text, header_level in context)
@@ -132,9 +132,9 @@ kidkazz summarize list              # List documents with summaries
   - `MockChunkStore`: In-memory for testing
   - `HelixChunkStore`: Production vector + graph DB
 
-- **`src/mcp_server/`** - FastMCP server exposing 25+ search tools and 4 resource endpoints for Claude Code integration:
-  - Chunk tools: `search_semantic` (with filters: has_table, has_code, has_math, header_level), `search_keyword`, `get_chunk`, `get_context_window`, `get_parent`, `get_children`, `get_siblings`, `list_documents`, `get_document_chunks`, `get_document_stats`
-  - Concept tools: `search_concepts`, `get_concept`, `get_related_concepts`, `get_concept_chunks`, `explain_concept_with_context`
+- **`src/mcp_server/`** - FastMCP server exposing 27+ search tools and 4 resource endpoints for Claude Code integration:
+  - Chunk tools: `search_semantic` (with filters: has_table, has_code, has_math, has_image, header_level; `include_images` flag for multimodal response), `search_keyword`, `get_chunk`, `get_chunk_images`, `get_context_window`, `get_parent`, `get_children`, `get_siblings`, `list_documents`, `get_document_chunks`, `get_document_stats`
+  - Concept tools: `search_concepts`, `get_concept`, `get_concept_with_citations`, `get_related_concepts`, `explain_concept_cross_document`, `get_concept_graph_dot`, `list_concepts`
   - Summary tools: `get_document_summary`, `get_chapter_summaries`, `get_section_summaries`, `search_summaries`, `get_summary_hierarchy`, `list_summarized_documents`
 
 - **`src/cli/`** - Typer-based CLI with Rich formatting. Commands: `ingest`, `search`, `docs`, `db`, `config`, `inbox`, `concepts`, `summarize`
@@ -171,7 +171,15 @@ The `search_semantic` MCP tool supports filtering by content flags:
 - `has_table: bool` - Only chunks containing tables
 - `has_code: bool` - Only chunks containing code blocks
 - `has_math: bool` - Only chunks containing math expressions
+- `has_image: bool` - Only chunks containing images (detected via `![alt](path)` markdown syntax)
 - `header_level: int` - Only chunks at specific header level (1-6)
+
+### Multimodal Image Response (MCP)
+The MCP server can return actual table/figure images to Claude, not just text:
+- `search_semantic(..., include_images=True)` — returns text metadata interleaved with `ImageContent` blocks (FastMCP auto-converts `Image` objects)
+- `get_chunk_images(chunk_id)` — dedicated tool to fetch images from a specific chunk
+- `extract_chunk_images()` in `formatters.py` scans chunk content for `![alt](path)` markers and returns `Image` objects for existing PNG/JPG files on disk
+- Backward compatible: `include_images` defaults to `False`, existing behavior unchanged
 
 ### Multimodal Image Embedding
 Tables and figures from PDFs are embedded as images using Cohere Embed v4's multimodal capability:
@@ -179,7 +187,8 @@ Tables and figures from PDFs are embedded as images using Cohere Embed v4's mult
 - During `kidkazz inbox parse`, images are downloaded to `~/.kidkazz/images/<doc_id>/`
 - During `kidkazz ingest markdown --images-dir`, chunks with image markers get fused text+image embeddings
 - Text queries naturally match image embeddings (shared 1536-dim vector space)
-- The `has_table` metadata flag remains for search filtering
+- The `has_table` and `has_image` metadata flags enable filtering in search
+- MCP tools can return actual images to Claude via `include_images=True` or `get_chunk_images`
 
 ### Document Summarization
 Hierarchical summaries use a tiered approach - local extractive for sections, LLM for chapters/documents:

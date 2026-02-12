@@ -93,6 +93,7 @@ class MockChunkStore:
                 "has_code": meta.has_code,
                 "has_math": meta.has_math,
                 "has_list": meta.has_list,
+                "has_image": meta.has_image,
                 # Header metadata (from Reducto block mode)
                 "header_text": meta.header_text,
                 "header_level": meta.header_level,
@@ -221,6 +222,7 @@ class MockChunkStore:
         has_table: Optional[bool] = None,
         has_code: Optional[bool] = None,
         has_math: Optional[bool] = None,
+        has_image: Optional[bool] = None,
         header_level: Optional[int] = None,
     ) -> list[tuple[EmbeddedChunk, float]]:
         """
@@ -271,6 +273,8 @@ class MockChunkStore:
             if has_code is not None and data.get("has_code", False) != has_code:
                 continue
             if has_math is not None and data.get("has_math", False) != has_math:
+                continue
+            if has_image is not None and data.get("has_image", False) != has_image:
                 continue
             # Filter by header level
             if header_level is not None and data.get("header_level") != header_level:
@@ -572,6 +576,7 @@ class MockChunkStore:
             "has_code": data.get("has_code", False),
             "has_math": data.get("has_math", False),
             "has_list": data.get("has_list", False),
+            "has_image": data.get("has_image", False),
             "header_text": data.get("header_text"),
             "header_level": data.get("header_level"),
             "block_type": data.get("block_type"),

@@ -258,20 +258,60 @@ kidkazz config set helix_port 6969
 
 When connected via MCP, Claude Code can use:
 
+### Chunk Search & Retrieval
+
 | Tool | Description |
 |------|-------------|
-| `search_semantic` | Vector similarity search with filters |
+| `search_semantic` | Vector similarity search with filters (`has_table`, `has_code`, `has_math`, `has_image`, `header_level`, `tags`). Set `include_images=True` to receive actual table/figure images alongside text. |
 | `search_keyword` | Full-text keyword search |
 | `get_chunk` | Get chunk by ID |
+| `get_chunk_images` | Get actual PNG/JPG images embedded in a chunk (use after finding `has_image=True`) |
 | `get_context_window` | Get chunk with neighbors |
 | `get_parent` / `get_children` / `get_siblings` | Graph traversal |
 | `list_documents` | List all documents |
+| `get_document_chunks` | Get all chunks for a document |
 | `get_document_stats` | Document statistics |
-| `search_concepts` | Search concept graph |
-| `get_related_concepts` | Get related concepts |
-| `search_summaries` | Search document summaries |
+
+### Concept Graph
+
+| Tool | Description |
+|------|-------------|
+| `search_concepts` | Search concept graph by name/definition |
+| `get_concept` | Get concept by name |
+| `get_concept_with_citations` | Get concept with source chunk citations |
+| `get_related_concepts` | Get related concepts (cross-document) |
+| `explain_concept_cross_document` | Comprehensive cross-document concept explanation |
+| `get_concept_graph_dot` | Export concept graph in DOT format |
+| `list_concepts` | List all concepts |
+
+### Document Summaries
+
+| Tool | Description |
+|------|-------------|
+| `search_summaries` | Search summaries semantically |
 | `get_document_summary` | Get document-level summary |
+| `get_chapter_summaries` | Get chapter-level summaries |
+| `get_section_summaries` | Get section-level summaries |
 | `get_summary_hierarchy` | Get full summary tree |
+| `list_summarized_documents` | List documents with summaries |
+
+### Multimodal Image Support
+
+Chunks containing tables or figures have `has_image: true` in their metadata. To view the actual images:
+
+```text
+# 1. Search with image filter
+search_semantic("inventory table", has_image=True)
+→ returns chunks with has_image flag
+
+# 2. Get images inline with search results
+search_semantic("inventory table", include_images=True)
+→ returns text metadata interleaved with ImageContent blocks
+
+# 3. Get images for a specific chunk
+get_chunk_images("textbook_l2_42")
+→ returns ImageContent blocks for that chunk's images
+```
 
 ## Configuration
 
