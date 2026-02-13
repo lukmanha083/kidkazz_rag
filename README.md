@@ -101,6 +101,9 @@ kidkazz ingest batch ./docs --pattern "*.md"
 # Generate hierarchical summaries + extract concepts
 kidkazz summarize generate textbook
 
+# If some chapters failed, repair only the missing ones
+kidkazz summarize generate textbook --repair
+
 # View document summary
 kidkazz summarize show textbook
 
@@ -221,12 +224,16 @@ kidkazz inbox clear --completed             # Clean up
 
 ```bash
 kidkazz summarize generate <doc_id>         # Generate summaries + concepts
+kidkazz summarize generate <doc_id> --force # Delete all and regenerate from scratch
+kidkazz summarize generate <doc_id> --repair # Fix only missing chapter summaries
 kidkazz summarize show <doc_id>             # Show document summary
 kidkazz summarize search "query"            # Search summaries
 kidkazz summarize list                      # List summarized documents
 kidkazz concepts search "concept name"      # Search concept graph
 kidkazz concepts list --doc-id <doc_id>     # List concepts for document
 ```
+
+> **`--repair` vs `--force`:** Use `--repair` when a few chapters failed (e.g., max_tokens error) — it detects the gaps and regenerates only those chapters + refreshes the document summary (typically 1-3 LLM calls). Use `--force` to wipe everything and start over (225+ LLM calls for a typical textbook).
 
 ### Database
 
