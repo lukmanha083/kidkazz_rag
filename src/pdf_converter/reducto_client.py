@@ -249,10 +249,12 @@ class ReductoClient:
                     chunking=Chunking(chunk_mode=self.config.chunk_mode)
                 )
 
-            # Add return_images option if configured
+            # Add return_images via Settings if configured
             if self.config.return_images:
-                parse_kwargs.setdefault("options", {})
-                parse_kwargs["options"]["return_images"] = self.config.return_images
+                from reducto.types import Settings
+                parse_kwargs["settings"] = Settings(
+                    return_images=self.config.return_images
+                )
 
             logger.debug("Calling Reducto parse API...")
             response = self.client.parse.run(**parse_kwargs)
