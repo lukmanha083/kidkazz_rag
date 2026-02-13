@@ -614,33 +614,34 @@ def clean_concepts(
             print_warning("Aborted.")
             raise typer.Exit(0)
 
-    # Delete
+    # Delete in parallel using thread pool
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     start_time = time.time()
     deleted = 0
     failed = 0
+    processed = 0
 
-    for i, concept in enumerate(garbage):
-        concept_id = concept.get("concept_id", "")
-        if not concept_id:
-            failed += 1
-            continue
-
+    def _delete_one(concept_id: str) -> bool:
         try:
-            success = store.delete_concept(concept_id)
-            if success:
+            return store.delete_concept(concept_id)
+        except Exception:
+            return False
+
+    concept_ids = [c.get("concept_id", "") for c in garbage]
+    concept_ids = [cid for cid in concept_ids if cid]  # skip empty
+    failed += len(garbage) - len(concept_ids)  # count skipped
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futures = {pool.submit(_delete_one, cid): cid for cid in concept_ids}
+        for future in as_completed(futures):
+            if future.result():
                 deleted += 1
             else:
                 failed += 1
-        except Exception as e:
-            console.print(f"[dim]Failed to delete '{concept_id}': {e}[/dim]")
-            failed += 1
-
-        # Progress every 50
-        if (i + 1) % 50 == 0:
-            console.print(f"[dim]Progress: {i + 1}/{len(garbage)} processed...[/dim]")
-
-        # Small throttle to avoid overwhelming the DB
-        time.sleep(0.05)
+            processed += 1
+            if processed % 200 == 0:
+                console.print(f"[dim]Progress: {processed}/{len(concept_ids)} processed...[/dim]")
 
     elapsed = time.time() - start_time
 
