@@ -67,6 +67,9 @@ class ReductoConfig:
     table_format: str = "md"
     raw_output: bool = True  # Default to human-readable output
     return_images: Optional[list[str]] = None  # ["figure", "table"] to get block images
+    embedding_optimized: bool = False  # Optimize chunks for embedding models
+    merge_tables: bool = False  # Merge split tables across pages
+    summarize_figures: bool = False  # Generate text summaries of figures
 
     @classmethod
     def from_env(cls, env_var: str = "REDUCTO_API_KEY") -> "ReductoConfig":
@@ -243,11 +246,14 @@ class ReductoClient:
             # Build parse kwargs
             parse_kwargs: dict = {"input": file_id}
 
-            # Add chunking options if not disabled
+            # Build Retrieval params (chunking + embedding_optimized)
+            retrieval_kwargs: dict = {}
             if self.config.chunk_mode != "disabled":
-                parse_kwargs["retrieval"] = Retrieval(
-                    chunking=Chunking(chunk_mode=self.config.chunk_mode)
-                )
+                retrieval_kwargs["chunking"] = Chunking(chunk_mode=self.config.chunk_mode)
+            if self.config.embedding_optimized:
+                retrieval_kwargs["embedding_optimized"] = True
+            if retrieval_kwargs:
+                parse_kwargs["retrieval"] = Retrieval(**retrieval_kwargs)
 
             # Add return_images via Settings if configured
             if self.config.return_images:
@@ -256,19 +262,27 @@ class ReductoClient:
                     return_images=self.config.return_images
                 )
 
-            # Add agentic enhancement if enabled (all scopes: table, figure, text)
+            # Build Enhance params (agentic + summarize_figures)
+            enhance_kwargs: dict = {}
             if self.config.agentic:
-                from reducto.types import Enhance
                 from reducto.types.shared.figure_agentic import FigureAgentic
                 from reducto.types.shared.table_agentic import TableAgentic
                 from reducto.types.shared.text_agentic import TextAgentic
-                parse_kwargs["enhance"] = Enhance(
-                    agentic=[
-                        TableAgentic(scope="table"),
-                        FigureAgentic(scope="figure"),
-                        TextAgentic(scope="text"),
-                    ]
-                )
+                enhance_kwargs["agentic"] = [
+                    TableAgentic(scope="table"),
+                    FigureAgentic(scope="figure"),
+                    TextAgentic(scope="text"),
+                ]
+            if self.config.summarize_figures:
+                enhance_kwargs["summarize_figures"] = True
+            if enhance_kwargs:
+                from reducto.types import Enhance
+                parse_kwargs["enhance"] = Enhance(**enhance_kwargs)
+
+            # Add Formatting params (merge_tables)
+            if self.config.merge_tables:
+                from reducto.types import Formatting
+                parse_kwargs["formatting"] = Formatting(merge_tables=True)
 
             logger.debug("Calling Reducto parse API...")
             response = self.client.parse.run(**parse_kwargs)

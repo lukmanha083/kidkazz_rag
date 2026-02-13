@@ -285,8 +285,8 @@ class TestQualityThresholds:
         assert thresholds.ocr_confidence_error == 0.75
         assert thresholds.words_per_page_warning == 150
         assert thresholds.words_per_page_error == 100
-        assert thresholds.empty_line_ratio_warning == 0.20
-        assert thresholds.empty_line_ratio_error == 0.35
+        assert thresholds.empty_line_ratio_warning == 0.45
+        assert thresholds.empty_line_ratio_error == 0.60
 
     def test_lenient_thresholds(self):
         """Test lenient threshold preset."""
@@ -298,8 +298,8 @@ class TestQualityThresholds:
         assert thresholds.ocr_confidence_error == 0.5
         assert thresholds.words_per_page_warning == 50
         assert thresholds.words_per_page_error == 25
-        assert thresholds.empty_line_ratio_warning == 0.40
-        assert thresholds.empty_line_ratio_error == 0.55
+        assert thresholds.empty_line_ratio_warning == 0.65
+        assert thresholds.empty_line_ratio_error == 0.80
 
 
 class TestReductoQualityChecker:
@@ -526,30 +526,28 @@ Tables and lists would also be checked.
 
     def test_calculate_score(self):
         """Test score calculation from metrics."""
-        from src.pdf_converter.quality_checker import ReductoQualityChecker
+        from src.pdf_converter.quality_checker import ReductoQualityChecker, QualityMetrics
 
         checker = ReductoQualityChecker()
 
         # Good metrics should give high score
-        good_score = checker._calculate_score(
-            words_per_page=300,
-            special_char_ratio=0.02,
-            empty_line_ratio=0.05,
-            broken_table_count=0,
-            ocr_confidence_avg=0.95,
-            empty_chunk_ratio=0.0,
+        good_metrics = QualityMetrics(
+            word_count=30000, line_count=3000, estimated_pages=100,
+            heading_count=50, table_count=5, code_block_count=0, list_count=10,
+            special_char_ratio=0.02, empty_line_ratio=0.05, words_per_page=300,
+            words_per_line=10.0, ocr_confidence_avg=0.95, broken_table_count=0,
         )
+        good_score = checker._calculate_score(metrics=good_metrics, empty_chunk_ratio=0.0)
         assert good_score >= 85
 
         # Poor metrics should give low score
-        poor_score = checker._calculate_score(
-            words_per_page=30,
-            special_char_ratio=0.25,
-            empty_line_ratio=0.20,
-            broken_table_count=5,
-            ocr_confidence_avg=0.45,
-            empty_chunk_ratio=0.30,
+        poor_metrics = QualityMetrics(
+            word_count=3000, line_count=300, estimated_pages=100,
+            heading_count=0, table_count=0, code_block_count=0, list_count=0,
+            special_char_ratio=0.25, empty_line_ratio=0.20, words_per_page=30,
+            words_per_line=10.0, ocr_confidence_avg=0.45, broken_table_count=5,
         )
+        poor_score = checker._calculate_score(metrics=poor_metrics, empty_chunk_ratio=0.30)
         assert poor_score <= 40
 
 

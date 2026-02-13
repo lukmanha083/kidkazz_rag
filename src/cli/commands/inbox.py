@@ -712,6 +712,7 @@ def _print_quality_report(file_path: Path, report, verbose: bool = False) -> Non
     if verbose:
         console.print("\n[bold]Quality Metrics:[/bold]")
         console.print(f"  Words per page (est): {m.words_per_page:.0f}")
+        console.print(f"  Words per line: {m.words_per_line:.1f}")
         console.print(f"  Special char ratio: {m.special_char_ratio:.1%}")
         console.print(f"  Empty line ratio: {m.empty_line_ratio:.1%}")
         if m.broken_table_count > 0:
@@ -784,6 +785,12 @@ def parse(
         None,
         help="PDF filename to parse (looks in inbox directory). If not provided, parses all PDFs in inbox.",
     ),
+    quality_preset: Optional[str] = typer.Option(
+        None,
+        "--quality-preset",
+        "-p",
+        help="Quality preset: full (max accuracy, ~2x credits) or standard (accurate, ~1x credits)",
+    ),
     agentic: bool = typer.Option(
         False,
         "--agentic",
@@ -832,6 +839,12 @@ def parse(
     Requires REDUCTO_API_KEY environment variable.
     Get your API key from https://reducto.ai
 
+    Quality presets:
+        full      - Max accuracy: agentic + summarize_figures + embedding_optimized
+                    + merge_tables + return_images (~2x credits)
+        standard  - Accurate but economical: embedding_optimized + merge_tables
+                    + return_images (~1x credits, no agentic)
+
     Chunk modes:
         disabled  - Human-readable continuous markdown (default)
         variable  - Adaptive chunks ~1000 chars, best for RAG
@@ -843,6 +856,8 @@ def parse(
     Use --no-quality-check to force save regardless of quality.
 
     Examples:
+        kidkazz inbox parse -p full                # Max accuracy (~2x credits)
+        kidkazz inbox parse -p standard            # Accurate, economical (~1x)
         kidkazz inbox parse document.pdf           # Parse single file from inbox
         kidkazz inbox parse                        # Parse all PDFs in inbox
         kidkazz inbox parse --chunk-mode variable  # RAG-optimized chunks
@@ -932,6 +947,13 @@ def parse(
             console.print(f"Valid modes: {', '.join(valid_modes)}")
             raise typer.Exit(1)
 
+        # Validate quality preset
+        valid_presets = ["full", "standard"]
+        if quality_preset is not None and quality_preset not in valid_presets:
+            console.print(f"[red]Invalid quality preset: {quality_preset}[/red]")
+            console.print(f"Valid presets: {', '.join(valid_presets)}")
+            raise typer.Exit(1)
+
         # Initialize Reducto client
         try:
             reducto_config = ReductoConfig.from_env()
@@ -943,20 +965,38 @@ def parse(
             console.print("Set your API key: export REDUCTO_API_KEY=your_key_here")
             raise typer.Exit(1) from None
 
+        # Apply quality preset (overrides individual flags where applicable)
+        if quality_preset == "full":
+            reducto_config.agentic = True
+            reducto_config.summarize_figures = True
+            reducto_config.embedding_optimized = True
+            reducto_config.merge_tables = True
+            reducto_config.return_images = ["figure", "table"]
+        elif quality_preset == "standard":
+            reducto_config.embedding_optimized = True
+            reducto_config.merge_tables = True
+            reducto_config.return_images = ["figure", "table"]
+
         client = ReductoClient(reducto_config)
 
-        # Check if return_images is configured in .kidkazz.toml
-        return_images = config.get_extra("inbox", "return_images", default=None)
+        # Check if return_images is configured in .kidkazz.toml (only if not set by preset)
+        if reducto_config.return_images is None:
+            return_images = config.get_extra("inbox", "return_images", default=None)
+            if return_images:
+                reducto_config.return_images = return_images
+
         images_base = config.get_extra("inbox", "images_path", default="~/.kidkazz/images")
         images_base_path = Path(images_base).expanduser()
 
-        if return_images:
-            reducto_config.return_images = return_images
-            console.print(f"[dim]Image capture enabled: {return_images}[/dim]")
+        if reducto_config.return_images:
+            console.print(f"[dim]Image capture enabled: {reducto_config.return_images}[/dim]")
 
         # Parse PDFs with progress bar
         console.print(f"[bold]Parsing {len(pdf_files)} PDF(s) with Reducto.ai...[/bold]")
-        if agentic:
+        if quality_preset:
+            preset_label = "Full (max accuracy, ~2x credits)" if quality_preset == "full" else "Standard (accurate, ~1x credits)"
+            console.print(f"[dim]Quality preset: {preset_label}[/dim]")
+        if reducto_config.agentic:
             console.print("[dim]Agentic mode enabled (higher accuracy, 2x credits)[/dim]")
         if chunk_mode != "disabled":
             console.print(f"[dim]Chunk mode: {chunk_mode}[/dim]")
@@ -975,7 +1015,7 @@ def parse(
                 for pdf_file in pdf_files:
                     progress.update(task, description=f"[cyan]{pdf_file.name}[/cyan]")
 
-                    if return_images:
+                    if reducto_config.return_images:
                         doc_id = slugify_filename(pdf_file.stem)
                         parse_result = client.parse_pdf_with_images(
                             pdf_file, doc_id, images_base_path

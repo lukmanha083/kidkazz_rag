@@ -43,6 +43,7 @@ class QualityMetrics:
     special_char_ratio: float
     empty_line_ratio: float
     words_per_page: float
+    words_per_line: float = 0.0  # Detects single-line blobs (no formatting)
 
     # OCR metrics (optional - only when OCR data available)
     ocr_confidence_avg: Optional[float] = None
@@ -136,13 +137,20 @@ class QualityThresholds:
     words_per_page_error: int = 50
     special_char_ratio_warning: float = 0.10
     special_char_ratio_error: float = 0.20
-    # Markdown naturally has many blank lines for formatting
-    empty_line_ratio_warning: float = 0.30
-    empty_line_ratio_error: float = 0.45
+    # Markdown naturally has ~40-50% blank lines (paragraph separation)
+    empty_line_ratio_warning: float = 0.55
+    empty_line_ratio_error: float = 0.70
 
     # Structure thresholds
     broken_table_warning: int = 1
     broken_table_error: int = 3
+    # Words per line: detects documents with no line breaks (single-line blobs)
+    words_per_line_warning: float = 200.0
+    words_per_line_error: float = 500.0
+    # Minimum headings: large docs with zero headings lack structure
+    min_words_for_heading_check: int = 5000
+    min_headings_warning: int = 1  # At least 1 heading for docs > min_words
+    min_headings_error: int = 0  # Exactly 0 headings = error
 
     # Chunk thresholds
     empty_chunk_ratio_warning: float = 0.05
@@ -161,10 +169,15 @@ class QualityThresholds:
             words_per_page_error=100,
             special_char_ratio_warning=0.05,
             special_char_ratio_error=0.10,
-            empty_line_ratio_warning=0.20,
-            empty_line_ratio_error=0.35,
+            empty_line_ratio_warning=0.45,
+            empty_line_ratio_error=0.60,
             broken_table_warning=1,
             broken_table_error=2,
+            words_per_line_warning=100.0,
+            words_per_line_error=300.0,
+            min_words_for_heading_check=3000,
+            min_headings_warning=3,
+            min_headings_error=0,
             empty_chunk_ratio_warning=0.02,
             empty_chunk_ratio_error=0.10,
         )
@@ -181,10 +194,15 @@ class QualityThresholds:
             words_per_page_error=25,
             special_char_ratio_warning=0.15,
             special_char_ratio_error=0.30,
-            empty_line_ratio_warning=0.40,
-            empty_line_ratio_error=0.55,
+            empty_line_ratio_warning=0.65,
+            empty_line_ratio_error=0.80,
             broken_table_warning=3,
             broken_table_error=5,
+            words_per_line_warning=500.0,
+            words_per_line_error=1000.0,
+            min_words_for_heading_check=10000,
+            min_headings_warning=1,
+            min_headings_error=0,
             empty_chunk_ratio_warning=0.10,
             empty_chunk_ratio_error=0.25,
         )
@@ -209,11 +227,16 @@ class QualityThresholds:
             special_char_ratio_warning=0.10,
             special_char_ratio_error=0.20,
             # Relaxed empty line ratio for block separators
-            empty_line_ratio_warning=0.50,
-            empty_line_ratio_error=0.65,
+            empty_line_ratio_warning=0.65,
+            empty_line_ratio_error=0.80,
             # Standard structure thresholds
             broken_table_warning=1,
             broken_table_error=3,
+            words_per_line_warning=200.0,
+            words_per_line_error=500.0,
+            min_words_for_heading_check=5000,
+            min_headings_warning=1,
+            min_headings_error=0,
             empty_chunk_ratio_warning=0.05,
             empty_chunk_ratio_error=0.15,
         )
@@ -262,11 +285,7 @@ class ReductoQualityChecker:
         metrics = self._collect_metrics(markdown, expected_pages, ocr_data)
         issues = self._detect_issues(metrics)
         score = self._calculate_score(
-            words_per_page=metrics.words_per_page,
-            special_char_ratio=metrics.special_char_ratio,
-            empty_line_ratio=metrics.empty_line_ratio,
-            broken_table_count=metrics.broken_table_count,
-            ocr_confidence_avg=metrics.ocr_confidence_avg,
+            metrics=metrics,
             empty_chunk_ratio=(
                 metrics.empty_chunk_count / metrics.chunk_count
                 if metrics.chunk_count and metrics.chunk_count > 0
@@ -325,11 +344,7 @@ class ReductoQualityChecker:
 
         issues = self._detect_issues(metrics)
         score = self._calculate_score(
-            words_per_page=metrics.words_per_page,
-            special_char_ratio=metrics.special_char_ratio,
-            empty_line_ratio=metrics.empty_line_ratio,
-            broken_table_count=metrics.broken_table_count,
-            ocr_confidence_avg=metrics.ocr_confidence_avg,
+            metrics=metrics,
             empty_chunk_ratio=(
                 metrics.empty_chunk_count / metrics.chunk_count
                 if metrics.chunk_count > 0
@@ -392,6 +407,7 @@ class ReductoQualityChecker:
         empty_line_ratio = empty_lines / len(lines) if lines else 0.0
 
         words_per_page = word_count / estimated_pages if estimated_pages > 0 else 0.0
+        words_per_line = word_count / line_count if line_count > 0 else 0.0
 
         # Check for broken tables
         broken_table_count = self._count_broken_tables(markdown)
@@ -425,6 +441,7 @@ class ReductoQualityChecker:
             special_char_ratio=special_char_ratio,
             empty_line_ratio=empty_line_ratio,
             words_per_page=words_per_page,
+            words_per_line=words_per_line,
             ocr_confidence_avg=ocr_confidence_avg,
             low_confidence_word_count=low_confidence_word_count,
             low_confidence_word_ratio=low_confidence_word_ratio,
@@ -587,6 +604,55 @@ class ReductoQualityChecker:
                 )
             )
 
+        # Check words per line (detects single-line blobs with no formatting)
+        if metrics.words_per_line > t.words_per_line_error:
+            issues.append(
+                QualityIssue(
+                    code="NO_LINE_BREAKS",
+                    message=f"Words per line ({metrics.words_per_line:.0f}) indicates no line breaks/formatting",
+                    severity=IssueSeverity.ERROR,
+                    metric_name="words_per_line",
+                    actual_value=metrics.words_per_line,
+                    threshold_value=t.words_per_line_error,
+                )
+            )
+        elif metrics.words_per_line > t.words_per_line_warning:
+            issues.append(
+                QualityIssue(
+                    code="NO_LINE_BREAKS",
+                    message=f"Words per line ({metrics.words_per_line:.0f}) is very high (poor formatting)",
+                    severity=IssueSeverity.WARNING,
+                    metric_name="words_per_line",
+                    actual_value=metrics.words_per_line,
+                    threshold_value=t.words_per_line_warning,
+                )
+            )
+
+        # Check heading structure (large docs with zero headings lack structure)
+        if metrics.word_count >= t.min_words_for_heading_check:
+            if metrics.heading_count <= t.min_headings_error:
+                issues.append(
+                    QualityIssue(
+                        code="NO_STRUCTURE",
+                        message=f"No headings found in {metrics.word_count:,}-word document",
+                        severity=IssueSeverity.ERROR,
+                        metric_name="heading_count",
+                        actual_value=metrics.heading_count,
+                        threshold_value=t.min_headings_warning,
+                    )
+                )
+            elif metrics.heading_count < t.min_headings_warning:
+                issues.append(
+                    QualityIssue(
+                        code="LOW_STRUCTURE",
+                        message=f"Only {metrics.heading_count} heading(s) in {metrics.word_count:,}-word document",
+                        severity=IssueSeverity.WARNING,
+                        metric_name="heading_count",
+                        actual_value=metrics.heading_count,
+                        threshold_value=t.min_headings_warning,
+                    )
+                )
+
         # Check broken tables
         if metrics.broken_table_count >= t.broken_table_error:
             issues.append(
@@ -668,11 +734,7 @@ class ReductoQualityChecker:
 
     def _calculate_score(
         self,
-        words_per_page: float,
-        special_char_ratio: float,
-        empty_line_ratio: float,
-        broken_table_count: int,
-        ocr_confidence_avg: Optional[float],
+        metrics: QualityMetrics,
         empty_chunk_ratio: float,
     ) -> int:
         """Calculate overall quality score (0-100).
@@ -684,34 +746,47 @@ class ReductoQualityChecker:
         t = self.thresholds
 
         # Words per page contribution (max -30 points)
-        if words_per_page < t.words_per_page_error:
+        if metrics.words_per_page < t.words_per_page_error:
             score -= 30
-        elif words_per_page < t.words_per_page_warning:
+        elif metrics.words_per_page < t.words_per_page_warning:
             score -= 15
 
         # Special character ratio contribution (max -25 points)
-        if special_char_ratio > t.special_char_ratio_error:
+        if metrics.special_char_ratio > t.special_char_ratio_error:
             score -= 25
-        elif special_char_ratio > t.special_char_ratio_warning:
+        elif metrics.special_char_ratio > t.special_char_ratio_warning:
             score -= 12
 
         # Empty line ratio contribution (max -10 points)
-        if empty_line_ratio > t.empty_line_ratio_error:
+        if metrics.empty_line_ratio > t.empty_line_ratio_error:
             score -= 10
-        elif empty_line_ratio > t.empty_line_ratio_warning:
+        elif metrics.empty_line_ratio > t.empty_line_ratio_warning:
             score -= 5
 
-        # Broken tables contribution (max -15 points)
-        if broken_table_count >= t.broken_table_error:
+        # Words per line contribution (max -30 points — no formatting is severe)
+        if metrics.words_per_line > t.words_per_line_error:
+            score -= 30
+        elif metrics.words_per_line > t.words_per_line_warning:
             score -= 15
-        elif broken_table_count >= t.broken_table_warning:
+
+        # Missing headings contribution (max -20 points)
+        if metrics.word_count >= t.min_words_for_heading_check:
+            if metrics.heading_count <= t.min_headings_error:
+                score -= 20
+            elif metrics.heading_count < t.min_headings_warning:
+                score -= 10
+
+        # Broken tables contribution (max -15 points)
+        if metrics.broken_table_count >= t.broken_table_error:
+            score -= 15
+        elif metrics.broken_table_count >= t.broken_table_warning:
             score -= 7
 
         # OCR confidence contribution (max -20 points)
-        if ocr_confidence_avg is not None:
-            if ocr_confidence_avg < t.ocr_confidence_error:
+        if metrics.ocr_confidence_avg is not None:
+            if metrics.ocr_confidence_avg < t.ocr_confidence_error:
                 score -= 20
-            elif ocr_confidence_avg < t.ocr_confidence_warning:
+            elif metrics.ocr_confidence_avg < t.ocr_confidence_warning:
                 score -= 10
 
         # Empty chunk ratio contribution (max -10 points)
