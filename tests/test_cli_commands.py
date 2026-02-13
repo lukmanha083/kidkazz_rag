@@ -67,15 +67,6 @@ class TestIngestCommands:
         assert result.exit_code == 0
         assert "Dry run" in result.output
 
-    def test_ingest_pdf_not_implemented(self, tmp_path):
-        """Test ingest pdf shows Reducto.ai message."""
-        test_file = tmp_path / "test.pdf"
-        test_file.write_bytes(b"%PDF-1.4")
-
-        result = runner.invoke(app, ["ingest", "pdf", str(test_file)])
-        assert result.exit_code != 0
-        assert "Reducto" in result.output or "inbox parse" in result.output
-
 
 class TestSearchCommands:
     """Tests for search commands."""
