@@ -1722,7 +1722,7 @@ class HelixChunkStore:
 
         except (ConnectionError, TimeoutError, OSError) as e:
             logger.error("Network error storing summary '%s': %s", summary.summary_id, e)
-            return None
+            raise
         except Exception:
             logger.exception("Unexpected error storing summary '%s'", summary.summary_id)
             raise

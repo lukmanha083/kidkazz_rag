@@ -106,6 +106,13 @@ from src.cli.output import _html_tables_to_markdown
 from src.cli.config import CLIConfig
 from src.cli.output import print_error, print_json, print_success, print_warning
 
+# Helix-DB error types for retry logic
+try:
+    from helix.client import HelixRequestError, HelixConnectionError
+except ImportError:
+    HelixRequestError = Exception  # type: ignore
+    HelixConnectionError = Exception  # type: ignore
+
 # Optional import for summarizer
 try:
     from src.chunker.summarizer import (
@@ -395,14 +402,37 @@ def generate_summaries(
     embedder = _get_embedder(config)
     stored_count = 0
 
+    SUMMARY_THROTTLE = 0.15          # seconds between each store call
+    SUMMARY_BREATHER_INTERVAL = 100  # pause every N summaries
+    SUMMARY_BREATHER_SECONDS = 5     # how long to pause
+    SUMMARY_MAX_RETRIES = 3          # retry transient errors
+
     for i, summary in enumerate(summaries):
         try:
             # Generate embedding for summary
             embedding = embedder.embed_text(summary.content)
             summary.embedding = embedding
 
-            # Store summary
-            store.store_summary(summary)
+            # Store summary with retry for transient errors (502, connection reset)
+            last_err = None
+            for attempt in range(1, SUMMARY_MAX_RETRIES + 1):
+                try:
+                    store.store_summary(summary)
+                    last_err = None
+                    break
+                except (ConnectionError, TimeoutError, OSError,
+                        HelixRequestError, HelixConnectionError) as e:
+                    last_err = e
+                    backoff = attempt * 2
+                    logger.warning(
+                        "  Transient error storing %s (attempt %d/%d), retrying in %ds: %s",
+                        summary.summary_id, attempt, SUMMARY_MAX_RETRIES, backoff, e,
+                    )
+                    time.sleep(backoff)
+
+            if last_err is not None:
+                raise last_err
+
             stored_count += 1
 
             # Log progress every 100 summaries
@@ -413,7 +443,16 @@ def generate_summaries(
                             i + 1, len(summaries), rate, elapsed)
 
             # Throttle: sleep after every call to prevent Helix-DB thread explosion
-            time.sleep(0.08)
+            time.sleep(SUMMARY_THROTTLE)
+
+            # Breather pause to let Helix-DB catch up
+            if (i + 1) % SUMMARY_BREATHER_INTERVAL == 0:
+                logger.info("  Pausing %ds after %d summaries to let Helix-DB settle",
+                            SUMMARY_BREATHER_SECONDS, i + 1)
+                if not json_output:
+                    console.print(f"  [dim]Pausing {SUMMARY_BREATHER_SECONDS}s after {i + 1} summaries...[/dim]")
+                time.sleep(SUMMARY_BREATHER_SECONDS)
+
         except Exception as e:
             logger.error("Failed to store summary %s: %s", summary.summary_id, e)
             if not json_output:
@@ -422,6 +461,13 @@ def generate_summaries(
     elapsed = time.monotonic() - phase_start
     logger.info("=== PHASE: Summary storage DONE in %.1fs (%d/%d stored) ===",
                 elapsed, stored_count, len(summaries))
+
+    # Cooldown between summary storage and concept storage
+    if concepts:
+        logger.info("=== Cooldown 10s before concept storage ===")
+        if not json_output:
+            console.print("  [dim]Cooling down 10s before concept storage...[/dim]")
+        time.sleep(10)
 
     # Store concepts (merge across documents for cross-document graph)
     # Two-phase approach: store concepts first, then create edges with throttling.
@@ -441,16 +487,38 @@ def generate_summaries(
     edge_queue: list[tuple[str, str]] = []  # (chunk_internal_id, concept_internal_id)
     concept_id_to_name: dict[str, str] = {}  # internal_id -> concept name (for checkpoint)
 
+    CONCEPT_MAX_RETRIES = 3
+
     for i, concept in enumerate(concepts):
         try:
-            concept_internal_id = store.store_or_merge_concept(
-                concept_id=concept.concept_id,
-                name=concept.name,
-                definition=concept.definition,
-                concept_type=concept.concept_type,
-                source_documents=[concept.document_id] if concept.document_id else [doc_id],
-                aliases=concept.aliases,
-            )
+            # Retry transient errors (502, connection reset)
+            concept_internal_id = None
+            last_err = None
+            for attempt in range(1, CONCEPT_MAX_RETRIES + 1):
+                try:
+                    concept_internal_id = store.store_or_merge_concept(
+                        concept_id=concept.concept_id,
+                        name=concept.name,
+                        definition=concept.definition,
+                        concept_type=concept.concept_type,
+                        source_documents=[concept.document_id] if concept.document_id else [doc_id],
+                        aliases=concept.aliases,
+                    )
+                    last_err = None
+                    break
+                except (ConnectionError, TimeoutError, OSError,
+                        HelixRequestError, HelixConnectionError) as e:
+                    last_err = e
+                    backoff = attempt * 2
+                    logger.warning(
+                        "  Transient error storing concept %s (attempt %d/%d), retrying in %ds: %s",
+                        concept.name, attempt, CONCEPT_MAX_RETRIES, backoff, e,
+                    )
+                    time.sleep(backoff)
+
+            if last_err is not None:
+                raise last_err
+
             stored_concepts += 1
 
             # Collect edge pairs for Phase B (no HTTP calls here)
