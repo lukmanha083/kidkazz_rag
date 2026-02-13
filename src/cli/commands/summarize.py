@@ -96,9 +96,12 @@ def _get_cpu_percent(interval: float = 0.5) -> Optional[float]:
 
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
+
+from src.cli.output import _html_tables_to_markdown
 
 from src.cli.config import CLIConfig
 from src.cli.output import print_error, print_json, print_success, print_warning
@@ -853,8 +856,9 @@ def show_summary(
             else:
                 panel_title = f"[bold]{level_name} Summary[/bold]"
 
+            formatted = _html_tables_to_markdown(content)
             panel = Panel(
-                content,
+                Markdown(formatted),
                 title=panel_title,
                 border_style="blue" if summary.get("level") == "document" else "green",
             )

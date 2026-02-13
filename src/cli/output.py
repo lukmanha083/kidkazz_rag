@@ -4,12 +4,13 @@ Provides consistent, beautiful terminal output for all CLI commands.
 """
 
 import json
+import re
 from typing import Any, Optional
 
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 # Global console instance
 console = Console()
@@ -40,6 +41,39 @@ def _build_content_flags(result: dict[str, Any]) -> str:
     if result.get("has_math"):
         flags.append("[MATH]")
     return " ".join(flags)
+
+
+def _html_tables_to_markdown(text: str) -> str:
+    """Convert HTML <table> blocks to markdown pipe tables."""
+
+    def _convert_table(match: re.Match) -> str:
+        table_html = match.group(0)
+        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, re.DOTALL)
+        if not rows:
+            return table_html
+
+        md_rows = []
+        for row in rows:
+            cells = re.findall(
+                r"<(?:td|th)[^>]*>(.*?)</(?:td|th)>", row, re.DOTALL
+            )
+            cells = [c.strip() for c in cells]
+            if cells:
+                md_rows.append("| " + " | ".join(cells) + " |")
+
+        if not md_rows:
+            return table_html
+
+        # Add separator after first row (treat as header)
+        col_count = len(md_rows[0].split("|")) - 2
+        sep = "| " + " | ".join("---" for _ in range(col_count)) + " |"
+        md_rows.insert(1, sep)
+
+        return "\n".join(md_rows)
+
+    return re.sub(
+        r"<table[^>]*>.*?</table>", _convert_table, text, flags=re.DOTALL
+    )
 
 
 def print_search_results(
@@ -88,8 +122,9 @@ def print_search_results(
         if flags:
             subtitle += f" {flags}"
 
+        formatted = _html_tables_to_markdown(display_content)
         panel = Panel(
-            Text(display_content),
+            Markdown(formatted),
             title=title,
             subtitle=subtitle,
             border_style="blue",
