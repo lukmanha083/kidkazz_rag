@@ -529,7 +529,7 @@ class DocumentSummarizer:
         self,
         provider: str = "openai/gpt-4o-mini",
         max_retries: int = 3,
-        max_tokens_per_summary: int = 500,
+        max_tokens_per_summary: int = 2500,
         max_concurrent: int = 5,  # For async strategy
         requests_per_minute: int = 500,  # Rate limit for async
         checkpoint_dir: Optional[Path] = None,
