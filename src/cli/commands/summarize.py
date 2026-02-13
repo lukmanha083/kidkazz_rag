@@ -1,5 +1,6 @@
 """CLI commands for document summarization."""
 
+import dataclasses
 import json
 import logging
 import os
@@ -12,51 +13,49 @@ logger = logging.getLogger(__name__)
 CPU_ABORT_THRESHOLD = 75.0
 
 
-EDGE_CHECKPOINT_DIR = os.path.join(os.path.expanduser("~"), ".cache", "kidkazz")
+CHECKPOINT_DIR = os.path.join(os.path.expanduser("~"), ".cache", "kidkazz")
+
+# All checkpoint phases used by the pipeline
+_CHECKPOINT_PHASES = ("llm_output", "summary_progress", "concept_progress", "edge_progress")
 
 
-def _checkpoint_path(doc_id: str) -> str:
-    """Path for edge-creation checkpoint file."""
-    return os.path.join(EDGE_CHECKPOINT_DIR, f"edge_progress_{doc_id}.json")
+def _checkpoint_path(doc_id: str, phase: str) -> str:
+    """Path for a phase-specific checkpoint file."""
+    return os.path.join(CHECKPOINT_DIR, f"{phase}_{doc_id}.json")
 
 
-def _load_checkpoint(doc_id: str) -> set[str]:
-    """Load set of concept names that already have edges created."""
-    path = _checkpoint_path(doc_id)
+def _load_phase_checkpoint(doc_id: str, phase: str) -> dict:
+    """Load checkpoint for a specific phase. Returns {} if none."""
+    path = _checkpoint_path(doc_id, phase)
     try:
         with open(path) as f:
             data = json.load(f)
         if data.get("doc_id") == doc_id:
-            return set(data.get("completed_concepts", []))
+            return data
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         pass
-    return set()
+    return {}
 
 
-def _save_checkpoint(doc_id: str, completed_concepts: set[str], edges_created: int, total_edges: int) -> None:
-    """Save edge-creation progress to checkpoint file (atomic write)."""
-    os.makedirs(EDGE_CHECKPOINT_DIR, exist_ok=True)
-    path = _checkpoint_path(doc_id)
-    tmp_path = path + ".tmp"
-    data = {
-        "doc_id": doc_id,
-        "completed_concepts": sorted(completed_concepts),
-        "edges_created": edges_created,
-        "total_edges": total_edges,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    }
-    with open(tmp_path, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp_path, path)  # atomic on POSIX
+def _save_phase_checkpoint(doc_id: str, phase: str, data: dict) -> None:
+    """Atomic write of phase checkpoint via tmp+rename."""
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    path = _checkpoint_path(doc_id, phase)
+    tmp = path + ".tmp"
+    data["doc_id"] = doc_id
+    data["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)  # atomic on POSIX
 
 
-def _delete_checkpoint(doc_id: str) -> None:
-    """Remove checkpoint file after successful completion."""
-    path = _checkpoint_path(doc_id)
-    try:
-        os.remove(path)
-    except FileNotFoundError:
-        pass
+def _delete_all_checkpoints(doc_id: str) -> None:
+    """Remove all checkpoint files for a document after successful completion."""
+    for phase in _CHECKPOINT_PHASES:
+        try:
+            os.remove(_checkpoint_path(doc_id, phase))
+        except FileNotFoundError:
+            pass
 
 
 def _get_cpu_percent(interval: float = 0.5) -> Optional[float]:
@@ -116,6 +115,7 @@ except ImportError:
 # Optional import for summarizer
 try:
     from src.chunker.summarizer import (
+        Concept,
         DocumentSummarizer,
         Summary,
         SummarizationStrategy,
@@ -127,6 +127,7 @@ try:
 
     SUMMARIZER_AVAILABLE = INSTRUCTOR_AVAILABLE
 except ImportError:
+    Concept = None  # type: ignore
     DocumentSummarizer = None  # type: ignore
     Summary = None  # type: ignore
     SummarizationStrategy = None  # type: ignore
@@ -193,6 +194,36 @@ def _get_embedder(config: CLIConfig):
     """Get embedder instance."""
     from src.cli.commands.ingest import get_embedder
     return get_embedder(config)
+
+
+def _collect_edge_pairs(
+    concept,
+    concept_internal_id: str,
+    chunk_id_cache: dict[str, str],
+    edge_queue: list[tuple[str, str]],
+) -> None:
+    """Collect (chunk_internal_id, concept_internal_id) edge pairs from concept occurrences."""
+    seen_chunk_ids: set[str] = set()
+    for occ in concept.occurrences:
+        # Extract chunk_id from summary_id format: "summary_{chunk_id}_{level}"
+        # e.g. "summary_inv_l1_5_chapter" -> chunk_id = "inv_l1_5"
+        if occ.startswith("summary_"):
+            rest = occ[len("summary_"):]
+            parts = rest.rsplit("_", 1)
+            if len(parts) == 2 and parts[1] in ("section", "chapter", "document"):
+                source_chunk_id = parts[0]
+            else:
+                source_chunk_id = rest
+        else:
+            continue
+
+        if source_chunk_id in seen_chunk_ids:
+            continue
+        seen_chunk_ids.add(source_chunk_id)
+
+        cid = chunk_id_cache.get(source_chunk_id)
+        if cid:
+            edge_queue.append((cid, concept_internal_id))
 
 
 @app.command("generate")
@@ -355,239 +386,444 @@ def generate_summaries(
     # Progress callback for CLI
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
-    # Generate summaries (and extract concepts)
-    logger.info("=== PHASE: Summarization START (sections=%d, chapters=%d) ===", l2_count, l1_count)
-    phase_start = time.monotonic()
-    try:
-        if json_output:
-            # No progress for JSON output
-            summaries, concepts = summarizer.generate_all_summaries(
-                document_id=doc_id,
-                document_title=doc_title,
-                chunks=chunks,
-                strategy=strategy,
-            )
-        else:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                console=console,
-            ) as progress:
-                task = progress.add_task("Generating summaries...", total=100)
+    # =========================================================================
+    # Phase 1: LLM Generation (with checkpoint — skip entirely on re-run)
+    # =========================================================================
+    # On --force, delete LLM checkpoint so we regenerate fresh
+    if force:
+        try:
+            os.remove(_checkpoint_path(doc_id, "llm_output"))
+        except FileNotFoundError:
+            pass
 
-                def progress_callback(current: int, total: int, message: str):
-                    pct = int((current / max(total, 1)) * 100)
-                    progress.update(task, completed=pct, description=message)
-
+    llm_ckpt = _load_phase_checkpoint(doc_id, "llm_output")
+    if llm_ckpt and not force:
+        # Resume: deserialize summaries + concepts from checkpoint
+        logger.info("=== PHASE 1: Loading LLM output from checkpoint ===")
+        if not json_output:
+            console.print("[cyan]Resuming from LLM checkpoint (skipping LLM calls)[/cyan]")
+        summaries = [summarizer.dict_to_summary(d) for d in llm_ckpt.get("summaries", [])]
+        concepts = [Concept(**d) for d in llm_ckpt.get("concepts", [])]
+        logger.info("  Loaded %d summaries, %d concepts from checkpoint", len(summaries), len(concepts))
+    else:
+        # Generate fresh
+        logger.info("=== PHASE 1: Summarization START (sections=%d, chapters=%d) ===", l2_count, l1_count)
+        phase_start = time.monotonic()
+        try:
+            if json_output:
                 summaries, concepts = summarizer.generate_all_summaries(
                     document_id=doc_id,
                     document_title=doc_title,
                     chunks=chunks,
                     strategy=strategy,
-                    progress_callback=progress_callback,
                 )
-    except Exception as e:
-        print_error(f"Summarization failed: {e}")
-        raise typer.Exit(1) from e
+            else:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    console=console,
+                ) as progress:
+                    task = progress.add_task("Generating summaries...", total=100)
 
-    elapsed = time.monotonic() - phase_start
-    logger.info("=== PHASE: Summarization DONE in %.1fs (%d summaries, %d concepts) ===",
-                elapsed, len(summaries), len(concepts))
+                    def progress_callback(current: int, total: int, message: str):
+                        pct = int((current / max(total, 1)) * 100)
+                        progress.update(task, completed=pct, description=message)
 
-    # Store summaries (with embeddings)
-    logger.info("=== PHASE: Summary storage START (%d summaries) ===", len(summaries))
-    phase_start = time.monotonic()
-    embedder = _get_embedder(config)
-    stored_count = 0
-
-    SUMMARY_THROTTLE = 0.25          # seconds between each store call
-    SUMMARY_BREATHER_INTERVAL = 50   # pause every N summaries
-    SUMMARY_BREATHER_SECONDS = 8     # how long to pause
-    SUMMARY_MAX_RETRIES = 3          # retry transient errors
-
-    for i, summary in enumerate(summaries):
-        try:
-            # Generate embedding for summary
-            embedding = embedder.embed_text(summary.content)
-            summary.embedding = embedding
-
-            # Store summary with retry for transient errors (502, connection reset)
-            last_err = None
-            for attempt in range(1, SUMMARY_MAX_RETRIES + 1):
-                try:
-                    store.store_summary(summary)
-                    last_err = None
-                    break
-                except (ConnectionError, TimeoutError, OSError,
-                        HelixRequestError, HelixConnectionError) as e:
-                    last_err = e
-                    backoff = attempt * 2
-                    logger.warning(
-                        "  Transient error storing %s (attempt %d/%d), retrying in %ds: %s",
-                        summary.summary_id, attempt, SUMMARY_MAX_RETRIES, backoff, e,
+                    summaries, concepts = summarizer.generate_all_summaries(
+                        document_id=doc_id,
+                        document_title=doc_title,
+                        chunks=chunks,
+                        strategy=strategy,
+                        progress_callback=progress_callback,
                     )
-                    time.sleep(backoff)
-
-            if last_err is not None:
-                raise last_err
-
-            stored_count += 1
-
-            # Log progress every 100 summaries
-            if (i + 1) % 100 == 0:
-                elapsed = time.monotonic() - phase_start
-                rate = (i + 1) / elapsed if elapsed > 0 else 0
-                logger.info("  Summary storage: %d/%d (%.1f/s, %.1fs elapsed)",
-                            i + 1, len(summaries), rate, elapsed)
-
-            # Throttle: sleep after every call to prevent Helix-DB thread explosion
-            time.sleep(SUMMARY_THROTTLE)
-
-            # Breather pause to let Helix-DB catch up
-            if (i + 1) % SUMMARY_BREATHER_INTERVAL == 0:
-                logger.info("  Pausing %ds after %d summaries to let Helix-DB settle",
-                            SUMMARY_BREATHER_SECONDS, i + 1)
-                if not json_output:
-                    console.print(f"  [dim]Pausing {SUMMARY_BREATHER_SECONDS}s after {i + 1} summaries...[/dim]")
-                time.sleep(SUMMARY_BREATHER_SECONDS)
-
         except Exception as e:
-            logger.error("Failed to store summary %s: %s", summary.summary_id, e)
-            if not json_output:
-                print_warning(f"Failed to store summary {summary.summary_id}: {e}")
+            print_error(f"Summarization failed: {e}")
+            raise typer.Exit(1) from e
 
-    elapsed = time.monotonic() - phase_start
-    logger.info("=== PHASE: Summary storage DONE in %.1fs (%d/%d stored) ===",
-                elapsed, stored_count, len(summaries))
+        elapsed = time.monotonic() - phase_start
+        logger.info("=== PHASE 1: Summarization DONE in %.1fs (%d summaries, %d concepts) ===",
+                    elapsed, len(summaries), len(concepts))
 
-    # Cooldown between summary storage and concept storage
-    if concepts:
-        logger.info("=== Cooldown 15s before concept storage ===")
-        if not json_output:
-            console.print("  [dim]Cooling down 15s before concept storage...[/dim]")
-        time.sleep(15)
+        # Save LLM output checkpoint (embeddings NOT stored — regenerated in Phase 2)
+        _save_phase_checkpoint(doc_id, "llm_output", {
+            "summaries": [summarizer.summary_to_dict(s) for s in summaries],
+            "concepts": [dataclasses.asdict(c) for c in concepts],
+        })
+        logger.info("  LLM output checkpoint saved")
 
-    # Store concepts (merge across documents for cross-document graph)
-    # Two-phase approach: store concepts first, then create edges with throttling.
-    # This prevents interleaved concept+edge calls from overwhelming Helix-DB.
+    # =========================================================================
+    # Pre-cache IDs for Phase 2-4 (2 HTTP calls total, eliminates ~962 lookups)
+    # =========================================================================
+    embedder = _get_embedder(config)
 
     # Pre-build chunk_id -> internal_id cache (1 HTTP call instead of thousands)
     chunk_id_cache: dict[str, str] = {}
     if hasattr(store, 'build_chunk_id_cache'):
-        logger.info("=== PHASE: Building chunk ID cache ===")
+        logger.info("=== Building chunk ID cache ===")
         chunk_id_cache = store.build_chunk_id_cache(doc_id)
         logger.info("  Cached %d chunk ID mappings", len(chunk_id_cache))
 
-    # --- Phase A: Store/merge concepts, collect edge pairs ---
-    logger.info("=== PHASE: Concept storage START (%d concepts) ===", len(concepts))
+    # Pre-cache document internal ID (1 HTTP call, used for document-level summary link)
+    doc_internal_id: str | None = None
+    if hasattr(store, '_execute_query'):
+        from src.storage.queries import GetDocumentByDocId
+        doc_query = GetDocumentByDocId(doc_id)
+        doc_result = store._execute_query(doc_query)
+        if doc_result.success and doc_result.data:
+            doc_node = doc_result.data.get("node", doc_result.data)
+            doc_internal_id = store._extract_node_id(doc_result.data) or (doc_node.get("id") if doc_node else None)
+        logger.info("  Document internal ID: %s", doc_internal_id)
+
+    # =========================================================================
+    # Phase 2: Summary Storage (with embeddings + checkpoint)
+    # =========================================================================
+    summary_ckpt = _load_phase_checkpoint(doc_id, "summary_progress")
+    stored_count = summary_ckpt.get("stored_count", 0)
+
+    if stored_count > 0 and stored_count < len(summaries):
+        logger.info("=== PHASE 2: Resuming summary storage from index %d/%d ===", stored_count, len(summaries))
+        if not json_output:
+            console.print(f"[cyan]Resuming summary storage from {stored_count}/{len(summaries)}[/cyan]")
+    elif stored_count >= len(summaries):
+        logger.info("=== PHASE 2: Summary storage already complete (%d/%d) ===", stored_count, len(summaries))
+        if not json_output:
+            console.print(f"[cyan]Summary storage already complete ({stored_count} stored)[/cyan]")
+    else:
+        logger.info("=== PHASE 2: Summary storage START (%d summaries) ===", len(summaries))
+
     phase_start = time.monotonic()
-    stored_concepts = 0
-    edge_queue: list[tuple[str, str]] = []  # (chunk_internal_id, concept_internal_id)
-    concept_id_to_name: dict[str, str] = {}  # internal_id -> concept name (for checkpoint)
 
-    CONCEPT_MAX_RETRIES = 3
+    SUMMARY_SUBPHASE_SIZE = 50       # summaries per subphase (~200 HTTP calls)
+    SUMMARY_THROTTLE = 0.25          # seconds between each store call
+    SUMMARY_MAX_RETRIES = 3          # retry transient errors
+    SUBPHASE_COOLDOWN = 3            # seconds between subphases (keeps connection alive <5s)
 
-    for i, concept in enumerate(concepts):
-        try:
-            # Retry transient errors (502, connection reset)
-            concept_internal_id = None
-            last_err = None
-            for attempt in range(1, CONCEPT_MAX_RETRIES + 1):
-                try:
-                    concept_internal_id = store.store_or_merge_concept(
-                        concept_id=concept.concept_id,
-                        name=concept.name,
-                        definition=concept.definition,
-                        concept_type=concept.concept_type,
-                        source_documents=[concept.document_id] if concept.document_id else [doc_id],
-                        aliases=concept.aliases,
-                    )
-                    last_err = None
-                    break
-                except (ConnectionError, TimeoutError, OSError,
-                        HelixRequestError, HelixConnectionError) as e:
-                    last_err = e
-                    backoff = attempt * 2
-                    logger.warning(
-                        "  Transient error storing concept %s (attempt %d/%d), retrying in %ds: %s",
-                        concept.name, attempt, CONCEPT_MAX_RETRIES, backoff, e,
-                    )
-                    time.sleep(backoff)
+    # Split remaining summaries into subphases
+    remaining_indices = list(range(stored_count, len(summaries)))
+    summary_subphases = [
+        remaining_indices[i:i + SUMMARY_SUBPHASE_SIZE]
+        for i in range(0, len(remaining_indices), SUMMARY_SUBPHASE_SIZE)
+    ]
 
-            if last_err is not None:
-                raise last_err
+    logger.info("  %d summaries remaining, %d subphases of %d",
+                len(remaining_indices), len(summary_subphases), SUMMARY_SUBPHASE_SIZE)
 
-            stored_concepts += 1
+    consecutive_sp_failures = 0
+    cpu_abort_p2 = False
 
-            # Collect edge pairs for Phase B (no HTTP calls here)
-            if concept_internal_id:
-                concept_id_to_name[concept_internal_id] = concept.name
-                seen_chunk_ids: set[str] = set()
-                for occ in concept.occurrences:
-                    # Extract chunk_id from summary_id format: "summary_{chunk_id}_{level}"
-                    # e.g. "summary_inv_l1_5_chapter" -> chunk_id = "inv_l1_5"
-                    if occ.startswith("summary_"):
-                        rest = occ[len("summary_"):]  # strip "summary_" prefix
-                        # Split from right to remove level suffix (_section, _chapter, _document)
-                        parts = rest.rsplit("_", 1)
-                        if len(parts) == 2 and parts[1] in ("section", "chapter", "document"):
-                            source_chunk_id = parts[0]
-                        else:
-                            source_chunk_id = rest
-                    else:
-                        continue
-
-                    if source_chunk_id in seen_chunk_ids:
-                        continue
-                    seen_chunk_ids.add(source_chunk_id)
-
-                    # Look up from cache (0 HTTP calls) instead of get_chunk_internal_id (1 HTTP call each)
-                    cid = chunk_id_cache.get(source_chunk_id)
-                    if cid:
-                        edge_queue.append((cid, concept_internal_id))
-
-            # Log progress every 100 concepts
-            if (i + 1) % 100 == 0:
-                elapsed_so_far = time.monotonic() - phase_start
-                rate = (i + 1) / elapsed_so_far if elapsed_so_far > 0 else 0
-                logger.info("  Concept storage: %d/%d (%.1f/s, %.1fs elapsed)",
-                            i + 1, len(concepts), rate, elapsed_so_far)
-
-            # Throttle: sleep after every call to cap rate at ~3/s.
-            # Each store_or_merge_concept does 2-3 HTTP calls internally.
-            time.sleep(0.30)
-
-            # Every 200 concepts, take a longer breather to let Helix-DB catch up
-            if (i + 1) % 200 == 0:
-                logger.info("  Pausing 8s after %d concepts to let Helix-DB settle", i + 1)
-                if not json_output:
-                    console.print(f"  [dim]Pausing 8s after {i + 1} concepts...[/dim]")
-                time.sleep(8)
-        except Exception as e:
-            logger.error("Failed to store concept %s: %s", concept.name, e)
+    for sp_idx, subphase_indices in enumerate(summary_subphases):
+        # --- Abort check: 3 consecutive subphase failures ---
+        if consecutive_sp_failures >= 3:
+            logger.error("  3 consecutive subphase failures — aborting summary storage")
             if not json_output:
-                print_warning(f"Failed to store concept {concept.name}: {e}")
+                print_warning(
+                    f"Aborted summary storage after 3 consecutive subphase failures "
+                    f"({stored_count}/{len(summaries)} stored)"
+                )
+            break
+
+        # --- CPU safety check before each subphase ---
+        cpu_pct = _get_cpu_percent(interval=0.5)
+        if cpu_pct is not None:
+            logger.info("  CPU check before subphase %d/%d: %.1f%%",
+                        sp_idx + 1, len(summary_subphases), cpu_pct)
+            if cpu_pct > CPU_ABORT_THRESHOLD:
+                logger.warning("  CPU %.1f%% > %.0f%% — waiting 10s for cooldown...",
+                               cpu_pct, CPU_ABORT_THRESHOLD)
+                if not json_output:
+                    console.print(f"  [yellow]CPU {cpu_pct:.0f}% — pausing 10s to cool down...[/yellow]")
+                time.sleep(10)
+                cpu_pct = _get_cpu_percent(interval=1.0)
+                if cpu_pct is not None and cpu_pct > CPU_ABORT_THRESHOLD:
+                    logger.error("  CPU still %.1f%% — aborting summary storage (%d/%d stored)",
+                                 cpu_pct, stored_count, len(summaries))
+                    if not json_output:
+                        print_warning(
+                            f"CPU {cpu_pct:.0f}% still above threshold — aborting summary storage "
+                            f"({stored_count}/{len(summaries)} stored). Re-run to resume."
+                        )
+                    cpu_abort_p2 = True
+                    _save_phase_checkpoint(doc_id, "summary_progress", {"stored_count": stored_count})
+                    break
+                else:
+                    logger.info("  CPU cooled to %.1f%% — resuming", cpu_pct or 0)
+
+        # --- Process items in this subphase ---
+        subphase_ok = True
+        for i in subphase_indices:
+            summary = summaries[i]
+            try:
+                embedding = embedder.embed_text(summary.content)
+                summary.embedding = embedding
+
+                cached_chunk_id = chunk_id_cache.get(summary.source_id) if summary.level in ("chapter", "section") else None
+                cached_doc_id = doc_internal_id if summary.level == "document" else None
+
+                last_err = None
+                for attempt in range(1, SUMMARY_MAX_RETRIES + 1):
+                    try:
+                        store.store_summary(
+                            summary,
+                            doc_internal_id=cached_doc_id,
+                            chunk_internal_id=cached_chunk_id,
+                        )
+                        last_err = None
+                        break
+                    except (ConnectionError, TimeoutError, OSError,
+                            HelixRequestError, HelixConnectionError) as e:
+                        last_err = e
+                        backoff = attempt * 2
+                        logger.warning(
+                            "  Transient error storing %s (attempt %d/%d), retrying in %ds: %s",
+                            summary.summary_id, attempt, SUMMARY_MAX_RETRIES, backoff, e,
+                        )
+                        time.sleep(backoff)
+
+                if last_err is not None:
+                    raise last_err
+
+                stored_count = i + 1
+                time.sleep(SUMMARY_THROTTLE)
+
+            except Exception as e:
+                subphase_ok = False
+                logger.error("Failed to store summary %s: %s", summary.summary_id, e)
+                if not json_output:
+                    print_warning(f"Failed to store summary {summary.summary_id}: {e}")
+                break  # stop subphase to keep stored_count contiguous for resume
+
+        # --- Track success/failure ---
+        if subphase_ok:
+            consecutive_sp_failures = 0
+        else:
+            consecutive_sp_failures += 1
+
+        # --- Checkpoint after each subphase ---
+        _save_phase_checkpoint(doc_id, "summary_progress", {"stored_count": stored_count})
+
+        # --- Log progress ---
+        elapsed_so_far = time.monotonic() - phase_start
+        rate = stored_count / elapsed_so_far if elapsed_so_far > 0 else 0
+        logger.info(
+            "  Subphase %d/%d done: %d summaries this batch, %d/%d total (%.1f/s, %.1fs) [checkpoint saved]",
+            sp_idx + 1, len(summary_subphases), len(subphase_indices),
+            stored_count, len(summaries), rate, elapsed_so_far,
+        )
+        if not json_output:
+            console.print(
+                f"  Summary subphase {sp_idx + 1}/{len(summary_subphases)} "
+                f"({stored_count}/{len(summaries)} stored) [checkpoint saved]"
+            )
+
+        # --- Cooldown between subphases (keeps HTTP connection alive <5s) ---
+        if sp_idx < len(summary_subphases) - 1:
+            logger.info("  Cooling down %ds before next subphase...", SUBPHASE_COOLDOWN)
+            time.sleep(SUBPHASE_COOLDOWN)
 
     elapsed = time.monotonic() - phase_start
-    logger.info("=== PHASE: Concept storage DONE in %.1fs (%d/%d stored, %d edges queued) ===",
+    logger.info("=== PHASE 2: Summary storage DONE in %.1fs (%d/%d stored) ===",
+                elapsed, stored_count, len(summaries))
+
+    # Cooldown between summary storage and concept storage
+    if concepts:
+        logger.info("=== Cooldown 3s before concept storage ===")
+        if not json_output:
+            console.print("  [dim]Cooling down 3s before concept storage...[/dim]")
+        time.sleep(3)
+
+    # =========================================================================
+    # Phase 3: Concept Storage (with checkpoint)
+    # =========================================================================
+    concept_ckpt = _load_phase_checkpoint(doc_id, "concept_progress")
+    completed_concept_names: set[str] = set(concept_ckpt.get("completed_names", []))
+    # concept_internal_ids maps concept name -> internal node ID (needed by Phase 4)
+    concept_internal_ids: dict[str, str] = dict(concept_ckpt.get("concept_internal_ids", {}))
+
+    stored_concepts = len(completed_concept_names)
+    edge_queue: list[tuple[str, str]] = []  # (chunk_internal_id, concept_internal_id)
+    concept_id_to_name: dict[str, str] = {}  # internal_id -> concept name (for edge checkpoint)
+
+    if stored_concepts > 0 and stored_concepts < len(concepts):
+        logger.info("=== PHASE 3: Resuming concept storage from %d/%d ===", stored_concepts, len(concepts))
+        if not json_output:
+            console.print(f"[cyan]Resuming concept storage ({stored_concepts}/{len(concepts)} already done)[/cyan]")
+        # Rebuild edge queue from already-stored concepts
+        for concept in concepts:
+            if concept.name in completed_concept_names:
+                cint_id = concept_internal_ids.get(concept.name)
+                if cint_id:
+                    concept_id_to_name[cint_id] = concept.name
+                    _collect_edge_pairs(concept, cint_id, chunk_id_cache, edge_queue)
+    elif stored_concepts >= len(concepts):
+        logger.info("=== PHASE 3: Concept storage already complete (%d/%d) ===", stored_concepts, len(concepts))
+        if not json_output:
+            console.print(f"[cyan]Concept storage already complete ({stored_concepts} stored)[/cyan]")
+        # Rebuild full edge queue + concept_id_to_name from checkpoint
+        for concept in concepts:
+            cint_id = concept_internal_ids.get(concept.name)
+            if cint_id:
+                concept_id_to_name[cint_id] = concept.name
+                _collect_edge_pairs(concept, cint_id, chunk_id_cache, edge_queue)
+    else:
+        logger.info("=== PHASE 3: Concept storage START (%d concepts) ===", len(concepts))
+
+    phase_start = time.monotonic()
+
+    CONCEPT_SUBPHASE_SIZE = 100      # concepts per subphase (~200-300 HTTP calls)
+    CONCEPT_THROTTLE = 0.30          # seconds between each store call
+    CONCEPT_MAX_RETRIES = 3          # retry transient errors
+
+    # Pre-filter to pending concepts only, then split into subphases
+    pending_concepts = [c for c in concepts if c.name not in completed_concept_names]
+    concept_subphases = [
+        pending_concepts[i:i + CONCEPT_SUBPHASE_SIZE]
+        for i in range(0, len(pending_concepts), CONCEPT_SUBPHASE_SIZE)
+    ]
+
+    logger.info("  %d concepts pending, %d subphases of %d",
+                len(pending_concepts), len(concept_subphases), CONCEPT_SUBPHASE_SIZE)
+
+    consecutive_sp_failures_p3 = 0
+    cpu_abort_p3 = False
+
+    for sp_idx, subphase_concepts in enumerate(concept_subphases):
+        # --- Abort check: 3 consecutive subphase failures ---
+        if consecutive_sp_failures_p3 >= 3:
+            logger.error("  3 consecutive subphase failures — aborting concept storage")
+            if not json_output:
+                print_warning(
+                    f"Aborted concept storage after 3 consecutive subphase failures "
+                    f"({stored_concepts}/{len(concepts)} stored)"
+                )
+            break
+
+        # --- CPU safety check before each subphase ---
+        cpu_pct = _get_cpu_percent(interval=0.5)
+        if cpu_pct is not None:
+            logger.info("  CPU check before subphase %d/%d: %.1f%%",
+                        sp_idx + 1, len(concept_subphases), cpu_pct)
+            if cpu_pct > CPU_ABORT_THRESHOLD:
+                logger.warning("  CPU %.1f%% > %.0f%% — waiting 10s for cooldown...",
+                               cpu_pct, CPU_ABORT_THRESHOLD)
+                if not json_output:
+                    console.print(f"  [yellow]CPU {cpu_pct:.0f}% — pausing 10s to cool down...[/yellow]")
+                time.sleep(10)
+                cpu_pct = _get_cpu_percent(interval=1.0)
+                if cpu_pct is not None and cpu_pct > CPU_ABORT_THRESHOLD:
+                    logger.error("  CPU still %.1f%% — aborting concept storage (%d/%d stored)",
+                                 cpu_pct, stored_concepts, len(concepts))
+                    if not json_output:
+                        print_warning(
+                            f"CPU {cpu_pct:.0f}% still above threshold — aborting concept storage "
+                            f"({stored_concepts}/{len(concepts)} stored). Re-run to resume."
+                        )
+                    cpu_abort_p3 = True
+                    _save_phase_checkpoint(doc_id, "concept_progress", {
+                        "completed_names": sorted(completed_concept_names),
+                        "concept_internal_ids": concept_internal_ids,
+                    })
+                    break
+                else:
+                    logger.info("  CPU cooled to %.1f%% — resuming", cpu_pct or 0)
+
+        # --- Process items in this subphase ---
+        subphase_ok = True
+        for concept in subphase_concepts:
+            try:
+                concept_internal_id = None
+                last_err = None
+                for attempt in range(1, CONCEPT_MAX_RETRIES + 1):
+                    try:
+                        concept_internal_id = store.store_or_merge_concept(
+                            concept_id=concept.concept_id,
+                            name=concept.name,
+                            definition=concept.definition,
+                            concept_type=concept.concept_type,
+                            source_documents=[concept.document_id] if concept.document_id else [doc_id],
+                            aliases=concept.aliases,
+                        )
+                        last_err = None
+                        break
+                    except (ConnectionError, TimeoutError, OSError,
+                            HelixRequestError, HelixConnectionError) as e:
+                        last_err = e
+                        backoff = attempt * 2
+                        logger.warning(
+                            "  Transient error storing concept %s (attempt %d/%d), retrying in %ds: %s",
+                            concept.name, attempt, CONCEPT_MAX_RETRIES, backoff, e,
+                        )
+                        time.sleep(backoff)
+
+                if last_err is not None:
+                    raise last_err
+
+                stored_concepts += 1
+                completed_concept_names.add(concept.name)
+
+                # Collect edge pairs for Phase 4 (no HTTP calls here)
+                if concept_internal_id:
+                    concept_internal_ids[concept.name] = concept_internal_id
+                    concept_id_to_name[concept_internal_id] = concept.name
+                    _collect_edge_pairs(concept, concept_internal_id, chunk_id_cache, edge_queue)
+
+                time.sleep(CONCEPT_THROTTLE)
+
+            except Exception as e:
+                subphase_ok = False
+                logger.error("Failed to store concept %s: %s", concept.name, e)
+                if not json_output:
+                    print_warning(f"Failed to store concept {concept.name}: {e}")
+
+        # --- Track success/failure ---
+        if subphase_ok:
+            consecutive_sp_failures_p3 = 0
+        else:
+            consecutive_sp_failures_p3 += 1
+
+        # --- Checkpoint after each subphase ---
+        _save_phase_checkpoint(doc_id, "concept_progress", {
+            "completed_names": sorted(completed_concept_names),
+            "concept_internal_ids": concept_internal_ids,
+        })
+
+        # --- Log progress ---
+        elapsed_so_far = time.monotonic() - phase_start
+        rate = stored_concepts / elapsed_so_far if elapsed_so_far > 0 else 0
+        logger.info(
+            "  Subphase %d/%d done: %d concepts this batch, %d/%d total (%.1f/s, %.1fs) [checkpoint saved]",
+            sp_idx + 1, len(concept_subphases), len(subphase_concepts),
+            stored_concepts, len(concepts), rate, elapsed_so_far,
+        )
+        if not json_output:
+            console.print(
+                f"  Concept subphase {sp_idx + 1}/{len(concept_subphases)} "
+                f"({stored_concepts}/{len(concepts)} stored) [checkpoint saved]"
+            )
+
+        # --- Cooldown between subphases ---
+        if sp_idx < len(concept_subphases) - 1:
+            logger.info("  Cooling down %ds before next subphase...", SUBPHASE_COOLDOWN)
+            time.sleep(SUBPHASE_COOLDOWN)
+
+    elapsed = time.monotonic() - phase_start
+    logger.info("=== PHASE 3: Concept storage DONE in %.1fs (%d/%d stored, %d edges queued) ===",
                 elapsed, stored_concepts, len(concepts), len(edge_queue))
 
-    # --- Mandatory cooldown between Phase A and Phase B ---
-    # After 2000+ concept storage calls, Helix-DB needs time to finish processing.
-    # A fixed 15s pause is more reliable than CPU monitoring (which can't detect
-    # Helix-DB internal thread pressure until the system is already freezing).
-    logger.info("=== Mandatory 15s cooldown before edge creation ===")
+    # Cooldown before edge creation (reduced from 15s to 3s — all pauses <=3s)
+    logger.info("=== Cooldown 3s before edge creation ===")
     if not json_output:
-        console.print("  [dim]Cooling down 15s before edge creation...[/dim]")
-    time.sleep(15)
+        console.print("  [dim]Cooling down 3s before edge creation...[/dim]")
+    time.sleep(3)
 
+    # =========================================================================
+    # Phase 4: Edge Creation (DefinesConcept edges, with checkpoint)
+    # =========================================================================
     # --- Drop existing DefinesConcept edges when --force ---
-    # Prevents duplicate edges when re-running summarize on already-summarized docs.
     if force and chunk_id_cache and hasattr(store, 'batch_drop_chunk_concept_edges'):
         internal_ids = list(chunk_id_cache.values())
-        logger.info("=== PHASE: Dropping existing DefinesConcept edges (%d chunks) ===", len(internal_ids))
+        logger.info("=== PHASE 4: Dropping existing DefinesConcept edges (%d chunks) ===", len(internal_ids))
         if not json_output:
             console.print(f"  [dim]Dropping existing DefinesConcept edges from {len(internal_ids)} chunks...[/dim]")
         try:
@@ -595,37 +831,32 @@ def generate_summaries(
             logger.info("  DefinesConcept edges dropped successfully")
         except Exception as e:
             logger.warning("  Failed to drop DefinesConcept edges: %s (continuing anyway)", e)
-        # Brief cooldown after edge drops
         time.sleep(3)
 
-    # --- Phase B: Create DefinesConcept edges in concept-batched phases ---
     # Group edges by concept_id so we can throttle by concept count.
-    # With 2500+ concepts, sending all edges rapidly freezes the system.
-    # Instead: process 50 concepts at a time, create their edges, then pause.
-    # Checkpoint/resume: progress is saved after each phase so an aborted run
-    # (CPU spike, crash, Ctrl+C) can be resumed — like a download manager.
     from collections import defaultdict
 
     CONCEPT_BATCH_SIZE = 50   # concepts per phase
     EDGE_BATCH_SIZE = 50      # edges per HTTP request (HelixQL FOR loop limit)
-    PHASE_COOLDOWN = 5        # seconds between concept phases
+    PHASE_COOLDOWN = 3        # seconds between concept phases (reduced from 5s)
 
     edges_by_concept: dict[str, list[str]] = defaultdict(list)
     for chunk_id, concept_id in edge_queue:
         edges_by_concept[concept_id].append(chunk_id)
 
-    # Load checkpoint — skip concepts whose edges were already created in a prior run
-    completed_concepts: set[str] = _load_checkpoint(doc_id)
-    if completed_concepts:
+    # Load edge checkpoint — skip concepts whose edges were already created
+    edge_ckpt = _load_phase_checkpoint(doc_id, "edge_progress")
+    completed_edge_concepts: set[str] = set(edge_ckpt.get("completed_concepts", []))
+    if completed_edge_concepts:
         before = len(edges_by_concept)
         skipped_edges = 0
         for cid in list(edges_by_concept.keys()):
             cname = concept_id_to_name.get(cid, "")
-            if cname in completed_concepts:
+            if cname in completed_edge_concepts:
                 skipped_edges += len(edges_by_concept.pop(cid))
         after = len(edges_by_concept)
         logger.info(
-            "  Checkpoint loaded: %d concepts already done, skipping %d edges "
+            "  Edge checkpoint loaded: %d concepts already done, skipping %d edges "
             "(%d → %d concepts remaining)",
             before - after, skipped_edges, before, after,
         )
@@ -643,7 +874,7 @@ def generate_summaries(
     ]
 
     logger.info(
-        "=== PHASE: Edge creation START (%d edges, %d concepts, %d phases of %d concepts) ===",
+        "=== PHASE 4: Edge creation START (%d edges, %d concepts, %d phases of %d concepts) ===",
         total_remaining_edges, len(concept_ids), len(concept_phases), CONCEPT_BATCH_SIZE,
     )
     phase_start = time.monotonic()
@@ -653,10 +884,10 @@ def generate_summaries(
 
     for phase_idx, concept_batch in enumerate(concept_phases):
         if consecutive_phase_failures >= 3:
-            logger.error("  3 consecutive concept-phase failures — aborting edge creation")
+            logger.error("  3 consecutive subphase failures — aborting edge creation")
             if not json_output:
                 print_warning(
-                    f"Aborted edge creation after 3 consecutive phase failures "
+                    f"Aborted edge creation after 3 consecutive subphase failures "
                     f"({edges_created}/{total_remaining_edges} edges created)"
                 )
             break
@@ -664,9 +895,8 @@ def generate_summaries(
         # --- CPU safety check before each concept phase ---
         cpu_pct = _get_cpu_percent(interval=0.5)
         if cpu_pct is not None:
-            logger.info("  CPU check before phase %d: %.1f%%", phase_idx + 1, cpu_pct)
+            logger.info("  CPU check before subphase %d: %.1f%%", phase_idx + 1, cpu_pct)
             if cpu_pct > CPU_ABORT_THRESHOLD:
-                # Wait once to see if it cools down
                 logger.warning(
                     "  CPU %.1f%% > %.0f%% threshold — waiting 10s for cooldown...",
                     cpu_pct, CPU_ABORT_THRESHOLD,
@@ -691,8 +921,11 @@ def generate_summaries(
                             f"Run the same command again to resume."
                         )
                     cpu_abort = True
-                    # Save checkpoint before aborting
-                    _save_checkpoint(doc_id, completed_concepts, edges_created, total_remaining_edges)
+                    _save_phase_checkpoint(doc_id, "edge_progress", {
+                        "completed_concepts": sorted(completed_edge_concepts),
+                        "edges_created": edges_created,
+                        "total_edges": total_remaining_edges,
+                    })
                     break
                 else:
                     logger.info("  CPU cooled to %.1f%% — resuming", cpu_pct or 0)
@@ -724,7 +957,7 @@ def generate_summaries(
                 except ConnectionRefusedError:
                     delay = 5 * (2 ** attempt)
                     logger.warning(
-                        "  Phase %d/%d sub-batch %d: connection refused, retry %d in %ds",
+                        "  Subphase %d/%d sub-batch %d: connection refused, retry %d in %ds",
                         phase_idx + 1, len(concept_phases), sub_idx + 1, attempt + 1, delay,
                     )
                     time.sleep(delay)
@@ -732,19 +965,19 @@ def generate_summaries(
                     if attempt < 3:
                         delay = 2 * (2 ** attempt)
                         logger.warning(
-                            "  Phase %d/%d sub-batch %d: %s, retry %d in %ds",
+                            "  Subphase %d/%d sub-batch %d: %s, retry %d in %ds",
                             phase_idx + 1, len(concept_phases), sub_idx + 1,
                             type(e).__name__, attempt + 1, delay,
                         )
                         time.sleep(delay)
                     else:
                         logger.error(
-                            "  Phase %d/%d sub-batch %d: %s after %d retries",
+                            "  Subphase %d/%d sub-batch %d: %s after %d retries",
                             phase_idx + 1, len(concept_phases), sub_idx + 1, e, attempt + 1,
                         )
                 except Exception as e:
                     logger.error(
-                        "  Phase %d/%d sub-batch %d: unexpected %s: %s (no retry)",
+                        "  Subphase %d/%d sub-batch %d: unexpected %s: %s (no retry)",
                         phase_idx + 1, len(concept_phases), sub_idx + 1,
                         type(e).__name__, e,
                     )
@@ -758,21 +991,24 @@ def generate_summaries(
 
         if phase_ok:
             consecutive_phase_failures = 0
-            # Mark these concepts as completed in checkpoint
             for cid in concept_batch:
                 cname = concept_id_to_name.get(cid, "")
                 if cname:
-                    completed_concepts.add(cname)
+                    completed_edge_concepts.add(cname)
         else:
             consecutive_phase_failures += 1
 
-        # Save checkpoint after every phase (survives crash/Ctrl+C/CPU abort)
-        _save_checkpoint(doc_id, completed_concepts, edges_created, total_remaining_edges)
+        # Save edge checkpoint after every phase
+        _save_phase_checkpoint(doc_id, "edge_progress", {
+            "completed_concepts": sorted(completed_edge_concepts),
+            "edges_created": edges_created,
+            "total_edges": total_remaining_edges,
+        })
 
         # Log progress after each concept phase
         elapsed_so_far = time.monotonic() - phase_start
         logger.info(
-            "  Concept-phase %d/%d done: %d concepts, %d edges this phase, "
+            "  Subphase %d/%d done: %d concepts, %d edges this batch, "
             "%d/%d total edges (%.1fs elapsed) [checkpoint saved]",
             phase_idx + 1, len(concept_phases), len(concept_batch),
             len(phase_edges), edges_created, total_remaining_edges, elapsed_so_far,
@@ -780,26 +1016,32 @@ def generate_summaries(
 
         if not json_output:
             console.print(
-                f"  Edge progress: phase {phase_idx + 1}/{len(concept_phases)} "
+                f"  Edge subphase {phase_idx + 1}/{len(concept_phases)} "
                 f"({edges_created}/{total_remaining_edges} edges) [checkpoint saved]"
             )
 
-        # Cooldown between concept phases — let Helix-DB breathe
+        # Cooldown between concept phases
         if phase_idx < len(concept_phases) - 1:
-            logger.info("  Cooling down %ds before next concept phase...", PHASE_COOLDOWN)
+            logger.info("  Cooling down %ds before next subphase...", PHASE_COOLDOWN)
             time.sleep(PHASE_COOLDOWN)
 
     elapsed = time.monotonic() - phase_start
 
-    # Clean up checkpoint if all edges were created successfully
-    all_done = (not cpu_abort and consecutive_phase_failures < 3
+    # =========================================================================
+    # Phase 5: Cleanup — delete all checkpoints on full success
+    # =========================================================================
+    all_done = (not cpu_abort_p2 and not cpu_abort_p3 and not cpu_abort
+                and stored_count >= len(summaries)
+                and stored_concepts >= len(concepts)
+                and consecutive_phase_failures < 3
                 and edges_created >= total_remaining_edges)
     if all_done:
-        _delete_checkpoint(doc_id)
-        logger.info("=== PHASE: Edge creation DONE in %.1fs (%d/%d created, checkpoint cleared) ===",
+        _delete_all_checkpoints(doc_id)
+        logger.info("=== PHASE 4: Edge creation DONE in %.1fs (%d/%d created) ===",
                      elapsed, edges_created, total_remaining_edges)
+        logger.info("=== PHASE 5: All checkpoints cleared ===")
     else:
-        logger.info("=== PHASE: Edge creation INCOMPLETE in %.1fs (%d/%d created, checkpoint saved) ===",
+        logger.info("=== PHASE 4: Edge creation INCOMPLETE in %.1fs (%d/%d created, checkpoint saved) ===",
                      elapsed, edges_created, total_remaining_edges)
         if not json_output and not cpu_abort:
             console.print(

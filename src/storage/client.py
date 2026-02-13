@@ -1637,12 +1637,19 @@ class HelixChunkStore:
     # Summary Methods (Document Summarization Feature)
     # =========================================================================
 
-    def store_summary(self, summary: Any) -> Optional[str]:
+    def store_summary(
+        self,
+        summary: Any,
+        doc_internal_id: Optional[str] = None,
+        chunk_internal_id: Optional[str] = None,
+    ) -> Optional[str]:
         """
         Store a summary and return its internal ID.
 
         Args:
             summary: Summary dataclass with summary_id, content, level, etc.
+            doc_internal_id: Pre-cached document internal ID (skips GetDocumentByDocId lookup)
+            chunk_internal_id: Pre-cached chunk internal ID (skips GetChunk lookup)
 
         Returns:
             Internal summary node ID, or None if storage fails
@@ -1698,25 +1705,29 @@ class HelixChunkStore:
 
             # Link to document
             if summary.level == "document":
-                doc_query = GetDocumentByDocId(summary.document_id)
-                doc_result = self._execute_query(doc_query)
-                if doc_result.success and doc_result.data:
-                    doc_node = doc_result.data.get("node", doc_result.data)
-                    doc_internal_id = self._extract_node_id(doc_result.data) or (doc_node.get("id") if doc_node else None)
-                    if doc_internal_id:
-                        link_query = LinkDocumentSummary(doc_internal_id, summary_internal_id)
-                        self._client.query(link_query)
+                _doc_id = doc_internal_id
+                if not _doc_id:
+                    doc_query = GetDocumentByDocId(summary.document_id)
+                    doc_result = self._execute_query(doc_query)
+                    if doc_result.success and doc_result.data:
+                        doc_node = doc_result.data.get("node", doc_result.data)
+                        _doc_id = self._extract_node_id(doc_result.data) or (doc_node.get("id") if doc_node else None)
+                if _doc_id:
+                    link_query = LinkDocumentSummary(_doc_id, summary_internal_id)
+                    self._client.query(link_query)
 
             # Link to chunk for chapter/section summaries
             elif summary.level in ("chapter", "section"):
-                chunk_query = GetChunk(summary.source_id)
-                chunk_result = self._execute_query(chunk_query)
-                if chunk_result.success and chunk_result.data:
-                    chunk_node = chunk_result.data.get("node", chunk_result.data)
-                    chunk_internal_id = self._extract_node_id(chunk_result.data) or (chunk_node.get("id") if chunk_node else None)
-                    if chunk_internal_id:
-                        link_query = LinkChunkSummary(chunk_internal_id, summary_internal_id)
-                        self._client.query(link_query)
+                _chunk_id = chunk_internal_id
+                if not _chunk_id:
+                    chunk_query = GetChunk(summary.source_id)
+                    chunk_result = self._execute_query(chunk_query)
+                    if chunk_result.success and chunk_result.data:
+                        chunk_node = chunk_result.data.get("node", chunk_result.data)
+                        _chunk_id = self._extract_node_id(chunk_result.data) or (chunk_node.get("id") if chunk_node else None)
+                if _chunk_id:
+                    link_query = LinkChunkSummary(_chunk_id, summary_internal_id)
+                    self._client.query(link_query)
 
             return summary_internal_id
 

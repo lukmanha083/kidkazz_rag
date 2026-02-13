@@ -1566,7 +1566,7 @@ class DocumentSummarizer:
     # Helper Methods
     # ========================================================================
 
-    def _dict_to_summary(self, data: dict) -> Summary:
+    def dict_to_summary(self, data: dict) -> Summary:
         """Convert dict to Summary (for checkpoint restore)."""
         concepts = [
             Concept(**c) if isinstance(c, dict) else c
@@ -1585,7 +1585,7 @@ class DocumentSummarizer:
             created_at=data.get("created_at", 0),
         )
 
-    def _summary_to_dict(self, summary: Summary) -> dict:
+    def summary_to_dict(self, summary: Summary) -> dict:
         """Convert Summary to dict (for checkpoint save)."""
         return {
             "summary_id": summary.summary_id,
