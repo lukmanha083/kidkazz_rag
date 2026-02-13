@@ -279,19 +279,47 @@ def _repair_missing_chapters(
     required_l1_ids = {c["id"] for c in l1_chunks}
     missing_ids = required_l1_ids - existing_source_ids
 
-    if not missing_ids:
+    # Also detect truncated chapters (word_count far below median)
+    truncated_ids: set[str] = set()
+    if existing_chapters:
+        word_counts = [int(s.get("word_count", 0)) for s in existing_chapters]
+        word_counts_sorted = sorted(word_counts)
+        median_wc = word_counts_sorted[len(word_counts_sorted) // 2]
+        # Threshold: 20% of median or 20 words, whichever is lower
+        # Normal chapters are 60-100+ words; truncated ones are <10
+        truncation_threshold = min(median_wc * 0.2, 20)
+        for s in existing_chapters:
+            wc = int(s.get("word_count", 0))
+            if wc < truncation_threshold:
+                src_id = s.get("source_id", "")
+                if src_id:
+                    truncated_ids.add(src_id)
+
+    # Combine missing + truncated
+    repair_ids = missing_ids | truncated_ids
+
+    if not repair_ids:
         if json_output:
-            print_json({"status": "ok", "missing_chapters": 0})
+            print_json({"status": "ok", "missing_chapters": 0, "truncated_chapters": 0})
         else:
             print_success("All chapters have summaries — nothing to repair.")
         return None
 
     if not json_output:
-        console.print(f"[yellow]Found {len(missing_ids)} missing chapter(s):[/yellow]")
-        for mid in sorted(missing_ids):
-            console.print(f"  - {mid}")
+        if missing_ids:
+            console.print(f"[yellow]Found {len(missing_ids)} missing chapter(s):[/yellow]")
+            for mid in sorted(missing_ids):
+                console.print(f"  - {mid}")
+        if truncated_ids:
+            console.print(f"[yellow]Found {len(truncated_ids)} truncated chapter(s) "
+                         f"(< {truncation_threshold:.0f} words vs median {median_wc}):[/yellow]")
+            for tid in sorted(truncated_ids):
+                wc = next(int(s.get("word_count", 0)) for s in existing_chapters
+                         if s.get("source_id") == tid)
+                console.print(f"  - {tid} ({wc} words)")
 
-    logger.info("=== REPAIR: %d missing chapters: %s ===", len(missing_ids), sorted(missing_ids))
+    logger.info("=== REPAIR: %d chapters to fix (missing=%d, truncated=%d): %s ===",
+                len(repair_ids), len(missing_ids), len(truncated_ids), sorted(repair_ids))
 
     # Get existing section summaries from DB (already stored, reuse them)
     existing_sections = store.get_document_summaries(doc_id, level="section")
@@ -319,10 +347,10 @@ def _repair_missing_chapters(
     # Build L2 content lookup for raw_section_content
     l2_content_by_id = {c["id"]: c.get("content", "") for c in l2_chunks}
 
-    # Regenerate missing chapters
+    # Regenerate missing/truncated chapters
     repaired_summaries = []
     for l1 in l1_chunks:
-        if l1["id"] not in missing_ids:
+        if l1["id"] not in repair_ids:
             continue
 
         # Convert existing DB section dicts to Summary objects
@@ -364,6 +392,13 @@ def _repair_missing_chapters(
             raw_section_content=raw_section_content,
         )
         repaired_summaries.append(chapter_summary)
+
+    # Delete truncated chapter summaries from DB AFTER successful regeneration
+    # (safe ordering: if LLM fails above, truncated summaries remain intact)
+    for tid in truncated_ids:
+        stale_id = f"summary_{tid}_chapter"
+        if store.delete_summary_by_id(stale_id):
+            logger.info("  Deleted truncated summary: %s", stale_id)
 
     # Regenerate document summary with ALL chapters (existing + repaired)
     # Convert existing DB chapter dicts to Summary objects
