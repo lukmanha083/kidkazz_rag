@@ -1713,8 +1713,11 @@ class DocumentSummarizer:
                         if alias not in existing.aliases:
                             existing.aliases.append(alias)
 
+        # Filter out concepts with empty definitions (e.g., bold/italic text garbage)
+        valid_concepts = [c for c in concept_map.values() if c.definition and c.definition.strip()]
+
         return sorted(
-            concept_map.values(),
+            valid_concepts,
             key=lambda c: c.occurrence_count,
             reverse=True,
         )

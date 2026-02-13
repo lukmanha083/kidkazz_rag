@@ -58,6 +58,7 @@ from .queries import (
     GetConceptDependents,
     BatchDropChunkConceptEdges,
     BatchLinkChunkDefinesConcept,
+    DropConcept,
     LinkChunkDefinesConcept,
     LinkChunkMentionsConcept,
     LinkChunkVector,
@@ -1252,11 +1253,15 @@ class HelixChunkStore:
                 existing_aliases_lower[alias.lower()] = alias
         merged_aliases = list(existing_aliases_lower.values())
 
-        # Update the concept
+        # Update the concept (fill in definition if existing is empty)
+        existing_definition = existing.get("definition", "")
+        merge_definition = definition if definition and not existing_definition.strip() else None
+
         success = self.update_concept(
             concept_id=existing.get("concept_id", concept_id),
             source_documents=merged_docs,
             aliases=merged_aliases,
+            definition=merge_definition,
         )
 
         if success:
@@ -1271,6 +1276,43 @@ class HelixChunkStore:
             )
 
         return None
+
+    def delete_concept(self, concept_id: str) -> bool:
+        """
+        Delete a concept by its user-facing concept_id.
+
+        Fetches the concept, extracts internal node ID, and drops it.
+        Edge deletion (DefinesConcept, MentionsConcept, RelatesTo) cascades
+        via the HelixQL DropConcept query.
+
+        Args:
+            concept_id: Slugified concept identifier
+
+        Returns:
+            True if deleted, False otherwise
+        """
+        self._ensure_connected()
+
+        concept = self.get_concept(concept_id)
+        if concept is None:
+            logger.warning(f"Concept '{concept_id}' not found for deletion")
+            return False
+
+        internal_id = self._extract_node_id(concept) or concept.get("id")
+        if not internal_id:
+            logger.error(f"Could not extract internal ID for concept '{concept_id}'")
+            return False
+
+        try:
+            query = DropConcept(internal_id)
+            self._client.query(query)
+            return True
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error(f"Network error deleting concept '{concept_id}': {e}")
+            return False
+        except Exception as e:
+            logger.exception(f"Unexpected error deleting concept '{concept_id}': {e}")
+            raise
 
     def get_concept(self, concept_id: str) -> Optional[dict]:
         """

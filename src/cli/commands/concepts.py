@@ -1,6 +1,7 @@
 """Concept management commands."""
 
 import json
+import time
 from typing import Optional
 
 import typer
@@ -72,7 +73,7 @@ def list_concepts(
     table = Table(title="Concepts", show_header=True, header_style="bold cyan")
     table.add_column("Name", style="cyan", no_wrap=True)
     table.add_column("Type", style="yellow")
-    table.add_column("Definition", style="white", max_width=60)
+    table.add_column("Definition", style="white")
     table.add_column("Aliases", style="dim")
 
     for concept in concepts:
@@ -84,15 +85,10 @@ def list_concepts(
         except json.JSONDecodeError:
             aliases_display = "-"
 
-        # Truncate definition for display
-        definition = concept.get("definition", "")
-        if len(definition) > 60:
-            definition = definition[:57] + "..."
-
         table.add_row(
             concept.get("name", ""),
             concept.get("concept_type", ""),
-            definition,
+            concept.get("definition", ""),
             aliases_display,
         )
 
@@ -249,17 +245,13 @@ def search_concepts(
     )
     table.add_column("Name", style="cyan", no_wrap=True)
     table.add_column("Type", style="yellow")
-    table.add_column("Definition", style="white", max_width=60)
+    table.add_column("Definition", style="white")
 
     for concept in matches:
-        definition = concept.get("definition", "")
-        if len(definition) > 60:
-            definition = definition[:57] + "..."
-
         table.add_row(
             concept.get("name", ""),
             concept.get("concept_type", ""),
-            definition,
+            concept.get("definition", ""),
         )
 
     console.print(table)
@@ -501,3 +493,159 @@ def export_concepts(
     except Exception as e:
         print_error(f"Export failed: {e}")
         raise typer.Exit(1)
+
+
+def _is_garbage_concept(concept: dict, min_words: int) -> bool:
+    """Check if a concept is garbage (empty or too-short definition)."""
+    definition = concept.get("definition", "")
+    if not definition or not definition.strip():
+        return True
+    if len(definition.strip().split()) < min_words:
+        return True
+    return False
+
+
+@app.command("clean")
+def clean_concepts(
+    doc_id: Optional[str] = typer.Option(
+        None,
+        "--doc-id",
+        "-d",
+        help="Only clean concepts from this document",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would be deleted without deleting",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Skip confirmation prompt",
+    ),
+    min_words: int = typer.Option(
+        1,
+        "--min-words",
+        help="Minimum definition word count to keep (default: 1 = any non-empty definition)",
+    ),
+) -> None:
+    """
+    Remove garbage concepts (empty or insufficient definitions).
+
+    By default, identifies concepts with empty definitions (e.g., bold/italic
+    text extracted during section summarization) and deletes them.
+
+    Examples:
+        kidkazz concepts clean --dry-run          # Preview garbage concepts
+        kidkazz concepts clean                    # Delete with confirmation
+        kidkazz concepts clean --force            # Delete without confirmation
+        kidkazz concepts clean --doc-id inventory # Only from one document
+        kidkazz concepts clean --min-words 3      # Require 3+ word definitions
+    """
+    config = CLIConfig.load()
+    store = get_store(config)
+
+    try:
+        concepts = store.list_concepts(doc_id=doc_id)
+    except Exception as e:
+        print_error(f"Failed to list concepts: {e}")
+        raise typer.Exit(1)
+
+    if not concepts:
+        print_warning("No concepts found.")
+        return
+
+    # Identify garbage
+    garbage = [c for c in concepts if _is_garbage_concept(c, min_words)]
+    valid_count = len(concepts) - len(garbage)
+
+    # Summary
+    from rich.table import Table
+
+    console.print()
+    console.print(f"[bold]Total concepts:[/bold] {len(concepts)}")
+    console.print(f"[bold green]Valid (keeping):[/bold green] {valid_count}")
+    console.print(f"[bold red]Garbage (removing):[/bold red] {len(garbage)}")
+    console.print()
+
+    if not garbage:
+        print_success("No garbage concepts found. Nothing to clean.")
+        return
+
+    # Show sample of garbage concepts
+    sample = garbage[:20]
+    table = Table(
+        title=f"Garbage Concepts (showing {len(sample)} of {len(garbage)})",
+        show_header=True,
+        header_style="bold red",
+    )
+    table.add_column("Name", style="cyan", no_wrap=True, max_width=40)
+    table.add_column("Type", style="yellow")
+    table.add_column("Definition", style="dim", max_width=30)
+    table.add_column("Concept ID", style="dim", max_width=30)
+
+    for c in sample:
+        definition = c.get("definition", "")
+        if not definition:
+            definition = "[empty]"
+        elif len(definition) > 30:
+            definition = definition[:27] + "..."
+
+        table.add_row(
+            c.get("name", ""),
+            c.get("concept_type", ""),
+            definition,
+            c.get("concept_id", ""),
+        )
+
+    console.print(table)
+    console.print()
+
+    if dry_run:
+        print_warning("Dry run — no concepts were deleted.")
+        return
+
+    # Confirmation
+    if not force:
+        confirmed = typer.confirm(
+            f"Delete {len(garbage)} garbage concepts? This cannot be undone"
+        )
+        if not confirmed:
+            print_warning("Aborted.")
+            raise typer.Exit(0)
+
+    # Delete
+    start_time = time.time()
+    deleted = 0
+    failed = 0
+
+    for i, concept in enumerate(garbage):
+        concept_id = concept.get("concept_id", "")
+        if not concept_id:
+            failed += 1
+            continue
+
+        try:
+            success = store.delete_concept(concept_id)
+            if success:
+                deleted += 1
+            else:
+                failed += 1
+        except Exception as e:
+            console.print(f"[dim]Failed to delete '{concept_id}': {e}[/dim]")
+            failed += 1
+
+        # Progress every 50
+        if (i + 1) % 50 == 0:
+            console.print(f"[dim]Progress: {i + 1}/{len(garbage)} processed...[/dim]")
+
+        # Small throttle to avoid overwhelming the DB
+        time.sleep(0.05)
+
+    elapsed = time.time() - start_time
+
+    console.print()
+    print_success(
+        f"Cleaned {deleted} garbage concepts in {elapsed:.1f}s "
+        f"({failed} failed)"
+    )
