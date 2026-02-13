@@ -1945,6 +1945,73 @@ class HelixChunkStore:
 
         return deleted
 
+    def delete_summary_by_id(self, summary_id: str) -> bool:
+        """
+        Delete a single summary by summary_id, including linked SummaryVector.
+
+        Steps: GetSummary → GetSummaryVector → DropSummaryEmbeddingEdge
+               → DropSummaryVector → DeleteSummary.
+
+        Args:
+            summary_id: Summary identifier (e.g., "summary_inv_document")
+
+        Returns:
+            True if deleted, False if not found
+        """
+        from src.storage.queries import (
+            GetSummary,
+            GetSummaryVector,
+            DropSummaryEmbeddingEdge,
+            DropSummaryVector,
+            DeleteSummary,
+        )
+
+        self._ensure_connected()
+
+        # Step 1: Get the summary to find its internal ID
+        query = GetSummary(summary_id)
+        result = self._execute_query(query)
+
+        if not result.success or not result.data:
+            return False
+
+        node = result.data.get("node", result.data) if isinstance(result.data, dict) else result.data
+        internal_id = self._extract_node_id(result.data) or (node.get("id") if isinstance(node, dict) else None)
+        if not internal_id:
+            return False
+
+        try:
+            # Step 2: Get linked SummaryVector
+            vec_query = GetSummaryVector(internal_id)
+            vec_result = self._execute_query(vec_query)
+            vector_id = None
+            if vec_result.success and vec_result.data:
+                vector_id = self._extract_node_id(vec_result.data)
+
+            # Step 3: Drop embedding edge
+            try:
+                edge_query = DropSummaryEmbeddingEdge(internal_id)
+                self._client.query(edge_query)
+            except Exception as e:
+                logger.debug("Failed to drop embedding edge for summary %s: %s", internal_id, e)
+
+            # Step 4: Drop the SummaryVector node
+            if vector_id:
+                try:
+                    drop_vec_query = DropSummaryVector(vector_id)
+                    self._client.query(drop_vec_query)
+                except Exception as e:
+                    logger.debug("Failed to drop vector %s: %s", vector_id, e)
+
+            # Step 5: Drop the summary node
+            drop_query = DeleteSummary(internal_id)
+            self._client.query(drop_query)
+            return True
+
+        except Exception as e:
+            logger.warning("Failed to delete summary %s: %s", summary_id, e)
+            return False
+
     def list_summarized_documents(self) -> list[dict[str, Any]]:
         """
         List all documents that have summaries.

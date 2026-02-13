@@ -226,6 +226,185 @@ def _collect_edge_pairs(
             edge_queue.append((cid, concept_internal_id))
 
 
+def _normalize_db_summary(db_dict: dict) -> dict:
+    """Normalize a raw DB summary dict for use with dict_to_summary().
+
+    DB stores key_points as a JSON string (via json.dumps in store_summary),
+    but dict_to_summary() expects a Python list. This parses it back.
+    """
+    result = dict(db_dict)
+    kp = result.get("key_points")
+    if isinstance(kp, str):
+        try:
+            result["key_points"] = json.loads(kp)
+        except (json.JSONDecodeError, TypeError):
+            result["key_points"] = []
+    return result
+
+
+def _repair_missing_chapters(
+    store,
+    summarizer,
+    doc_id: str,
+    doc_title: str,
+    chunks: list[dict],
+    json_output: bool = False,
+) -> Optional[tuple[list, list]]:
+    """Detect and regenerate only missing chapter summaries.
+
+    Compares L1 chunks against existing chapter summaries in DB.
+    Regenerates missing chapters + a fresh document summary.
+
+    Args:
+        store: HelixChunkStore instance
+        summarizer: DocumentSummarizer instance
+        doc_id: Document identifier
+        doc_title: Document title
+        chunks: All chunks as dicts (from generate_summaries)
+        json_output: Whether to suppress Rich output
+
+    Returns:
+        (summaries, concepts) tuple if repairs were made,
+        None if nothing to repair.
+    """
+    # Separate chunks by level
+    l1_chunks = [c for c in chunks if c.get("level") == 1]
+    l2_chunks = [c for c in chunks if c.get("level") == 2]
+
+    # Get existing chapter summaries from DB
+    existing_chapters = store.get_document_summaries(doc_id, level="chapter")
+    existing_source_ids = {s.get("source_id") for s in existing_chapters if s.get("source_id")}
+
+    # Find missing chapters
+    required_l1_ids = {c["id"] for c in l1_chunks}
+    missing_ids = required_l1_ids - existing_source_ids
+
+    if not missing_ids:
+        if json_output:
+            print_json({"status": "ok", "missing_chapters": 0})
+        else:
+            print_success("All chapters have summaries — nothing to repair.")
+        return None
+
+    if not json_output:
+        console.print(f"[yellow]Found {len(missing_ids)} missing chapter(s):[/yellow]")
+        for mid in sorted(missing_ids):
+            console.print(f"  - {mid}")
+
+    logger.info("=== REPAIR: %d missing chapters: %s ===", len(missing_ids), sorted(missing_ids))
+
+    # Get existing section summaries from DB (already stored, reuse them)
+    existing_sections = store.get_document_summaries(doc_id, level="section")
+
+    # Build L2-to-L1 lookup: map each L2 chunk_id to its parent L1 chunk_id
+    l2_to_l1: dict[str, str] = {}
+    for l1 in l1_chunks:
+        child_ids = l1.get("child_ids", [])
+        if isinstance(child_ids, str):
+            try:
+                child_ids = json.loads(child_ids)
+            except json.JSONDecodeError:
+                child_ids = []
+        for cid in child_ids:
+            l2_to_l1[cid] = l1["id"]
+
+    # Group section summaries by parent L1 chunk_id
+    section_by_parent: dict[str, list] = {}
+    for s in existing_sections:
+        source_id = s.get("source_id", "")
+        parent_l1_id = l2_to_l1.get(source_id)
+        if parent_l1_id:
+            section_by_parent.setdefault(parent_l1_id, []).append(s)
+
+    # Build L2 content lookup for raw_section_content
+    l2_content_by_id = {c["id"]: c.get("content", "") for c in l2_chunks}
+
+    # Regenerate missing chapters
+    repaired_summaries = []
+    for l1 in l1_chunks:
+        if l1["id"] not in missing_ids:
+            continue
+
+        # Convert existing DB section dicts to Summary objects
+        # DB stores key_points as JSON string; dict_to_summary expects list
+        db_sections = section_by_parent.get(l1["id"], [])
+        section_summaries = [summarizer.dict_to_summary(_normalize_db_summary(s)) for s in db_sections]
+
+        # Build raw section content from L2 chunks
+        child_ids = l1.get("child_ids", [])
+        if isinstance(child_ids, str):
+            try:
+                child_ids = json.loads(child_ids)
+            except json.JSONDecodeError:
+                child_ids = []
+        raw_section_content = "\n\n".join(
+            l2_content_by_id.get(cid, "") for cid in child_ids if l2_content_by_id.get(cid)
+        )
+
+        # Extract chapter title from section_path
+        section_path = l1.get("section_path", [])
+        if isinstance(section_path, str):
+            try:
+                section_path = json.loads(section_path)
+            except json.JSONDecodeError:
+                section_path = []
+        chapter_title = section_path[0] if section_path else None
+
+        if not json_output:
+            console.print(f"  Regenerating [bold]{l1['id']}[/bold]"
+                         f"{' (' + chapter_title + ')' if chapter_title else ''}...")
+
+        chapter_summary = summarizer.summarize_chapter(
+            chunk_id=l1["id"],
+            chunk_content=l1.get("content", ""),
+            section_summaries=section_summaries,
+            document_id=doc_id,
+            document_title=doc_title,
+            chapter_title=chapter_title,
+            raw_section_content=raw_section_content,
+        )
+        repaired_summaries.append(chapter_summary)
+
+    # Regenerate document summary with ALL chapters (existing + repaired)
+    # Convert existing DB chapter dicts to Summary objects
+    # DB stores key_points as JSON string; dict_to_summary expects list
+    all_chapter_summaries = [summarizer.dict_to_summary(_normalize_db_summary(s)) for s in existing_chapters]
+    # Replace any that were just repaired (by source_id match)
+    repaired_source_ids = {s.source_id for s in repaired_summaries}
+    all_chapter_summaries = [
+        s for s in all_chapter_summaries if s.source_id not in repaired_source_ids
+    ]
+    all_chapter_summaries.extend(repaired_summaries)
+
+    if not json_output:
+        console.print("  Regenerating document summary...")
+
+    doc_summary = summarizer.summarize_document(
+        document_id=doc_id,
+        document_title=doc_title,
+        chapter_summaries=all_chapter_summaries,
+    )
+
+    # Delete stale document summary AFTER successful generation (so failure doesn't orphan)
+    doc_summary_id = f"summary_{doc_id}_document"
+    if store.delete_summary_by_id(doc_summary_id):
+        logger.info("  Deleted stale document summary: %s", doc_summary_id)
+
+    # Combine: repaired chapters + new document summary
+    all_new_summaries = repaired_summaries + [doc_summary]
+
+    # Aggregate concepts from the new summaries
+    concepts = summarizer._aggregate_concepts(all_new_summaries, doc_id)
+
+    if not json_output:
+        console.print(
+            f"\n[green]Repair complete:[/green] {len(repaired_summaries)} chapter(s) regenerated, "
+            f"1 document summary refreshed, {len(concepts)} concepts extracted"
+        )
+
+    return (all_new_summaries, concepts)
+
+
 @app.command("generate")
 def generate_summaries(
     doc_id: str = typer.Argument(..., help="Document ID to summarize"),
@@ -247,6 +426,12 @@ def generate_summaries(
         "-f",
         help="Regenerate even if summaries exist",
     ),
+    repair: bool = typer.Option(
+        False,
+        "--repair",
+        "-r",
+        help="Detect and regenerate only missing chapter summaries",
+    ),
 ) -> None:
     """Generate hierarchical summaries for a document.
 
@@ -255,7 +440,14 @@ def generate_summaries(
     Examples:
         kidkazz summarize generate inventory_accounting
         kidkazz summarize generate inventory_accounting --provider anthropic/claude-opus-4-20250514
+        kidkazz summarize generate inventory_accounting --repair
     """
+    if force and repair:
+        print_error("Cannot use --force and --repair together. "
+                     "--force deletes everything and regenerates; "
+                     "--repair fixes only missing chapters.")
+        raise typer.Exit(1)
+
     if not SUMMARIZER_AVAILABLE:
         print_error(
             "Summarization requires 'instructor' package. "
@@ -296,15 +488,19 @@ def generate_summaries(
 
     # Check for existing summaries
     existing = store.get_document_summaries(doc_id)
-    if existing and not force:
+    if existing and not force and not repair:
         if json_output:
             print_json({"status": "exists", "count": len(existing)})
         else:
             print_warning(
                 f"Document already has {len(existing)} summaries. "
-                "Use --force to regenerate."
+                "Use --force to regenerate all, or --repair to fix missing chapters."
             )
         return
+    if repair and not existing:
+        print_error("Nothing to repair — no existing summaries found. "
+                     "Run without --repair to generate summaries first.")
+        raise typer.Exit(1)
 
     # On --force, delete old summaries (and their SummaryVector nodes) first
     if force and existing:
@@ -387,71 +583,108 @@ def generate_summaries(
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
     # =========================================================================
+    # Repair branch: detect + regenerate only missing chapters
+    # =========================================================================
+    if repair:
+        repair_result = _repair_missing_chapters(
+            store=store,
+            summarizer=summarizer,
+            doc_id=doc_id,
+            doc_title=doc_title,
+            chunks=chunks,
+            json_output=json_output,
+        )
+        if repair_result is None:
+            # Nothing to repair
+            return
+        summaries, concepts = repair_result
+
+        # Save as LLM checkpoint so Phases 2-4 can pick it up
+        _save_phase_checkpoint(doc_id, "llm_output", {
+            "summaries": [summarizer.summary_to_dict(s) for s in summaries],
+            "concepts": [dataclasses.asdict(c) for c in concepts],
+        })
+        # Reset Phase 2-4 checkpoints to prevent stale progress from skipping new items
+        for phase in ("summary_progress", "concept_progress", "edge_progress"):
+            try:
+                os.remove(_checkpoint_path(doc_id, phase))
+            except FileNotFoundError:
+                pass
+
+        # Fall through to Phases 2-4 (no Phase 1 needed)
+        # Skip the Phase 1 block by jumping past it
+        # We set a flag and check it below
+        _skip_phase1 = True
+    else:
+        _skip_phase1 = False
+
+    # =========================================================================
     # Phase 1: LLM Generation (with checkpoint — skip entirely on re-run)
     # =========================================================================
-    # On --force, delete LLM checkpoint so we regenerate fresh
-    if force:
-        try:
-            os.remove(_checkpoint_path(doc_id, "llm_output"))
-        except FileNotFoundError:
-            pass
+    if not _skip_phase1:
+        # On --force, delete LLM checkpoint so we regenerate fresh
+        if force:
+            try:
+                os.remove(_checkpoint_path(doc_id, "llm_output"))
+            except FileNotFoundError:
+                pass
 
-    llm_ckpt = _load_phase_checkpoint(doc_id, "llm_output")
-    if llm_ckpt and not force:
-        # Resume: deserialize summaries + concepts from checkpoint
-        logger.info("=== PHASE 1: Loading LLM output from checkpoint ===")
-        if not json_output:
-            console.print("[cyan]Resuming from LLM checkpoint (skipping LLM calls)[/cyan]")
-        summaries = [summarizer.dict_to_summary(d) for d in llm_ckpt.get("summaries", [])]
-        concepts = [Concept(**d) for d in llm_ckpt.get("concepts", [])]
-        logger.info("  Loaded %d summaries, %d concepts from checkpoint", len(summaries), len(concepts))
-    else:
-        # Generate fresh
-        logger.info("=== PHASE 1: Summarization START (sections=%d, chapters=%d) ===", l2_count, l1_count)
-        phase_start = time.monotonic()
-        try:
-            if json_output:
-                summaries, concepts = summarizer.generate_all_summaries(
-                    document_id=doc_id,
-                    document_title=doc_title,
-                    chunks=chunks,
-                    strategy=strategy,
-                )
-            else:
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    TaskProgressColumn(),
-                    console=console,
-                ) as progress:
-                    task = progress.add_task("Generating summaries...", total=100)
-
-                    def progress_callback(current: int, total: int, message: str):
-                        pct = int((current / max(total, 1)) * 100)
-                        progress.update(task, completed=pct, description=message)
-
+        llm_ckpt = _load_phase_checkpoint(doc_id, "llm_output")
+        if llm_ckpt and not force:
+            # Resume: deserialize summaries + concepts from checkpoint
+            logger.info("=== PHASE 1: Loading LLM output from checkpoint ===")
+            if not json_output:
+                console.print("[cyan]Resuming from LLM checkpoint (skipping LLM calls)[/cyan]")
+            summaries = [summarizer.dict_to_summary(d) for d in llm_ckpt.get("summaries", [])]
+            concepts = [Concept(**d) for d in llm_ckpt.get("concepts", [])]
+            logger.info("  Loaded %d summaries, %d concepts from checkpoint", len(summaries), len(concepts))
+        else:
+            # Generate fresh
+            logger.info("=== PHASE 1: Summarization START (sections=%d, chapters=%d) ===", l2_count, l1_count)
+            phase_start = time.monotonic()
+            try:
+                if json_output:
                     summaries, concepts = summarizer.generate_all_summaries(
                         document_id=doc_id,
                         document_title=doc_title,
                         chunks=chunks,
                         strategy=strategy,
-                        progress_callback=progress_callback,
                     )
-        except Exception as e:
-            print_error(f"Summarization failed: {e}")
-            raise typer.Exit(1) from e
+                else:
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TaskProgressColumn(),
+                        console=console,
+                    ) as progress:
+                        task = progress.add_task("Generating summaries...", total=100)
 
-        elapsed = time.monotonic() - phase_start
-        logger.info("=== PHASE 1: Summarization DONE in %.1fs (%d summaries, %d concepts) ===",
-                    elapsed, len(summaries), len(concepts))
+                        def progress_callback(current: int, total: int, message: str):
+                            pct = int((current / max(total, 1)) * 100)
+                            progress.update(task, completed=pct, description=message)
 
-        # Save LLM output checkpoint (embeddings NOT stored — regenerated in Phase 2)
-        _save_phase_checkpoint(doc_id, "llm_output", {
-            "summaries": [summarizer.summary_to_dict(s) for s in summaries],
-            "concepts": [dataclasses.asdict(c) for c in concepts],
-        })
-        logger.info("  LLM output checkpoint saved")
+                        summaries, concepts = summarizer.generate_all_summaries(
+                            document_id=doc_id,
+                            document_title=doc_title,
+                            chunks=chunks,
+                            strategy=strategy,
+                            progress_callback=progress_callback,
+                        )
+            except Exception as e:
+                print_error(f"Summarization failed: {e}")
+                raise typer.Exit(1) from e
+
+            elapsed = time.monotonic() - phase_start
+            logger.info("=== PHASE 1: Summarization DONE in %.1fs (%d summaries, %d concepts) ===",
+                        elapsed, len(summaries), len(concepts))
+
+            # Save LLM output checkpoint (embeddings NOT stored — regenerated in Phase 2)
+            _save_phase_checkpoint(doc_id, "llm_output", {
+                "summaries": [summarizer.summary_to_dict(s) for s in summaries],
+                "concepts": [dataclasses.asdict(c) for c in concepts],
+            })
+            logger.info("  LLM output checkpoint saved")
 
     # =========================================================================
     # Pre-cache IDs for Phase 2-4 (2 HTTP calls total, eliminates ~962 lookups)
