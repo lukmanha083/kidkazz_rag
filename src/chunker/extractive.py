@@ -103,6 +103,43 @@ def extractive_summarize(text: str, sentence_count: int = 3) -> str:
         return _fallback_summarize(text, sentence_count)
 
 
+def extract_formatted_terms(text: str) -> list[dict]:
+    """Extract bold and italic terms from markdown as concept candidates.
+
+    Bold (**term**) often indicates key terms/definitions in textbooks.
+    Italic (*term*) often indicates emphasis or first-use of a concept.
+
+    Args:
+        text: Markdown text to scan for formatted terms.
+
+    Returns:
+        List of dicts with 'name' (str) and 'source' ('bold' or 'italic') keys.
+    """
+    if not text or not text.strip():
+        return []
+
+    terms = []
+    seen: set[str] = set()
+
+    # Bold: **term** or __term__
+    for match in re.finditer(r'\*\*(.+?)\*\*|__(.+?)__', text):
+        name = (match.group(1) or match.group(2)).strip()
+        word_count = len(name.split())
+        if 1 <= word_count <= 6 and name.lower() not in seen:
+            terms.append({"name": name, "source": "bold"})
+            seen.add(name.lower())
+
+    # Italic: *term* or _term_ (but not inside bold)
+    for match in re.finditer(r'(?<!\*)\*([^*]+?)\*(?!\*)|(?<!_)_([^_]+?)_(?!_)', text):
+        name = (match.group(1) or match.group(2)).strip()
+        word_count = len(name.split())
+        if 1 <= word_count <= 6 and name.lower() not in seen:
+            terms.append({"name": name, "source": "italic"})
+            seen.add(name.lower())
+
+    return terms
+
+
 def _normalize_keyword(kw: str) -> str:
     """Normalize a keyword to a canonical form for deduplication.
 

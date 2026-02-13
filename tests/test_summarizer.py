@@ -730,3 +730,162 @@ class TestMCPFormatterChapterTitle:
         result = format_summary(summary)
         assert result["chapter_title"] == "Part I: Basics"
         assert result["key_points"] == ["Intro"]
+
+
+class TestExtractFormattedTerms:
+    """Tests for extract_formatted_terms() in extractive.py."""
+
+    def test_extracts_bold_terms(self):
+        """Should extract **bold** terms."""
+        from src.chunker.extractive import extract_formatted_terms
+
+        text = "The **safety stock** is a buffer. Use **reorder point** calculation."
+        terms = extract_formatted_terms(text)
+        names = [t["name"] for t in terms]
+        assert "safety stock" in names
+        assert "reorder point" in names
+        assert all(t["source"] == "bold" for t in terms)
+
+    def test_extracts_italic_terms(self):
+        """Should extract *italic* terms."""
+        from src.chunker.extractive import extract_formatted_terms
+
+        text = "The *cost of goods sold* is important. Also consider *carrying cost*."
+        terms = extract_formatted_terms(text)
+        names = [t["name"] for t in terms]
+        assert "cost of goods sold" in names
+        assert "carrying cost" in names
+        assert all(t["source"] == "italic" for t in terms)
+
+    def test_extracts_both_bold_and_italic(self):
+        """Should extract both bold and italic terms without duplicates."""
+        from src.chunker.extractive import extract_formatted_terms
+
+        text = "**FIFO method** and *LIFO method* are common. The **FIFO method** again."
+        terms = extract_formatted_terms(text)
+        names = [t["name"] for t in terms]
+        assert "FIFO method" in names
+        assert "LIFO method" in names
+        # Should deduplicate (case-insensitive)
+        assert len([n for n in names if n.lower() == "fifo method"]) == 1
+
+    def test_skips_long_phrases(self):
+        """Should skip phrases longer than 6 words."""
+        from src.chunker.extractive import extract_formatted_terms
+
+        text = "The **this is a very long phrase that should be skipped entirely** is here."
+        terms = extract_formatted_terms(text)
+        assert len(terms) == 0
+
+    def test_empty_text_returns_empty(self):
+        """Should return empty list for empty text."""
+        from src.chunker.extractive import extract_formatted_terms
+
+        assert extract_formatted_terms("") == []
+        assert extract_formatted_terms("   ") == []
+
+    def test_no_formatted_terms(self):
+        """Should return empty list when no bold/italic terms present."""
+        from src.chunker.extractive import extract_formatted_terms
+
+        text = "This is plain text with no formatting at all."
+        assert extract_formatted_terms(text) == []
+
+
+class TestSummarizeChapterWithRawContent:
+    """Tests for raw_section_content parameter in summarize_chapter."""
+
+    @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.chunker.summarizer.instructor")
+    def test_raw_content_passed_to_llm(self, mock_instructor):
+        """Should include raw content in user message when provided."""
+        from src.chunker.summarizer import DocumentSummarizer, ChapterSummaryOutput, Summary
+
+        mock_client = MagicMock()
+        mock_client.create.return_value = ChapterSummaryOutput(
+            chapter_title="Chapter 1: Basics",
+            summary="This chapter covers basic concepts.",
+            key_points=["Point A"],
+        )
+        mock_instructor.from_provider.return_value = mock_client
+
+        summarizer = DocumentSummarizer()
+        section_summaries = [
+            Summary(
+                summary_id="s1", content="Section summary",
+                level="section", source_id="sec1", document_id="doc1",
+            ),
+        ]
+
+        summarizer.summarize_chapter(
+            chunk_id="ch1",
+            chunk_content="Chapter content",
+            section_summaries=section_summaries,
+            document_id="doc1",
+            document_title="Test Book",
+            raw_section_content="Full raw text of the section with **bold terms**.",
+        )
+
+        # Verify the user message includes raw content
+        call_args = mock_client.create.call_args
+        user_msg = call_args[1]["messages"][1]["content"]
+        assert "--- Raw Chapter Text ---" in user_msg
+        assert "Full raw text of the section" in user_msg
+
+    @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.chunker.summarizer.instructor")
+    def test_no_raw_content_omits_section(self, mock_instructor):
+        """Should not include raw content section when empty."""
+        from src.chunker.summarizer import DocumentSummarizer, ChapterSummaryOutput, Summary
+
+        mock_client = MagicMock()
+        mock_client.create.return_value = ChapterSummaryOutput(
+            chapter_title="Chapter 1",
+            summary="Summary.",
+            key_points=["A"],
+        )
+        mock_instructor.from_provider.return_value = mock_client
+
+        summarizer = DocumentSummarizer()
+        summarizer.summarize_chapter(
+            chunk_id="ch1",
+            chunk_content="Content",
+            section_summaries=[],
+            document_id="doc1",
+            document_title="Test",
+        )
+
+        call_args = mock_client.create.call_args
+        user_msg = call_args[1]["messages"][1]["content"]
+        assert "--- Raw Chapter Text ---" not in user_msg
+
+
+class TestSectionFormattedTermExtraction:
+    """Tests for formatted term extraction in summarize_section."""
+
+    @patch("src.chunker.summarizer.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.chunker.summarizer.instructor")
+    def test_section_extracts_bold_concepts(self, mock_instructor):
+        """summarize_section should extract bold terms as concepts."""
+        from src.chunker.summarizer import DocumentSummarizer
+
+        mock_instructor.from_provider.return_value = MagicMock()
+        summarizer = DocumentSummarizer()
+
+        content = (
+            "The **safety stock** is inventory held as a buffer. "
+            "Companies use the **reorder point** to trigger purchases. "
+            "This helps avoid stockouts."
+        )
+
+        summary = summarizer.summarize_section(
+            chunk_content=content,
+            chunk_id="chunk_001",
+            document_id="doc1",
+            document_title="Inventory Book",
+        )
+
+        concept_names = [c.name for c in summary.concepts]
+        # Bold terms should appear as concepts
+        assert "safety stock" in concept_names
+        assert "reorder point" in concept_names

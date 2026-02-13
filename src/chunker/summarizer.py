@@ -54,6 +54,7 @@ try:
     from src.chunker.extractive import (
         extractive_summarize,
         extract_keywords,
+        extract_formatted_terms,
         SUMY_AVAILABLE,
         YAKE_AVAILABLE,
     )
@@ -62,6 +63,7 @@ try:
 except ImportError:
     extractive_summarize = None  # type: ignore
     extract_keywords = None  # type: ignore
+    extract_formatted_terms = None  # type: ignore
     SUMY_AVAILABLE = False
     YAKE_AVAILABLE = False
     EXTRACTIVE_AVAILABLE = False
@@ -593,66 +595,74 @@ class DocumentSummarizer:
 
     def _section_system_prompt(self, has_table: bool = False) -> str:
         base_prompt = (
-            "You are summarizing a section from a textbook or technical document. "
-            "Create a concise summary that captures the main points and key concepts. "
+            "You are summarizing a section from a textbook. "
+            "Create a concise summary capturing the main points and key concepts. "
             "Focus on what this section teaches or explains.\n\n"
         )
 
         if has_table:
             base_prompt += (
                 "This section contains a TABLE. Pay special attention to:\n"
-                "- Column headers (often contain key terms/concepts)\n"
-                "- Relationships and comparisons shown in the table\n"
-                "- Key values, patterns, or data points\n"
-                "- What the table is comparing or organizing\n\n"
+                "- Column headers and what they represent\n"
+                "- Relationships and comparisons shown\n"
+                "- Key values, patterns, or data points\n\n"
             )
 
         base_prompt += (
-            "Extract important CONCEPTS from this section:\n"
-            "- Terms: vocabulary and definitions (e.g., 'Safety Stock', 'COGS')\n"
-            "- Methods: techniques and procedures (e.g., 'FIFO', 'ABC Analysis')\n"
-            "- Principles: rules and guidelines (e.g., 'Matching Principle')\n"
-            "- Formulas: calculations (e.g., 'EOQ Formula')\n"
-            "- Accounts: ledger accounts (e.g., 'Inventory', 'Cost of Sales')\n\n"
-            "Only include concepts that are important enough to be referenced elsewhere in the document."
+            "Extract important CONCEPTS — look for these signals:\n"
+            "- **Bold text** often indicates key terms or definitions\n"
+            "- *Italic text* often indicates first-use of a concept\n"
+            "- Terms followed by explanations or 'is defined as'\n"
+            "- Named methods, formulas, or procedures\n\n"
+            "For each concept, extract the name exactly as written and "
+            "provide a 1-sentence definition from the text. "
+            "Only include concepts important enough to reference elsewhere."
         )
 
         return base_prompt
 
     def _chapter_system_prompt(self) -> str:
         return (
-            "You are summarizing a chapter from a textbook or technical document. "
-            "Given the summaries of individual sections, create an overall chapter summary "
-            "that captures the main themes and learning objectives. "
-            "Synthesize the key concepts into a coherent overview.\n\n"
-            "Extract the chapter title/number exactly as it appears in the source material "
-            "(e.g., 'Chapter 2: Safety Stock', 'Part III: Cost Allocation'). "
-            "If no explicit chapter title is provided, infer a short descriptive title from the content. "
-            "Begin the summary by identifying which chapter this is.\n\n"
-            "Also extract the most important CONCEPTS from this chapter:\n"
-            "- Terms: vocabulary and definitions\n"
-            "- Methods: techniques and procedures\n"
-            "- Principles: rules and guidelines\n"
-            "- Formulas: calculations\n"
-            "- Accounts: ledger accounts\n\n"
-            "Focus on concepts that appear multiple times across sections or are central to the chapter."
+            "You are summarizing a chapter from a textbook. You will receive:\n"
+            "1. Section summaries (extractive highlights from each section)\n"
+            "2. The raw chapter text (full content for verification)\n\n"
+            "Create a 3-5 sentence chapter summary that:\n"
+            "- States the chapter's main topic and purpose\n"
+            "- Covers the key methods, processes, or frameworks taught\n"
+            "- Notes any important examples, tables, or formulas\n"
+            "- Uses specific terminology from the source material\n\n"
+            "Extract the chapter title exactly as it appears "
+            "(e.g., 'Chapter 7: LIFO, FIFO, and Average Costing'). "
+            "If no explicit title exists, infer one from the content.\n\n"
+            "CONCEPT EXTRACTION — Look for these signals in the raw text:\n"
+            "- **Bold text** (**term**) often indicates key terms or definitions\n"
+            "- *Italic text* (*term*) often indicates first-use of a concept\n"
+            "- Terms followed by a definition or explanation\n"
+            "- Numbered/lettered methods or procedures\n"
+            "- Named formulas or calculations\n\n"
+            "For each concept, provide:\n"
+            "- The exact name as it appears in the source\n"
+            "- A 1-sentence definition from the text (not invented)\n"
+            "- The correct type: term, method, principle, formula, account, etc.\n\n"
+            "Only include concepts central to this chapter's topic."
         )
 
     def _document_system_prompt(self) -> str:
         return (
             "You are summarizing an entire textbook or technical document. "
-            "Given the chapter summaries, create a comprehensive document overview "
-            "that explains what the document covers, its purpose, and main themes. "
-            "This should help readers understand if this document is relevant to their needs. "
-            "Reference chapters by their actual titles when mentioning specific topics.\n\n"
-            "Also extract the most important CONCEPTS from this document:\n"
-            "- Terms: key vocabulary and definitions\n"
-            "- Methods: important techniques and procedures\n"
-            "- Principles: core rules and guidelines\n"
-            "- Formulas: essential calculations\n"
-            "- Accounts: key ledger accounts\n\n"
-            "Focus on the concepts that are most central to the document's subject matter "
-            "and appear across multiple chapters."
+            "Given the chapter summaries, create a comprehensive 5-7 sentence overview "
+            "that explains what the document covers, its purpose, and main themes.\n\n"
+            "Your summary should:\n"
+            "- Reference chapters by their actual titles when mentioning specific topics\n"
+            "- Name the key concepts, methods, and frameworks covered\n"
+            "- Help readers understand if this document is relevant to their needs\n\n"
+            "Extract the most important CONCEPTS from this document — those that:\n"
+            "- Appear across multiple chapters (cross-cutting concepts)\n"
+            "- Are central to the document's subject matter\n"
+            "- Would be useful as search terms or index entries\n\n"
+            "For each concept, provide the exact name and a 1-sentence definition "
+            "drawn from the chapter summaries. Use the correct type: term, method, "
+            "principle, formula, account, etc."
         )
 
     # ========================================================================
@@ -768,7 +778,7 @@ class DocumentSummarizer:
         try:
             # Extractive summarization (local, no API call)
             if extractive_summarize is not None:
-                summary_text = extractive_summarize(chunk_content, sentence_count=3)
+                summary_text = extractive_summarize(chunk_content, sentence_count=5)
             else:
                 # Minimal fallback: first 200 chars
                 summary_text = chunk_content[:200].strip()
@@ -780,18 +790,39 @@ class DocumentSummarizer:
 
             # Keyword extraction (local, no API call)
             concepts = []
+            seen_ids: set[str] = set()
             if extract_keywords is not None:
                 keywords = extract_keywords(chunk_content, max_keywords=5)
                 for kw in keywords:
-                    concepts.append(Concept(
-                        concept_id=slugify(kw["name"]),
-                        name=kw["name"],
-                        concept_type="term",
-                        definition="",
-                        document_id=document_id,
-                        occurrences=[summary_id],
-                        occurrence_count=1,
-                    ))
+                    cid = slugify(kw["name"])
+                    if cid:
+                        concepts.append(Concept(
+                            concept_id=cid,
+                            name=kw["name"],
+                            concept_type="term",
+                            definition="",
+                            document_id=document_id,
+                            occurrences=[summary_id],
+                            occurrence_count=1,
+                        ))
+                        seen_ids.add(cid)
+
+            # Extract bold/italic terms as additional concept candidates
+            if extract_formatted_terms is not None:
+                formatted_terms = extract_formatted_terms(chunk_content)
+                for ft in formatted_terms:
+                    cid = slugify(ft["name"])
+                    if cid and cid not in seen_ids:
+                        concepts.append(Concept(
+                            concept_id=cid,
+                            name=ft["name"],
+                            concept_type="term",
+                            definition="",
+                            document_id=document_id,
+                            occurrences=[summary_id],
+                            occurrence_count=1,
+                        ))
+                        seen_ids.add(cid)
 
             # Build key points from first few keywords
             key_points = [kw["name"] for kw in (keywords if extract_keywords is not None else [])][:3]
@@ -824,8 +855,20 @@ class DocumentSummarizer:
         document_id: str,
         document_title: str,
         chapter_title: Optional[str] = None,
+        raw_section_content: str = "",
     ) -> Summary:
-        """Generate summary for a chapter (L1 chunk)."""
+        """Generate summary for a chapter (L1 chunk).
+
+        Args:
+            chunk_id: Unique chunk identifier
+            chunk_content: The L1 chunk's own text content
+            section_summaries: Extractive summaries of child L2 chunks
+            document_id: Parent document ID
+            document_title: Document title for context
+            chapter_title: Optional chapter title/heading
+            raw_section_content: Concatenated raw text of child L2 chunks
+                for the LLM to verify against extractive summaries
+        """
         section_context = "\n\n".join(
             f"Section {i+1}:\n{s.content}"
             for i, s in enumerate(section_summaries)
@@ -838,12 +881,19 @@ class DocumentSummarizer:
         if chapter_title:
             context += f"\nChapter: {chapter_title}"
 
+        # Build user message with both extractive summaries and raw content
+        user_content = f"{context}\n\nSection Summaries:\n{section_context}"
+        if raw_section_content:
+            # Cap at ~6000 tokens (~24000 chars) to stay within context limits
+            truncated = raw_section_content[:24000]
+            user_content += f"\n\n--- Raw Chapter Text ---\n{truncated}"
+
         try:
             result = self.client.create(
                 response_model=ChapterSummaryOutput,
                 messages=[
                     {"role": "system", "content": self._chapter_system_prompt()},
-                    {"role": "user", "content": f"{context}\n\nSection Summaries:\n{section_context}"},
+                    {"role": "user", "content": user_content},
                 ],
                 max_retries=self.max_retries,
                 max_tokens=self.max_tokens_per_summary,
@@ -985,6 +1035,15 @@ class DocumentSummarizer:
                 if cid in section_summaries
             ]
 
+            # Collect raw L2 content for this chapter
+            raw_parts = []
+            for cid in child_ids:
+                for l2 in l2_chunks:
+                    if l2.get("id") == cid:
+                        raw_parts.append(l2.get("content", ""))
+                        break
+            raw_section_content = "\n\n".join(raw_parts)
+
             summary = self.summarize_chapter(
                 chunk_id=chunk_id,
                 chunk_content=chunk.get("content", ""),
@@ -992,6 +1051,7 @@ class DocumentSummarizer:
                 document_id=document_id,
                 document_title=document_title,
                 chapter_title=chunk.get("source_section"),
+                raw_section_content=raw_section_content,
             )
 
             for child_summary in child_summaries:
@@ -1029,6 +1089,7 @@ class DocumentSummarizer:
         document_id: str,
         document_title: str,
         semaphore: asyncio.Semaphore,
+        l2_chunks: list[dict] | None = None,
     ) -> tuple[str, "Summary"]:
         """Async chapter summarization with rate limiting."""
         async with semaphore:
@@ -1041,6 +1102,17 @@ class DocumentSummarizer:
                 if cid in section_summaries
             ]
 
+            # Collect raw L2 content for this chapter
+            raw_section_content = ""
+            if l2_chunks:
+                raw_parts = []
+                for cid in child_ids:
+                    for l2 in l2_chunks:
+                        if l2.get("id") == cid:
+                            raw_parts.append(l2.get("content", ""))
+                            break
+                raw_section_content = "\n\n".join(raw_parts)
+
             # Run sync LLM call in thread pool
             loop = asyncio.get_event_loop()
             summary = await loop.run_in_executor(
@@ -1052,6 +1124,7 @@ class DocumentSummarizer:
                     document_id=document_id,
                     document_title=document_title,
                     chapter_title=chunk.get("source_section"),
+                    raw_section_content=raw_section_content,
                 )
             )
 
@@ -1132,7 +1205,8 @@ class DocumentSummarizer:
 
         tasks = [
             self._summarize_chapter_async(
-                chunk, section_summaries, document_id, document_title, semaphore
+                chunk, section_summaries, document_id, document_title, semaphore,
+                l2_chunks=l2_chunks,
             )
             for chunk in pending_l1
         ]
@@ -1269,6 +1343,20 @@ class DocumentSummarizer:
             if chapter_title:
                 context += f"\nChapter: {chapter_title}"
 
+            # Collect raw L2 content for this chapter
+            raw_parts = []
+            for cid in child_ids:
+                for l2 in l2_chunks:
+                    if l2.get("id") == cid:
+                        raw_parts.append(l2.get("content", ""))
+                        break
+            raw_section_content = "\n\n".join(raw_parts)
+
+            user_content = f"{context}\n\nSection Summaries:\n{section_context}"
+            if raw_section_content:
+                truncated = raw_section_content[:24000]
+                user_content += f"\n\n--- Raw Chapter Text ---\n{truncated}"
+
             response_format = {
                 "type": "json_schema",
                 "json_schema": {
@@ -1280,7 +1368,7 @@ class DocumentSummarizer:
             requests.append(self._create_batch_request(
                 custom_id=f"chapter_{idx}_{chunk_id}",
                 system_prompt=self._chapter_system_prompt(),
-                user_content=f"{context}\n\nSection Summaries:\n{section_context}",
+                user_content=user_content,
                 response_format=response_format,
             ))
 
