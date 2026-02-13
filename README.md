@@ -66,7 +66,12 @@ kidkazz inbox list
 # Parse all PDFs in inbox
 kidkazz inbox parse
 
-# Options:
+# Quality presets:
+kidkazz inbox parse -p full                # Max accuracy (~2x credits)
+kidkazz inbox parse -p standard            # Accurate, economical (~1x)
+kidkazz inbox parse -p full -c variable    # Full preset + RAG chunks
+
+# Individual options:
 kidkazz inbox parse --agentic              # Higher accuracy (2x credits)
 kidkazz inbox parse --chunk-mode variable  # RAG-optimized chunks
 kidkazz inbox parse --dry-run              # Preview without API calls
@@ -205,6 +210,8 @@ kidkazz inbox status                        # View status
 kidkazz inbox list                          # List PDFs
 kidkazz inbox list --output                 # List parsed markdown
 kidkazz inbox parse                         # Parse all PDFs
+kidkazz inbox parse -p full                 # Max accuracy (~2x credits)
+kidkazz inbox parse -p standard             # Accurate, economical (~1x)
 kidkazz inbox parse --agentic               # High-accuracy mode
 kidkazz inbox sync                          # Backup to cloud (rclone)
 kidkazz inbox clear --completed             # Clean up
