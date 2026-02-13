@@ -256,6 +256,20 @@ class ReductoClient:
                     return_images=self.config.return_images
                 )
 
+            # Add agentic enhancement if enabled (all scopes: table, figure, text)
+            if self.config.agentic:
+                from reducto.types import Enhance
+                from reducto.types.shared.figure_agentic import FigureAgentic
+                from reducto.types.shared.table_agentic import TableAgentic
+                from reducto.types.shared.text_agentic import TextAgentic
+                parse_kwargs["enhance"] = Enhance(
+                    agentic=[
+                        TableAgentic(scope="table"),
+                        FigureAgentic(scope="figure"),
+                        TextAgentic(scope="text"),
+                    ]
+                )
+
             logger.debug("Calling Reducto parse API...")
             response = self.client.parse.run(**parse_kwargs)
             logger.debug("Parse API call complete")
