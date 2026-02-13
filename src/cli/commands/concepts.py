@@ -614,7 +614,16 @@ def clean_concepts(
             print_warning("Aborted.")
             raise typer.Exit(0)
 
-    # Delete in parallel using thread pool
+    # Extract internal IDs from already-fetched concept data (avoids extra lookups)
+    drop_items = []
+    for c in garbage:
+        internal_id = c.get("id")
+        if internal_id:
+            drop_items.append(str(internal_id))
+        else:
+            failed += 1
+
+    # Delete in parallel using thread pool — 1 HTTP call each (DropConcept only)
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     start_time = time.time()
@@ -622,26 +631,22 @@ def clean_concepts(
     failed = 0
     processed = 0
 
-    def _delete_one(concept_id: str) -> bool:
+    def _drop_one(internal_id: str) -> bool:
         try:
-            return store.delete_concept(concept_id)
+            return store.drop_concept_by_internal_id(internal_id)
         except Exception:
             return False
 
-    concept_ids = [c.get("concept_id", "") for c in garbage]
-    concept_ids = [cid for cid in concept_ids if cid]  # skip empty
-    failed += len(garbage) - len(concept_ids)  # count skipped
-
     with ThreadPoolExecutor(max_workers=16) as pool:
-        futures = {pool.submit(_delete_one, cid): cid for cid in concept_ids}
+        futures = {pool.submit(_drop_one, iid): iid for iid in drop_items}
         for future in as_completed(futures):
             if future.result():
                 deleted += 1
             else:
                 failed += 1
             processed += 1
-            if processed % 200 == 0:
-                console.print(f"[dim]Progress: {processed}/{len(concept_ids)} processed...[/dim]")
+            if processed % 500 == 0:
+                console.print(f"[dim]Progress: {processed}/{len(drop_items)} processed...[/dim]")
 
     elapsed = time.time() - start_time
 

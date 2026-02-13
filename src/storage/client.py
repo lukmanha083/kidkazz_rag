@@ -1303,15 +1303,32 @@ class HelixChunkStore:
             logger.error(f"Could not extract internal ID for concept '{concept_id}'")
             return False
 
+        return self.drop_concept_by_internal_id(internal_id)
+
+    def drop_concept_by_internal_id(self, internal_id: str) -> bool:
+        """
+        Drop a concept node by its internal Helix node ID (single HTTP call).
+
+        Use this when you already have the internal ID (e.g., from list_concepts)
+        to avoid the extra lookup that delete_concept() performs.
+
+        Args:
+            internal_id: Internal Helix node ID
+
+        Returns:
+            True if dropped, False otherwise
+        """
+        self._ensure_connected()
+
         try:
             query = DropConcept(internal_id)
             self._client.query(query)
             return True
         except (ConnectionError, TimeoutError, OSError) as e:
-            logger.error(f"Network error deleting concept '{concept_id}': {e}")
+            logger.error(f"Network error dropping concept '{internal_id}': {e}")
             return False
         except Exception as e:
-            logger.exception(f"Unexpected error deleting concept '{concept_id}': {e}")
+            logger.exception(f"Unexpected error dropping concept '{internal_id}': {e}")
             raise
 
     def get_concept(self, concept_id: str) -> Optional[dict]:
