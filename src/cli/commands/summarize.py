@@ -402,9 +402,9 @@ def generate_summaries(
     embedder = _get_embedder(config)
     stored_count = 0
 
-    SUMMARY_THROTTLE = 0.15          # seconds between each store call
-    SUMMARY_BREATHER_INTERVAL = 100  # pause every N summaries
-    SUMMARY_BREATHER_SECONDS = 5     # how long to pause
+    SUMMARY_THROTTLE = 0.25          # seconds between each store call
+    SUMMARY_BREATHER_INTERVAL = 50   # pause every N summaries
+    SUMMARY_BREATHER_SECONDS = 8     # how long to pause
     SUMMARY_MAX_RETRIES = 3          # retry transient errors
 
     for i, summary in enumerate(summaries):
@@ -464,10 +464,10 @@ def generate_summaries(
 
     # Cooldown between summary storage and concept storage
     if concepts:
-        logger.info("=== Cooldown 10s before concept storage ===")
+        logger.info("=== Cooldown 15s before concept storage ===")
         if not json_output:
-            console.print("  [dim]Cooling down 10s before concept storage...[/dim]")
-        time.sleep(10)
+            console.print("  [dim]Cooling down 15s before concept storage...[/dim]")
+        time.sleep(15)
 
     # Store concepts (merge across documents for cross-document graph)
     # Two-phase approach: store concepts first, then create edges with throttling.
@@ -555,16 +555,16 @@ def generate_summaries(
                 logger.info("  Concept storage: %d/%d (%.1f/s, %.1fs elapsed)",
                             i + 1, len(concepts), rate, elapsed_so_far)
 
-            # Throttle: sleep after every call to cap rate at ~6/s.
-            # Without this, 16+ calls/s causes Helix-DB's 128 threads to spike CPU.
-            time.sleep(0.15)
+            # Throttle: sleep after every call to cap rate at ~3/s.
+            # Each store_or_merge_concept does 2-3 HTTP calls internally.
+            time.sleep(0.30)
 
-            # Every 500 concepts, take a longer breather to let Helix-DB catch up
-            if (i + 1) % 500 == 0:
-                logger.info("  Pausing 5s after %d concepts to let Helix-DB settle", i + 1)
+            # Every 200 concepts, take a longer breather to let Helix-DB catch up
+            if (i + 1) % 200 == 0:
+                logger.info("  Pausing 8s after %d concepts to let Helix-DB settle", i + 1)
                 if not json_output:
-                    console.print(f"  [dim]Pausing 5s after {i + 1} concepts...[/dim]")
-                time.sleep(5)
+                    console.print(f"  [dim]Pausing 8s after {i + 1} concepts...[/dim]")
+                time.sleep(8)
         except Exception as e:
             logger.error("Failed to store concept %s: %s", concept.name, e)
             if not json_output:
