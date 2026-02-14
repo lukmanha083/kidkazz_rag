@@ -342,7 +342,7 @@ def graph_concepts(
         "png",
         "--format",
         "-f",
-        help="Output format: dot, png, svg, pdf",
+        help="Output format: dot, png, svg, pdf, html",
     ),
     title: Optional[str] = typer.Option(
         None,
@@ -373,10 +373,15 @@ def graph_concepts(
         kidkazz concepts graph -o graph.png --min-docs 3  # Only in 3+ books
         kidkazz concepts graph inventory            # All concepts from one doc
         kidkazz concepts graph -f dot -o graph.dot  # Export as DOT
+        kidkazz concepts graph -f html -o graph.html --view  # Interactive HTML
         kidkazz concepts graph --view               # Render and open
     """
     config = CLIConfig.load()
     store = get_store(config)
+
+    # Auto-default output path for HTML format
+    if format == "html" and output is None:
+        output = Path("concept_graph.html")
 
     try:
         from ..graph_viz import generate_concept_graph
@@ -397,16 +402,20 @@ def graph_concepts(
 
                 # Open if requested
                 if view:
-                    import platform
-                    import subprocess
+                    if format == "html":
+                        import webbrowser
+                        webbrowser.open(str(rendered_path.resolve()))
+                    else:
+                        import platform
+                        import subprocess
 
-                    if platform.system() == "Darwin":
-                        subprocess.run(["open", str(rendered_path)])
-                    elif platform.system() == "Linux":
-                        subprocess.run(["xdg-open", str(rendered_path)])
-                    elif platform.system() == "Windows":
-                        import os
-                        os.startfile(str(rendered_path))
+                        if platform.system() == "Darwin":
+                            subprocess.run(["open", str(rendered_path)])
+                        elif platform.system() == "Linux":
+                            subprocess.run(["xdg-open", str(rendered_path)])
+                        elif platform.system() == "Windows":
+                            import os
+                            os.startfile(str(rendered_path))
             else:
                 print_error("Failed to render graph")
                 raise typer.Exit(1)

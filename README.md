@@ -231,6 +231,10 @@ kidkazz summarize search "query"            # Search summaries
 kidkazz summarize list                      # List summarized documents
 kidkazz concepts search "concept name"      # Search concept graph
 kidkazz concepts list --doc-id <doc_id>     # List concepts for document
+kidkazz concepts graph -f html --view       # Interactive HTML graph (opens browser)
+kidkazz concepts graph -f html -o graph.html # Save interactive graph to file
+kidkazz concepts graph -o graph.png         # Static PNG (requires graphviz)
+kidkazz concepts graph -f svg -o graph.svg  # Static SVG
 ```
 
 > **`--repair` vs `--force`:** Use `--repair` when a few chapters failed (e.g., max_tokens error) — it detects the gaps and regenerates only those chapters + refreshes the document summary (typically 1-3 LLM calls). Use `--force` to wipe everything and start over (225+ LLM calls for a typical textbook).

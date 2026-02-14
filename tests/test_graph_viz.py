@@ -1,4 +1,4 @@
-"""Tests for graph visualization module (TDD - tests written first)."""
+"""Tests for graph visualization module."""
 
 import json
 import pytest
@@ -362,3 +362,439 @@ class TestGenerateConceptGraph:
         dot, _ = generate_concept_graph(mock_store)
 
         assert "Knowledge Graph" in dot
+
+
+# --- HTML graph tests ---
+
+# Shared test fixtures
+def _make_concepts():
+    """Create sample concepts for testing."""
+    return [
+        {
+            "concept_id": "safety-stock",
+            "name": "Safety Stock",
+            "concept_type": "term",
+            "definition": "Extra inventory held as buffer",
+            "aliases": json.dumps(["Buffer Stock", "Reserve"]),
+            "source_documents": json.dumps(["book_accounting", "book_warehouse"]),
+        },
+        {
+            "concept_id": "fifo",
+            "name": "FIFO",
+            "concept_type": "method",
+            "definition": "First-In, First-Out inventory method",
+            "aliases": json.dumps(["First-In First-Out"]),
+            "source_documents": json.dumps(["book_accounting", "book_warehouse"]),
+        },
+        {
+            "concept_id": "cogs",
+            "name": "COGS",
+            "concept_type": "formula",
+            "definition": "Cost of Goods Sold",
+            "aliases": "[]",
+            "source_documents": json.dumps(["book_accounting"]),
+        },
+        {
+            "concept_id": "wms",
+            "name": "WMS",
+            "concept_type": "term",
+            "definition": "Warehouse Management System",
+            "aliases": "[]",
+            "source_documents": json.dumps(["book_warehouse"]),
+        },
+    ]
+
+
+class TestPrepareHtmlGraphData:
+    """Tests for _prepare_html_graph_data function."""
+
+    def test_cross_doc_view_has_document_hub_nodes(self):
+        """Should create document hub nodes in cross-document view."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        doc_nodes = [n for n in data["nodes"] if n["isDoc"]]
+        assert len(doc_nodes) == 2
+        labels = {n["label"] for n in doc_nodes}
+        # _short_doc_name strips _Z-Library and takes first 3 words
+        assert any("book" in l.lower() for l in labels)
+
+    def test_cross_doc_view_has_concept_nodes(self):
+        """Should create concept nodes."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        concept_nodes = [n for n in data["nodes"] if not n["isDoc"]]
+        names = {n["label"] for n in concept_nodes}
+        assert "Safety Stock" in names
+        assert "FIFO" in names
+        assert "COGS" in names
+        assert "WMS" in names
+
+    def test_cross_doc_view_has_edges(self):
+        """Should create edges from document hubs to concepts."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        assert len(data["edges"]) > 0
+        # Each shared concept (2 docs) should have 2 edges
+        safety_stock_edges = [e for e in data["edges"] if e["to"] == "safety_stock"]
+        assert len(safety_stock_edges) == 2
+
+    def test_adjacency_matrix_counts_shared_concepts(self):
+        """Should count shared concepts between document pairs."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        adjacency = data["adjacency"]
+        pair_key = "|".join(sorted(["book_accounting", "book_warehouse"]))
+        # Safety Stock + FIFO = 2 shared concepts
+        assert adjacency[pair_key] == 2
+
+    def test_single_doc_view_no_edges(self):
+        """Single-document view should have no edges."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts(), doc_id="book_accounting")
+
+        assert data["viewMode"] == "single_document"
+        assert len(data["edges"]) == 0
+        assert len(data["adjacency"]) == 0
+
+    def test_single_doc_view_has_concept_nodes_only(self):
+        """Single-document view should not have document hub nodes."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts(), doc_id="book_accounting")
+
+        doc_nodes = [n for n in data["nodes"] if n["isDoc"]]
+        assert len(doc_nodes) == 0
+
+    def test_cross_doc_view_mode(self):
+        """Cross-document view should set viewMode correctly."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        assert data["viewMode"] == "cross_document"
+
+    def test_doc_ids_are_sorted(self):
+        """docIds should be sorted."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        assert data["docIds"] == sorted(data["docIds"])
+
+    def test_no_duplicate_nodes(self):
+        """Should not create duplicate node IDs."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        # Create concepts with potentially colliding names
+        concepts = [
+            {
+                "name": "Test Concept",
+                "concept_type": "term",
+                "definition": "A test",
+                "aliases": "[]",
+                "source_documents": json.dumps(["doc_a"]),
+            },
+            {
+                "name": "Test Concept",  # Duplicate
+                "concept_type": "term",
+                "definition": "A test duplicate",
+                "aliases": "[]",
+                "source_documents": json.dumps(["doc_b"]),
+            },
+        ]
+
+        data = _prepare_html_graph_data(concepts)
+
+        ids = [n["id"] for n in data["nodes"]]
+        assert len(ids) == len(set(ids)), "Duplicate node IDs found"
+
+    def test_node_colors_match_concept_type(self):
+        """Concept nodes should have colors matching their type."""
+        from src.cli.graph_viz import _prepare_html_graph_data, CONCEPT_COLORS
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        for node in data["nodes"]:
+            if not node["isDoc"] and node["type"] in CONCEPT_COLORS:
+                assert node["color"] == CONCEPT_COLORS[node["type"]]
+
+    def test_shared_concept_size_larger(self):
+        """Concepts in more docs should have larger size."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        concept_nodes = {n["label"]: n for n in data["nodes"] if not n["isDoc"]}
+        # Safety Stock (2 docs) should be bigger than COGS (1 doc)
+        assert concept_nodes["Safety Stock"]["size"] > concept_nodes["COGS"]["size"]
+
+    def test_empty_concepts_list(self):
+        """Should handle empty concepts list."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data([])
+
+        assert data["nodes"] == []
+        assert data["edges"] == []
+        assert data["docIds"] == []
+
+    def test_aliases_parsed_correctly(self):
+        """Aliases should be parsed from JSON string."""
+        from src.cli.graph_viz import _prepare_html_graph_data
+
+        data = _prepare_html_graph_data(_make_concepts())
+
+        concept_nodes = {n["label"]: n for n in data["nodes"] if not n["isDoc"]}
+        assert "Buffer Stock" in concept_nodes["Safety Stock"]["aliases"]
+        assert "Reserve" in concept_nodes["Safety Stock"]["aliases"]
+
+
+class TestGenerateHtmlGraph:
+    """Tests for generate_html_graph function."""
+
+    def test_generates_valid_html_file(self, tmp_path):
+        """Should generate a valid HTML file."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        result = generate_html_graph(_make_concepts(), output)
+
+        assert result == output
+        assert output.exists()
+        content = output.read_text()
+        assert "<!DOCTYPE html>" in content
+        assert "</html>" in content
+
+    def test_contains_vis_network_cdn(self, tmp_path):
+        """Should include vis-network CDN script."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output)
+
+        content = output.read_text()
+        assert "vis-network" in content
+        assert "unpkg.com" in content
+
+    def test_contains_embedded_json_data(self, tmp_path):
+        """Should embed concept data as JSON."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output)
+
+        content = output.read_text()
+        assert "GRAPH_DATA" in content
+        assert "Safety Stock" in content
+        assert "FIFO" in content
+
+    def test_contains_search_input(self, tmp_path):
+        """Should include search input element."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output)
+
+        content = output.read_text()
+        assert 'id="search-input"' in content
+
+    def test_contains_type_filters(self, tmp_path):
+        """Should include type filter section."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output)
+
+        content = output.read_text()
+        assert 'id="type-filters"' in content
+        assert "Concept Types" in content
+
+    def test_contains_adjacency_section(self, tmp_path):
+        """Should include adjacency matrix section."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output)
+
+        content = output.read_text()
+        assert 'id="adjacency-section"' in content
+        assert "Shared Concept Counts" in content
+
+    def test_contains_title(self, tmp_path):
+        """Should include the custom title."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output, title="My Custom Graph")
+
+        content = output.read_text()
+        assert "My Custom Graph" in content
+
+    def test_escapes_special_chars_in_title(self, tmp_path):
+        """Should escape special characters in title."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output, title='Test <script>"alert"</script>')
+
+        content = output.read_text()
+        # Should not contain unescaped script tags in the title
+        assert '<script>"alert"</script>' not in content.split("var GRAPH_DATA")[0]
+
+    def test_escapes_script_close_in_json(self, tmp_path):
+        """Should escape </script> in embedded JSON data."""
+        from src.cli.graph_viz import generate_html_graph
+
+        concepts = [
+            {
+                "name": "Test",
+                "concept_type": "term",
+                "definition": "Has </script> in it",
+                "aliases": "[]",
+                "source_documents": json.dumps(["doc_a"]),
+            },
+        ]
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(concepts, output)
+
+        content = output.read_text()
+        # Should have exactly 2 </script> tags: CDN script + main script
+        # The one from JSON data should be escaped as <\/script>
+        assert content.count("</script>") == 2
+        assert "<\\/script>" in content  # Escaped version in JSON
+
+    def test_min_docs_slider_value(self, tmp_path):
+        """Should set initial min-docs slider value."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output, min_docs=3)
+
+        content = output.read_text()
+        assert 'value="2"' in content  # Clamped to max_docs (2)
+
+    def test_contains_stats_element(self, tmp_path):
+        """Should include stats display element."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output)
+
+        content = output.read_text()
+        assert 'id="stats"' in content
+
+
+class TestGenerateConceptGraphHtmlFormat:
+    """Integration tests for generate_concept_graph with html format."""
+
+    def test_generates_html_file(self, tmp_path):
+        """Should generate HTML file when format is 'html'."""
+        from src.cli.graph_viz import generate_concept_graph
+
+        mock_store = MagicMock()
+        mock_store.list_concepts.return_value = _make_concepts()
+
+        output_path = tmp_path / "graph.html"
+        content, rendered_path = generate_concept_graph(
+            mock_store,
+            output_path=output_path,
+            output_format="html",
+        )
+
+        assert rendered_path == output_path
+        assert output_path.exists()
+        html = output_path.read_text()
+        assert "<!DOCTYPE html>" in html
+        assert "vis-network" in html
+
+    def test_returns_empty_for_no_concepts(self):
+        """Should return empty string for HTML format with no concepts."""
+        from src.cli.graph_viz import generate_concept_graph
+
+        mock_store = MagicMock()
+        mock_store.list_concepts.return_value = []
+
+        content, path = generate_concept_graph(
+            mock_store,
+            output_format="html",
+        )
+
+        assert content == ""
+        assert path is None
+
+    def test_returns_none_without_output_path(self):
+        """Should return None path when no output path specified for HTML."""
+        from src.cli.graph_viz import generate_concept_graph
+
+        mock_store = MagicMock()
+        mock_store.list_concepts.return_value = _make_concepts()
+
+        content, path = generate_concept_graph(
+            mock_store,
+            output_format="html",
+        )
+
+        assert path is None
+
+    def test_uses_custom_title(self, tmp_path):
+        """Should pass custom title to HTML generator."""
+        from src.cli.graph_viz import generate_concept_graph
+
+        mock_store = MagicMock()
+        mock_store.list_concepts.return_value = _make_concepts()
+
+        output_path = tmp_path / "graph.html"
+        generate_concept_graph(
+            mock_store,
+            output_path=output_path,
+            output_format="html",
+            title="Custom HTML Title",
+        )
+
+        html = output_path.read_text()
+        assert "Custom HTML Title" in html
+
+    def test_auto_title_cross_document(self, tmp_path):
+        """Should auto-generate cross-document title."""
+        from src.cli.graph_viz import generate_concept_graph
+
+        mock_store = MagicMock()
+        mock_store.list_concepts.return_value = _make_concepts()
+
+        output_path = tmp_path / "graph.html"
+        generate_concept_graph(
+            mock_store,
+            output_path=output_path,
+            output_format="html",
+        )
+
+        html = output_path.read_text()
+        assert "Cross-Document" in html
+
+    def test_single_doc_view(self, tmp_path):
+        """Should generate single-document view when doc_id specified."""
+        from src.cli.graph_viz import generate_concept_graph
+
+        mock_store = MagicMock()
+        mock_store.list_concepts.return_value = _make_concepts()
+
+        output_path = tmp_path / "graph.html"
+        generate_concept_graph(
+            mock_store,
+            doc_id="book_accounting",
+            output_path=output_path,
+            output_format="html",
+        )
+
+        html = output_path.read_text()
+        assert "single_document" in html
