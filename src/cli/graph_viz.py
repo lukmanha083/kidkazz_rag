@@ -670,7 +670,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   network.on('blurNode', function() {{ tooltip.style.display = 'none'; }});
   network.on('dragStart', function() {{ tooltip.style.display = 'none'; }});
 
-  // --- Click to highlight neighbors ---
+  // --- Click to highlight neighbors (batched updates) ---
   var highlightActive = false;
   network.on('click', function(params) {{
     if (params.nodes.length === 0) {{
@@ -683,18 +683,26 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     var connectedNodes = network.getConnectedNodes(selectedId);
     connectedNodes.push(selectedId);
     var connSet = new Set(connectedNodes);
+    var nodeUpdates = [];
     visNodes.forEach(function(node) {{
-      visNodes.update({{ id: node.id, opacity: connSet.has(node.id) ? 1.0 : 0.12 }});
+      nodeUpdates.push({{ id: node.id, opacity: connSet.has(node.id) ? 1.0 : 0.12 }});
     }});
+    visNodes.update(nodeUpdates);
+    var edgeUpdates = [];
     visEdges.forEach(function(edge) {{
       var connected = connSet.has(edge.from) && connSet.has(edge.to);
-      visEdges.update({{ id: edge.id, color: {{ color: edge._data.color, opacity: connected ? 0.9 : 0.03 }} }});
+      edgeUpdates.push({{ id: edge.id, color: {{ color: edge._data.color, opacity: connected ? 0.9 : 0.03 }} }});
     }});
+    visEdges.update(edgeUpdates);
   }});
 
   function resetNodeOpacity() {{
-    visNodes.forEach(function(node) {{ visNodes.update({{ id: node.id, opacity: 1.0 }}); }});
-    visEdges.forEach(function(edge) {{ visEdges.update({{ id: edge.id, color: {{ color: edge._data.color, opacity: 0.35 }} }}); }});
+    var nodeUpdates = [];
+    visNodes.forEach(function(node) {{ nodeUpdates.push({{ id: node.id, opacity: 1.0 }}); }});
+    visNodes.update(nodeUpdates);
+    var edgeUpdates = [];
+    visEdges.forEach(function(edge) {{ edgeUpdates.push({{ id: edge.id, color: {{ color: edge._data.color, opacity: 0.35 }} }}); }});
+    visEdges.update(edgeUpdates);
   }}
 
   // --- Search ---
@@ -767,13 +775,16 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     applyFilters();
   }});
 
-  // --- Unified filter ---
+  // --- Unified filter (batched updates) ---
   function applyFilters() {{
     var q = searchInput.value.trim().toLowerCase();
     var minDocs = parseInt(minDocsSlider.value, 10);
     var visibleCount = 0;
     var docCount = 0;
 
+    // Build visibility map + batch node updates
+    var hiddenSet = new Set();
+    var nodeUpdates = [];
     visNodes.forEach(function(node) {{
       var d = node._data;
       var visible = true;
@@ -786,29 +797,29 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         if (visible) visibleCount++;
       }}
 
-      visNodes.update({{ id: node.id, hidden: !visible }});
+      if (!visible) hiddenSet.add(node.id);
+
+      // Compute opacity
+      var opacity = 1.0;
+      if (!visible) {{
+        opacity = 1.0; // hidden anyway
+      }} else if (q && !d.isDoc) {{
+        opacity = matchesSearch(d, q) ? 1.0 : 0.12;
+      }} else if (!highlightActive) {{
+        opacity = 1.0;
+      }}
+
+      nodeUpdates.push({{ id: node.id, hidden: !visible, opacity: opacity }});
     }});
+    visNodes.update(nodeUpdates);
 
-    // Search dimming
-    if (q) {{
-      visNodes.forEach(function(node) {{
-        if (node.hidden) return;
-        var d = node._data;
-        if (d.isDoc) return;
-        visNodes.update({{ id: node.id, opacity: matchesSearch(d, q) ? 1.0 : 0.12 }});
-      }});
-    }} else if (!highlightActive) {{
-      visNodes.forEach(function(node) {{
-        if (!node.hidden) visNodes.update({{ id: node.id, opacity: 1.0 }});
-      }});
-    }}
-
-    // Edge visibility
+    // Batch edge visibility
+    var edgeUpdates = [];
     visEdges.forEach(function(edge) {{
-      var fromNode = visNodes.get(edge.from);
-      var toNode = visNodes.get(edge.to);
-      visEdges.update({{ id: edge.id, hidden: !(fromNode && !fromNode.hidden && toNode && !toNode.hidden) }});
+      var eVisible = !hiddenSet.has(edge.from) && !hiddenSet.has(edge.to);
+      edgeUpdates.push({{ id: edge.id, hidden: !eVisible }});
     }});
+    visEdges.update(edgeUpdates);
 
     document.getElementById('stats').textContent = 'Showing ' + visibleCount + ' of ' + (allNodes.length - docIds.length) + ' concepts, ' + docCount + ' documents';
   }}
@@ -902,7 +913,15 @@ def generate_html_graph(
     Returns:
         Path to generated HTML file
     """
+    logger.info(
+        "Preparing HTML graph data: %d concepts, doc_id=%s, min_docs=%d",
+        len(concepts), doc_id, min_docs,
+    )
     data = _prepare_html_graph_data(concepts, doc_id=doc_id, min_docs=min_docs)
+    logger.info(
+        "Graph data: %d nodes, %d edges, %d documents",
+        len(data["nodes"]), len(data["edges"]), len(data["docIds"]),
+    )
 
     # Calculate max docs for slider
     max_docs = 1
@@ -959,7 +978,9 @@ def generate_concept_graph(
     Returns:
         Tuple of (DOT content or HTML path string, rendered file path or None)
     """
+    logger.info("Fetching concepts from store (doc_id=%s)...", doc_id)
     concepts = store.list_concepts(doc_id=doc_id)
+    logger.info("Fetched %d concepts", len(concepts))
 
     if not concepts:
         if output_format == "html":

@@ -376,8 +376,17 @@ def graph_concepts(
         kidkazz concepts graph -f html -o graph.html --view  # Interactive HTML
         kidkazz concepts graph --view               # Render and open
     """
+    import logging
+    import time as _time
+
+    logger = logging.getLogger(__name__)
+
     config = CLIConfig.load()
+
+    t0 = _time.perf_counter()
+    logger.info("Connecting to store...")
     store = get_store(config)
+    logger.info("Store connected in %.2fs", _time.perf_counter() - t0)
 
     # Auto-default output path for HTML format
     if format == "html" and output is None:
@@ -385,6 +394,10 @@ def graph_concepts(
 
     try:
         from ..graph_viz import generate_concept_graph
+
+        # Fetch concepts
+        t1 = _time.perf_counter()
+        logger.info("Fetching concepts (doc_id=%s)...", doc_id)
 
         # Generate graph
         dot_content, rendered_path = generate_concept_graph(
@@ -394,6 +407,10 @@ def graph_concepts(
             output_format=format,
             title=title,
             min_docs=min_docs,
+        )
+        logger.info(
+            "Graph generated in %.2fs (format=%s, output=%s)",
+            _time.perf_counter() - t1, format, rendered_path,
         )
 
         if output:
