@@ -226,9 +226,11 @@ class TestQualityInParseCommand:
     def test_parse_with_quality_check_default(self, cli_runner):
         """Test that parse command includes quality check by default."""
         from src.cli.main import app
-        from src.pdf_converter.reducto_client import ParseResult
+        from src.pdf_converter.reducto_client import ParseResult, ReductoConfig
 
-        with patch("src.pdf_converter.reducto_client.ReductoClient") as mock_client:
+        mock_config = ReductoConfig(api_key="fake-key")
+        with patch("src.pdf_converter.reducto_client.ReductoConfig.from_env", return_value=mock_config), \
+             patch("src.pdf_converter.reducto_client.ReductoClient") as mock_client:
             # Mock successful parse - returns markdown string directly
             mock_instance = MagicMock()
             good_content = "# Test Document\n\nThis is a test document with enough content to pass quality checks.\n" * 50
@@ -267,9 +269,11 @@ class TestQualityInParseCommand:
     def test_parse_no_quality_check(self, cli_runner):
         """Test parse command with quality check disabled."""
         from src.cli.main import app
-        from src.pdf_converter.reducto_client import ParseResult
+        from src.pdf_converter.reducto_client import ParseResult, ReductoConfig
 
-        with patch("src.pdf_converter.reducto_client.ReductoClient") as mock_client:
+        mock_config = ReductoConfig(api_key="fake-key")
+        with patch("src.pdf_converter.reducto_client.ReductoConfig.from_env", return_value=mock_config), \
+             patch("src.pdf_converter.reducto_client.ReductoClient") as mock_client:
             # Mock returns short/poor content that would fail quality check
             mock_instance = MagicMock()
             mock_instance.parse_pdf.return_value = "Short content"
