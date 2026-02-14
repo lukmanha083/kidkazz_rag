@@ -1,4 +1,4 @@
-"""Tests for concepts graph and export CLI commands (TDD - tests written first)."""
+"""Tests for concepts graph and export CLI commands."""
 
 import json
 from pathlib import Path
@@ -23,6 +23,7 @@ def mock_store():
             "concept_type": "method",
             "definition": "First-In, First-Out",
             "aliases": "[]",
+            "source_documents": '["doc_a", "doc_b"]',
         },
         {
             "concept_id": "lifo",
@@ -30,6 +31,7 @@ def mock_store():
             "concept_type": "method",
             "definition": "Last-In, First-Out",
             "aliases": "[]",
+            "source_documents": '["doc_a", "doc_b"]',
         },
     ]
     store.get_related_concepts.return_value = []
@@ -40,21 +42,28 @@ class TestGraphCommand:
     """Tests for 'kidkazz concepts graph' command."""
 
     @patch("src.cli.commands.concepts.get_store")
-    def test_graph_outputs_dot_to_stdout(self, mock_get_store, mock_store):
-        """Should output DOT format to stdout by default."""
+    @patch("src.cli.graph_viz.generate_html_graph")
+    def test_graph_generates_html(self, mock_gen_html, mock_get_store, mock_store, tmp_path):
+        """Should generate HTML graph and print success message."""
         mock_get_store.return_value = mock_store
+        output_file = tmp_path / "graph.html"
+        mock_gen_html.return_value = output_file
 
-        result = runner.invoke(app, ["concepts", "graph"])
+        result = runner.invoke(app, [
+            "concepts", "graph",
+            "--output", str(output_file),
+        ])
 
         assert result.exit_code == 0
-        assert "digraph" in result.output
-        assert "fifo" in result.output.lower()
-        assert "lifo" in result.output.lower()
+        assert "Graph saved to" in result.output
+        mock_gen_html.assert_called_once()
 
     @patch("src.cli.commands.concepts.get_store")
-    def test_graph_with_doc_id_filter(self, mock_get_store, mock_store):
+    @patch("src.cli.graph_viz.generate_html_graph")
+    def test_graph_with_doc_id_filter(self, mock_gen_html, mock_get_store, mock_store, tmp_path):
         """Should filter by doc_id."""
         mock_get_store.return_value = mock_store
+        mock_gen_html.return_value = tmp_path / "graph.html"
 
         result = runner.invoke(app, ["concepts", "graph", "inventory"])
 
@@ -62,80 +71,50 @@ class TestGraphCommand:
         mock_store.list_concepts.assert_called_with(doc_id="inventory")
 
     @patch("src.cli.commands.concepts.get_store")
-    def test_graph_saves_dot_file(self, mock_get_store, mock_store, tmp_path):
-        """Should save DOT file with --output and --format dot."""
+    @patch("src.cli.graph_viz.generate_html_graph")
+    def test_graph_default_output_path(self, mock_gen_html, mock_get_store, mock_store):
+        """Should default to concept_graph.html when no --output given."""
         mock_get_store.return_value = mock_store
-        output_file = tmp_path / "graph.dot"
+        mock_gen_html.return_value = Path("concept_graph.html")
 
-        result = runner.invoke(app, [
-            "concepts", "graph",
-            "--output", str(output_file),
-            "--format", "dot",
-        ])
+        result = runner.invoke(app, ["concepts", "graph"])
 
         assert result.exit_code == 0
-        assert output_file.exists()
-        content = output_file.read_text()
-        assert "digraph" in content
+        # Verify generate_html_graph was called with the default path
+        call_kwargs = mock_gen_html.call_args
+        assert call_kwargs[1]["output_path"] == Path("concept_graph.html") or \
+               call_kwargs.kwargs.get("output_path") == Path("concept_graph.html")
 
     @patch("src.cli.commands.concepts.get_store")
-    def test_graph_with_custom_title(self, mock_get_store, mock_store):
-        """Should use custom title."""
+    @patch("src.cli.graph_viz.generate_html_graph")
+    def test_graph_with_custom_title(self, mock_gen_html, mock_get_store, mock_store, tmp_path):
+        """Should pass custom title to generate_html_graph."""
         mock_get_store.return_value = mock_store
+        mock_gen_html.return_value = tmp_path / "graph.html"
 
         result = runner.invoke(app, [
             "concepts", "graph",
+            "--output", str(tmp_path / "graph.html"),
             "--title", "My Custom Graph",
         ])
 
         assert result.exit_code == 0
-        assert "My Custom Graph" in result.output
+        # Verify title was passed through
+        call_kwargs = mock_gen_html.call_args
+        assert call_kwargs[1].get("title") == "My Custom Graph" or \
+               call_kwargs.kwargs.get("title") == "My Custom Graph"
 
     @patch("src.cli.commands.concepts.get_store")
-    def test_graph_shows_empty_message_when_no_concepts(self, mock_get_store):
-        """Should handle no concepts gracefully."""
+    def test_graph_shows_error_when_no_concepts(self, mock_get_store):
+        """Should show error and exit 1 when no concepts found."""
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = []
         mock_get_store.return_value = mock_store
 
         result = runner.invoke(app, ["concepts", "graph"])
 
-        assert result.exit_code == 0
-        assert "No concepts found" in result.output
-
-    @patch("src.cli.commands.concepts.get_store")
-    @patch("src.cli.graph_viz.render_graph")
-    def test_graph_renders_png(self, mock_render, mock_get_store, mock_store, tmp_path):
-        """Should render PNG when format is png."""
-        mock_get_store.return_value = mock_store
-        output_file = tmp_path / "graph.png"
-        mock_render.return_value = output_file
-
-        result = runner.invoke(app, [
-            "concepts", "graph",
-            "--output", str(tmp_path / "graph"),
-            "--format", "png",
-        ])
-
-        assert result.exit_code == 0
-        mock_render.assert_called_once()
-
-    @patch("src.cli.commands.concepts.get_store")
-    def test_graph_handles_import_error(self, mock_get_store, mock_store, tmp_path):
-        """Should show helpful message when graphviz not installed."""
-        mock_get_store.return_value = mock_store
-
-        with patch("src.cli.graph_viz.render_graph") as mock_render:
-            mock_render.side_effect = ImportError("graphviz not installed")
-
-            result = runner.invoke(app, [
-                "concepts", "graph",
-                "--output", str(tmp_path / "graph"),
-                "--format", "png",
-            ])
-
         assert result.exit_code == 1
-        # Should show helpful message about installing graphviz
+        assert "No concepts found" in result.output
 
 
 class TestExportCommand:

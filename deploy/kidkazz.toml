@@ -1,0 +1,20 @@
+# Container-specific config for Fly.io deployment.
+# API keys come from Fly secrets (env vars), not this file.
+
+[storage]
+store_type = "helix"
+helix_port = 6969
+helix_local = true
+
+[embeddings]
+embedder_type = "cohere"
+model_name = "embed-v4.0"
+
+[reranker]
+enabled = true
+model = "rerank-v3.5"
+
+[server]
+transport = "streamable-http"
+host = "0.0.0.0"
+port = 8080

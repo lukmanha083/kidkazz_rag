@@ -28,6 +28,12 @@ def main() -> None:
     logger.info(f"Store type: {config.store_type}")
     logger.info(f"Embedder type: {config.embedder_type}")
     logger.info(f"Model name: {config.model_name}")
+    logger.info(f"Transport: {config.transport}")
+
+    if config.transport != "stdio":
+        logger.info(f"HTTP endpoint: http://{config.host}:{config.port}/mcp")
+        logger.info(f"Health check: http://{config.host}:{config.port}/health")
+        logger.info(f"Auth: {'enabled' if config.api_key else 'disabled'}")
 
     # Run the server
     run_server(config)

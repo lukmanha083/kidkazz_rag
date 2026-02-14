@@ -22,6 +22,10 @@ class TestMCPServerConfig:
         assert config.model_name == "text-embedding-3-small"
         assert config.cache_dir is None
         assert config.log_level == "INFO"
+        assert config.transport == "stdio"
+        assert config.host == "0.0.0.0"
+        assert config.port == 8080
+        assert config.api_key is None
 
     def test_custom_values(self):
         """Test configuration with custom values."""
@@ -90,6 +94,56 @@ model_name = "test-model"
 
         assert isinstance(embedder, MockEmbedder)
         assert embedder.model_name == config.model_name
+
+    def test_transport_from_env(self):
+        """Test transport config from environment variables."""
+        env = {
+            "KIDKAZZ_TRANSPORT": "streamable-http",
+            "KIDKAZZ_HOST": "127.0.0.1",
+            "KIDKAZZ_PORT": "9090",
+            "KIDKAZZ_API_KEY": "test-secret-key",
+        }
+        with patch("src.mcp_server.config.Path.cwd", return_value=Path("/nonexistent")), \
+             patch("src.mcp_server.config.Path.home", return_value=Path("/nonexistent")), \
+             patch.dict(os.environ, env, clear=True):
+            config = MCPServerConfig.from_env()
+            assert config.transport == "streamable-http"
+            assert config.host == "127.0.0.1"
+            assert config.port == 9090
+            assert config.api_key == "test-secret-key"
+
+    def test_transport_from_toml(self, tmp_path):
+        """Test transport config from [server] section in .kidkazz.toml."""
+        toml_content = b"""
+[server]
+transport = "streamable-http"
+host = "0.0.0.0"
+port = 8888
+api_key = "toml-key"
+"""
+        (tmp_path / ".kidkazz.toml").write_bytes(toml_content)
+        with patch("src.mcp_server.config.Path.cwd", return_value=tmp_path), \
+             patch.dict(os.environ, {}, clear=True):
+            config = MCPServerConfig.from_env()
+            assert config.transport == "streamable-http"
+            assert config.host == "0.0.0.0"
+            assert config.port == 8888
+            assert config.api_key == "toml-key"
+
+    def test_env_overrides_toml_transport(self, tmp_path):
+        """Test env vars override TOML [server] settings."""
+        toml_content = b"""
+[server]
+transport = "stdio"
+port = 8888
+"""
+        (tmp_path / ".kidkazz.toml").write_bytes(toml_content)
+        env = {"KIDKAZZ_TRANSPORT": "streamable-http", "KIDKAZZ_PORT": "9999"}
+        with patch("src.mcp_server.config.Path.cwd", return_value=tmp_path), \
+             patch.dict(os.environ, env, clear=True):
+            config = MCPServerConfig.from_env()
+            assert config.transport == "streamable-http"
+            assert config.port == 9999
 
 
 class TestLazyEmbedder:

@@ -278,6 +278,71 @@ kidkazz config set store_type helix
 kidkazz config set helix_port 6969
 ```
 
+## Remote Deployment (Fly.io)
+
+Deploy the MCP server + Helix-DB to Fly.io for remote access from any machine. Uses scale-to-zero to minimize costs (~$2.45/mo for 2hrs/day usage).
+
+### Prerequisites
+
+1. [Fly.io CLI](https://fly.io/docs/flyctl/install/) installed and authenticated
+2. Helix-DB image built locally (`kidkazz db deploy` must have run at least once)
+3. Data already ingested into local Helix-DB
+
+### Deploy
+
+```bash
+# 1. Create Fly app + volume (first time only)
+fly apps create kidkazz-rag
+fly volumes create kidkazz_data --region sin --size 1
+
+# 2. Set secrets (API keys)
+fly secrets set \
+  CO_API_KEY=your_cohere_key \
+  OPENAI_API_KEY=your_openai_key \
+  KIDKAZZ_API_KEY=your_secret_mcp_auth_key
+
+# 3. Build and deploy (uses local Docker)
+fly deploy --local-only
+```
+
+### Claude Code Config (Remote HTTP)
+
+Add to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "kidkazz-rag": {
+      "type": "streamable-http",
+      "url": "https://kidkazz-rag.fly.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer your_secret_mcp_auth_key"
+      }
+    }
+  }
+}
+```
+
+### Scale-to-Zero Behavior
+
+- **Idle**: Fly stops the machine after 5 minutes of no HTTP traffic
+- **Cold start**: ~10-15s (Helix-DB startup + MCP server init)
+- **Persistent data**: Fly volume at `/data` preserves Helix-DB across restarts
+- **Health checks**: `/health` endpoint (public, no auth required)
+
+### Data Migration
+
+To copy local Helix-DB data to Fly volume:
+
+```bash
+# SSH into the Fly machine
+fly ssh console
+
+# Or use fly sftp to copy LMDB files
+fly ssh sftp shell
+> put .helix/.volumes/dev/user /data/user
+```
+
 ## MCP Tools Available
 
 When connected via MCP, Claude Code can use:
@@ -346,6 +411,10 @@ KIDKAZZ_STORE_TYPE=mock|helix
 KIDKAZZ_HELIX_PORT=6969
 KIDKAZZ_EMBEDDER_TYPE=cohere|openai|mock
 KIDKAZZ_MODEL_NAME=embed-v4.0
+KIDKAZZ_TRANSPORT=stdio|streamable-http
+KIDKAZZ_HOST=0.0.0.0
+KIDKAZZ_PORT=8080
+KIDKAZZ_API_KEY=your_key     # MCP HTTP auth (Bearer token)
 REDUCTO_API_KEY=your_key
 CO_API_KEY=your_key          # Cohere (embeddings + reranking)
 OPENAI_API_KEY=your_key      # OpenAI (optional, for summarization LLM)

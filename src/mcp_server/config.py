@@ -23,6 +23,10 @@ class MCPServerConfig:
         model_name: Name of embedding model
         cache_dir: Optional cache directory for embeddings
         log_level: Logging level (default: INFO)
+        transport: MCP transport - "stdio" or "streamable-http"
+        host: Bind address for HTTP transport
+        port: Listen port for HTTP transport
+        api_key: API key for HTTP transport authentication (None = no auth)
     """
 
     store_type: Literal["mock", "helix"] = "mock"
@@ -34,6 +38,10 @@ class MCPServerConfig:
     log_level: str = "INFO"
     reranker_enabled: bool = False
     reranker_model: str = "rerank-v3.5"
+    transport: Literal["stdio", "streamable-http"] = "stdio"
+    host: str = "0.0.0.0"
+    port: int = 8080
+    api_key: Optional[str] = None
 
     def create_store(self) -> Any:
         """Create storage instance based on configuration.
@@ -128,6 +136,25 @@ class MCPServerConfig:
         storage = config_data.get("storage", {})
         embeddings = config_data.get("embeddings", {})
         reranker = config_data.get("reranker", {})
+        server = config_data.get("server", {})
+
+        # Transport config: env vars > TOML [server] > defaults
+        transport = os.getenv(
+            "KIDKAZZ_TRANSPORT",
+            server.get("transport", "stdio"),
+        )
+        host = os.getenv(
+            "KIDKAZZ_HOST",
+            server.get("host", "0.0.0.0"),
+        )
+        port = int(os.getenv(
+            "KIDKAZZ_PORT",
+            str(server.get("port", 8080)),
+        ))
+        api_key = os.getenv(
+            "KIDKAZZ_API_KEY",
+            server.get("api_key"),
+        )
 
         return cls(
             store_type=storage.get("store_type", "mock"),  # type: ignore
@@ -139,6 +166,10 @@ class MCPServerConfig:
             log_level=os.getenv("KIDKAZZ_LOG_LEVEL", "INFO"),
             reranker_enabled=reranker.get("enabled", False),
             reranker_model=reranker.get("model", "rerank-v3.5"),
+            transport=transport,  # type: ignore
+            host=host,
+            port=port,
+            api_key=api_key,
         )
 
 

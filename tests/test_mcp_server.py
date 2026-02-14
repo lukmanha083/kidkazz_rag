@@ -61,9 +61,11 @@ class TestCreateServerWithoutMCP:
 class TestRunServer:
     """Tests for run_server function."""
 
-    def test_run_server_calls_run(self):
-        """Test run_server calls mcp.run()."""
-        config = MCPServerConfig(store_type="mock", embedder_type="mock")
+    def test_run_server_calls_run_stdio(self):
+        """Test run_server calls mcp.run() for stdio transport."""
+        config = MCPServerConfig(
+            store_type="mock", embedder_type="mock", transport="stdio"
+        )
 
         with patch("src.mcp_server.server.create_server") as mock_create:
             mock_mcp = MagicMock()
@@ -71,7 +73,43 @@ class TestRunServer:
 
             run_server(config)
 
-            mock_mcp.run.assert_called_once()
+            mock_mcp.run.assert_called_once_with()
+
+    def test_run_server_http_without_auth(self):
+        """Test run_server calls mcp.run(transport='streamable-http') without auth."""
+        config = MCPServerConfig(
+            store_type="mock",
+            embedder_type="mock",
+            transport="streamable-http",
+            api_key=None,
+        )
+
+        with patch("src.mcp_server.server.create_server") as mock_create:
+            mock_mcp = MagicMock()
+            mock_create.return_value = mock_mcp
+
+            run_server(config)
+
+            mock_mcp.run.assert_called_once_with(transport="streamable-http")
+
+    def test_run_server_http_with_auth(self):
+        """Test run_server uses _run_http_with_auth when api_key is set."""
+        config = MCPServerConfig(
+            store_type="mock",
+            embedder_type="mock",
+            transport="streamable-http",
+            api_key="secret123",
+        )
+
+        with patch("src.mcp_server.server.create_server") as mock_create, \
+             patch("src.mcp_server.server._run_http_with_auth") as mock_auth:
+            mock_mcp = MagicMock()
+            mock_create.return_value = mock_mcp
+
+            run_server(config)
+
+            mock_auth.assert_called_once_with(mock_mcp, config)
+            mock_mcp.run.assert_not_called()
 
 
 class TestServerIntegration:
@@ -117,3 +155,43 @@ class TestServerIntegration:
         # Create server - this doesn't force loading
         server = create_server(state=state)
         assert server is not None
+
+    def test_creates_server_with_http_transport(self):
+        """Test create_server configures host/port for HTTP transport."""
+        config = MCPServerConfig(
+            store_type="mock",
+            embedder_type="mock",
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=9090,
+        )
+        server = create_server(config)
+        assert server is not None
+        # Verify settings were applied
+        assert server.settings.host == "0.0.0.0"
+        assert server.settings.port == 9090
+
+    def test_health_check_registered_for_http(self):
+        """Test /health route exists in the Starlette app for HTTP transport."""
+        config = MCPServerConfig(
+            store_type="mock",
+            embedder_type="mock",
+            transport="streamable-http",
+        )
+        server = create_server(config)
+        # Custom routes are stored on the FastMCP instance
+        assert hasattr(server, "_custom_starlette_routes")
+        route_paths = [r.path for r in server._custom_starlette_routes]
+        assert "/health" in route_paths
+
+    def test_no_health_check_for_stdio(self):
+        """Test /health route is NOT registered for stdio transport."""
+        config = MCPServerConfig(
+            store_type="mock",
+            embedder_type="mock",
+            transport="stdio",
+        )
+        server = create_server(config)
+        if hasattr(server, "_custom_starlette_routes"):
+            route_paths = [r.path for r in server._custom_starlette_routes]
+            assert "/health" not in route_paths

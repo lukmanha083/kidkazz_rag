@@ -1,0 +1,27 @@
+app = "kidkazz-rag"
+primary_region = "sin"
+
+[build]
+  dockerfile = "deploy/Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  force_https = true
+
+  [http_service.checks.health]
+    path = "/health"
+    grace_period = "30s"
+    interval = "30s"
+    timeout = "5s"
+
+[mounts]
+  source = "kidkazz_data"
+  destination = "/data"
+  initial_size = 1
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
