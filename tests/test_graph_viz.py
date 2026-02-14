@@ -183,26 +183,6 @@ class TestConceptColors:
             assert len(color) == 7, f"Color for {concept_type} should be #RRGGBB"
 
 
-class TestRelationStyles:
-    """Tests for RELATION_STYLES constant."""
-
-    def test_has_common_relation_types(self):
-        """Should have styles for common relation types."""
-        from src.cli.graph_viz import RELATION_STYLES
-
-        expected_types = ["uses", "requires", "calculated_from", "component_of"]
-        for rel_type in expected_types:
-            assert rel_type in RELATION_STYLES, f"Missing style for {rel_type}"
-
-    def test_styles_have_required_keys(self):
-        """Each style should have style and color keys."""
-        from src.cli.graph_viz import RELATION_STYLES
-
-        for rel_type, style in RELATION_STYLES.items():
-            assert "style" in style, f"Missing 'style' key for {rel_type}"
-            assert "color" in style, f"Missing 'color' key for {rel_type}"
-
-
 class TestRenderGraph:
     """Tests for render_graph function."""
 
@@ -270,45 +250,44 @@ class TestGenerateConceptGraph:
         assert "No concepts found" in dot
         assert path is None
 
-    def test_generates_dot_from_store_concepts(self):
-        """Should generate DOT from stored concepts."""
+    def test_generates_dot_from_store_concepts_single_doc(self):
+        """Should generate DOT for single-doc concepts (no cross-doc view)."""
         from src.cli.graph_viz import generate_concept_graph
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
-            {"concept_id": "fifo", "name": "FIFO", "concept_type": "method", "aliases": "[]"},
-            {"concept_id": "lifo", "name": "LIFO", "concept_type": "method", "aliases": "[]"},
+            {"concept_id": "fifo", "name": "FIFO", "concept_type": "method", "aliases": "[]",
+             "source_documents": '["book_a"]'},
+            {"concept_id": "lifo", "name": "LIFO", "concept_type": "method", "aliases": "[]",
+             "source_documents": '["book_a"]'},
         ]
-        mock_store.get_related_concepts.return_value = []
 
         dot, path = generate_concept_graph(mock_store)
 
-        assert "digraph ConceptGraph" in dot
+        assert "digraph" in dot
         assert "fifo" in dot.lower()
         assert "lifo" in dot.lower()
         assert path is None
 
-    def test_includes_relations_from_store(self):
-        """Should include relations from store."""
+    def test_cross_document_shared_concepts(self):
+        """Should show shared concepts as bridges between documents."""
         from src.cli.graph_viz import generate_concept_graph
-        from src.storage.queries import QueryResult
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
-            {"concept_id": "cogs", "name": "COGS", "concept_type": "formula", "aliases": "[]", "id": "internal_cogs"},
-            {"concept_id": "fifo", "name": "FIFO", "concept_type": "method", "aliases": "[]", "id": "internal_fifo"},
-        ]
-        # _execute_query is called per concept with GetRelatedConcepts
-        # COGS -> FIFO, FIFO -> nothing
-        mock_store._execute_query.side_effect = [
-            QueryResult(success=True, data=[{"name": "FIFO", "concept_id": "fifo"}]),
-            QueryResult(success=True, data=[]),
+            {"concept_id": "safety-stock", "name": "Safety Stock", "concept_type": "term",
+             "aliases": "[]", "source_documents": '["book_accounting", "book_warehouse"]'},
+            {"concept_id": "cogs", "name": "COGS", "concept_type": "formula",
+             "aliases": "[]", "source_documents": '["book_accounting"]'},
         ]
 
         dot, path = generate_concept_graph(mock_store)
 
-        assert '"cogs" -> "fifo"' in dot
-        assert 'label="relates_to"' in dot
+        assert "CrossDocumentGraph" in dot
+        assert "safety_stock" in dot.lower()
+        # Shared concept should have edges to both documents
+        assert "book_accounting" in dot.lower().replace("-", "_").replace(" ", "_")
+        assert "book_warehouse" in dot.lower().replace("-", "_").replace(" ", "_")
 
     def test_filters_by_doc_id(self):
         """Should filter concepts by doc_id."""
@@ -324,13 +303,12 @@ class TestGenerateConceptGraph:
     def test_writes_dot_file_when_format_is_dot(self, tmp_path):
         """Should write DOT file when format is 'dot'."""
         from src.cli.graph_viz import generate_concept_graph
-        from src.storage.queries import QueryResult
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
-            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]", "id": "internal_test"},
+            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]",
+             "source_documents": '["doc_a"]'},
         ]
-        mock_store._execute_query.return_value = QueryResult(success=True, data=[])
 
         output_path = tmp_path / "graph.dot"
         dot, path = generate_concept_graph(
@@ -349,9 +327,9 @@ class TestGenerateConceptGraph:
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
-            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]"},
+            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]",
+             "source_documents": '["doc_a"]'},
         ]
-        mock_store.get_related_concepts.return_value = []
 
         dot, _ = generate_concept_graph(mock_store, title="Custom Title")
 
@@ -363,23 +341,23 @@ class TestGenerateConceptGraph:
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
-            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]"},
+            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]",
+             "source_documents": '["inventory_textbook"]'},
         ]
-        mock_store.get_related_concepts.return_value = []
 
         dot, _ = generate_concept_graph(mock_store, doc_id="inventory_textbook")
 
-        assert "inventory_textbook" in dot
+        assert "inventory" in dot.lower()
 
     def test_auto_title_without_doc_id(self):
-        """Should use 'Knowledge Graph' as default title."""
+        """Should use 'Knowledge Graph' as default title when no shared concepts."""
         from src.cli.graph_viz import generate_concept_graph
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
-            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]"},
+            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]",
+             "source_documents": '["doc_a"]'},
         ]
-        mock_store.get_related_concepts.return_value = []
 
         dot, _ = generate_concept_graph(mock_store)
 

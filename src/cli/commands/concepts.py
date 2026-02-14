@@ -356,14 +356,22 @@ def graph_concepts(
         "-v",
         help="Open rendered graph after creation",
     ),
+    min_docs: int = typer.Option(
+        2,
+        "--min-docs",
+        help="Minimum number of documents a concept must appear in (default: 2)",
+    ),
 ) -> None:
     """
-    Generate a visualization of concept relationships.
+    Generate a cross-document concept graph.
+
+    Shows concepts shared between multiple textbooks as bridge nodes,
+    revealing cross-discipline connections.
 
     Examples:
-        kidkazz concepts graph                      # All concepts to stdout (DOT)
-        kidkazz concepts graph inventory            # Concepts from inventory doc
-        kidkazz concepts graph -o graph.png         # Save to file
+        kidkazz concepts graph -o graph.png         # Shared concepts across all docs
+        kidkazz concepts graph -o graph.png --min-docs 3  # Only in 3+ books
+        kidkazz concepts graph inventory            # All concepts from one doc
         kidkazz concepts graph -f dot -o graph.dot  # Export as DOT
         kidkazz concepts graph --view               # Render and open
     """
@@ -380,6 +388,7 @@ def graph_concepts(
             output_path=output,
             output_format=format,
             title=title,
+            min_docs=min_docs,
         )
 
         if output:
