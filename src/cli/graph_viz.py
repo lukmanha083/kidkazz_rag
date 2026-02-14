@@ -472,7 +472,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
   /* Graph area */
   #graph-container {{ flex: 1; position: relative; background: #0f0f1a; }}
-  #network {{ width: 100%; height: 100%; }}
+  #network {{ width: 100%; height: 100%; cursor: grab; }}
+  #network:active {{ cursor: grabbing; }}
 
   /* Zoom controls */
   #zoom-controls {{ position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 6px; z-index: 50; }}
