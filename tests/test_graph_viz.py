@@ -170,7 +170,11 @@ class TestConceptColors:
         """Should have colors for all concept types."""
         from src.cli.graph_viz import CONCEPT_COLORS
 
-        expected_types = ["term", "method", "principle", "formula", "account"]
+        expected_types = [
+            "term", "method", "principle", "formula", "account",
+            "metric", "framework", "process", "model", "tool",
+            "theory", "system", "practice", "parameter", "procedure", "function",
+        ]
         for concept_type in expected_types:
             assert concept_type in CONCEPT_COLORS, f"Missing color for {concept_type}"
 
@@ -692,6 +696,19 @@ class TestGenerateHtmlGraph:
 
         content = output.read_text()
         assert 'id="stats"' in content
+
+    def test_contains_zoom_controls(self, tmp_path):
+        """Should include zoom +/- and fit buttons."""
+        from src.cli.graph_viz import generate_html_graph
+
+        output = tmp_path / "graph.html"
+        generate_html_graph(_make_concepts(), output)
+
+        content = output.read_text()
+        assert 'id="zoom-controls"' in content
+        assert 'id="zoom-in"' in content
+        assert 'id="zoom-out"' in content
+        assert 'id="zoom-fit"' in content
 
 
 class TestGenerateConceptGraphHtmlFormat:
