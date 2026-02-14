@@ -111,9 +111,10 @@ class TestEndToEndPipeline:
         mock_store.store_document("ml_doc", "ML Guide", embedded_chunks, metadata)
 
         # Search - with mock embeddings, we just verify search returns results
-        # (mock embeddings are random, so semantic matching is not meaningful)
+        # (mock embeddings use hash() which varies with PYTHONHASHSEED,
+        # so use threshold=-1.0 to include all results regardless of similarity)
         query = mock_embedder.embed_text("classification discrete label prediction")
-        results = mock_store.search_similar(query, top_k=3)
+        results = mock_store.search_similar(query, top_k=3, threshold=-1.0)
 
         # Verify search infrastructure works
         assert len(results) > 0
@@ -122,7 +123,7 @@ class TestEndToEndPipeline:
             assert hasattr(ec, "chunk")
             assert hasattr(ec, "embedding")
             assert isinstance(score, float)
-            assert 0.0 <= score <= 1.0
+            assert -1.0 <= score <= 1.0
 
     def test_graph_traversal_after_storage(
         self, sample_markdown, mock_store, mock_embedder
