@@ -336,13 +336,7 @@ def graph_concepts(
         None,
         "--output",
         "-o",
-        help="Output file path",
-    ),
-    format: str = typer.Option(
-        "png",
-        "--format",
-        "-f",
-        help="Output format: dot, png, svg, pdf, html",
+        help="Output HTML file path (default: concept_graph.html)",
     ),
     title: Optional[str] = typer.Option(
         None,
@@ -354,7 +348,7 @@ def graph_concepts(
         False,
         "--view",
         "-v",
-        help="Open rendered graph after creation",
+        help="Open graph in browser after creation",
     ),
     min_docs: int = typer.Option(
         2,
@@ -363,18 +357,16 @@ def graph_concepts(
     ),
 ) -> None:
     """
-    Generate a cross-document concept graph.
+    Generate an interactive cross-document concept graph (HTML).
 
-    Shows concepts shared between multiple textbooks as bridge nodes,
-    revealing cross-discipline connections.
+    Opens a standalone HTML file with a zoomable, searchable, filterable
+    vis-network graph showing concepts shared between textbooks.
 
     Examples:
-        kidkazz concepts graph -o graph.png         # Shared concepts across all docs
-        kidkazz concepts graph -o graph.png --min-docs 3  # Only in 3+ books
-        kidkazz concepts graph inventory            # All concepts from one doc
-        kidkazz concepts graph -f dot -o graph.dot  # Export as DOT
-        kidkazz concepts graph -f html -o graph.html --view  # Interactive HTML
-        kidkazz concepts graph --view               # Render and open
+        kidkazz concepts graph --view               # Generate and open in browser
+        kidkazz concepts graph -o graph.html --view  # Custom output path
+        kidkazz concepts graph --min-docs 3 --view   # Only in 3+ books
+        kidkazz concepts graph inventory --view       # Single document view
     """
     import logging
     import time as _time
@@ -388,66 +380,37 @@ def graph_concepts(
     store = get_store(config)
     logger.info("Store connected in %.2fs", _time.perf_counter() - t0)
 
-    # Auto-default output path for HTML format
-    if format == "html" and output is None:
+    if output is None:
         output = Path("concept_graph.html")
 
     try:
         from ..graph_viz import generate_concept_graph
 
-        # Fetch concepts
         t1 = _time.perf_counter()
         logger.info("Fetching concepts (doc_id=%s)...", doc_id)
 
-        # Generate graph
-        dot_content, rendered_path = generate_concept_graph(
+        _, rendered_path = generate_concept_graph(
             store=store,
             doc_id=doc_id,
             output_path=output,
-            output_format=format,
+            output_format="html",
             title=title,
             min_docs=min_docs,
         )
         logger.info(
-            "Graph generated in %.2fs (format=%s, output=%s)",
-            _time.perf_counter() - t1, format, rendered_path,
+            "Graph generated in %.2fs (output=%s)",
+            _time.perf_counter() - t1, rendered_path,
         )
 
-        if output:
-            if rendered_path:
-                print_success(f"Graph saved to: {rendered_path}")
+        if rendered_path:
+            print_success(f"Graph saved to: {rendered_path}")
 
-                # Open if requested
-                if view:
-                    if format == "html":
-                        import webbrowser
-                        webbrowser.open(str(rendered_path.resolve()))
-                    else:
-                        import platform
-                        import subprocess
-
-                        if platform.system() == "Darwin":
-                            subprocess.run(["open", str(rendered_path)])
-                        elif platform.system() == "Linux":
-                            subprocess.run(["xdg-open", str(rendered_path)])
-                        elif platform.system() == "Windows":
-                            import os
-                            os.startfile(str(rendered_path))
-            else:
-                print_error("Failed to render graph")
-                raise typer.Exit(1)
+            if view:
+                import webbrowser
+                webbrowser.open(str(rendered_path.resolve()))
         else:
-            # Print DOT to stdout if no output specified
-            console.print(dot_content)
-
-    except ImportError as e:
-        print_error(str(e))
-        print_warning("For PNG/SVG output, install graphviz:")
-        print_warning("  pip install 'kidkazz[concepts]'")
-        print_warning("  # Also install system graphviz:")
-        print_warning("  # macOS: brew install graphviz")
-        print_warning("  # Ubuntu: apt install graphviz")
-        raise typer.Exit(1)
+            print_error("No concepts found to graph")
+            raise typer.Exit(1)
 
     except Exception as e:
         print_error(f"Failed to generate graph: {e}")
