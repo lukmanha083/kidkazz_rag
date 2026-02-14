@@ -1,9 +1,13 @@
 """Graph visualization for concept relationships."""
 
 import json
+import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 def _get_graphviz():
     """Lazy import graphviz."""
@@ -195,49 +199,39 @@ def generate_concept_graph(
     if not concepts:
         return 'digraph Empty { label="No concepts found"; }', None
 
-    # Get relations by traversing each concept
+    # Get relations by traversing each concept (parallelized)
     relations: list[tuple[str, str, str]] = []
     seen_relations: set[tuple[str, str]] = set()
 
-    # Build a concept lookup by internal ID for resolving edge targets
-    concept_lookup = {c.get("id"): c for c in concepts if c.get("id")}
+    # Build lookups by internal ID and slug for resolving edge targets
+    concept_lookup = {str(c.get("id")): c for c in concepts if c.get("id")}
     concept_lookup_by_slug = {c.get("concept_id"): c for c in concepts if c.get("concept_id")}
 
-    for concept in concepts:
-        concept_id = concept.get("concept_id")
+    # Use internal IDs directly to avoid per-concept get_concept() lookups
+    from src.storage.queries import GetRelatedConcepts
+
+    def _fetch_relations(concept: dict) -> list[tuple[str, str, str]]:
+        """Fetch relations for one concept (1 HTTP call using internal ID)."""
         from_name = concept.get("name")
+        internal_id = concept.get("id")
+        if not from_name or not internal_id:
+            return []
 
-        # Try to get relations with types first
-        if hasattr(store, 'get_related_concepts_with_types'):
-            edges = store.get_related_concepts_with_types(concept_id)
-            for edge in edges:
-                # New format: {"concept": target_concept_dict, "relation_type": "uses"}
-                relation_type = edge.get("relation_type", "relates_to")
-
-                # Get target concept from 'concept' key (new format)
-                # or fallback to old format for backwards compatibility
-                target = edge.get("concept") or edge.get("to") or edge.get("To") or edge.get("target")
-                if isinstance(target, dict):
-                    to_name = target.get("name")
-                elif isinstance(target, str):
-                    # It's an ID - look up the concept
-                    target_concept = concept_lookup.get(target) or concept_lookup_by_slug.get(target)
-                    to_name = target_concept.get("name") if target_concept else None
-                else:
-                    to_name = None
-
-                if from_name and to_name:
-                    relation_key = (from_name, to_name)
-                    if relation_key not in seen_relations:
-                        seen_relations.add(relation_key)
-                        relations.append((from_name, to_name, relation_type))
-        else:
-            # Fallback to legacy method without types
-            related = store.get_related_concepts(concept_id)
-            for rel_concept in related:
+        query = GetRelatedConcepts(str(internal_id))
+        result = store._execute_query(query)
+        edges = []
+        if result.success and result.data:
+            for rel_concept in result.data:
                 to_name = rel_concept.get("name")
-                relation_type = "relates_to"
+                if to_name:
+                    edges.append((from_name, to_name, "relates_to"))
+        return edges
 
+    logger.info(f"Fetching relations for {len(concepts)} concepts...")
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futures = {pool.submit(_fetch_relations, c): c for c in concepts}
+        for future in as_completed(futures):
+            for from_name, to_name, relation_type in future.result():
                 relation_key = (from_name, to_name)
                 if relation_key not in seen_relations:
                     seen_relations.add(relation_key)

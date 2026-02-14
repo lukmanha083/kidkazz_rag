@@ -291,22 +291,24 @@ class TestGenerateConceptGraph:
     def test_includes_relations_from_store(self):
         """Should include relations from store."""
         from src.cli.graph_viz import generate_concept_graph
+        from src.storage.queries import QueryResult
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
             {"concept_id": "cogs", "name": "COGS", "concept_type": "formula", "aliases": "[]", "id": "internal_cogs"},
             {"concept_id": "fifo", "name": "FIFO", "concept_type": "method", "aliases": "[]", "id": "internal_fifo"},
         ]
-        # Mock the new method that returns edges with relation_type
-        mock_store.get_related_concepts_with_types.side_effect = [
-            [{"relation_type": "uses", "to": {"name": "FIFO", "concept_id": "fifo"}}],  # COGS uses FIFO
-            [],  # FIFO has no relations
+        # _execute_query is called per concept with GetRelatedConcepts
+        # COGS -> FIFO, FIFO -> nothing
+        mock_store._execute_query.side_effect = [
+            QueryResult(success=True, data=[{"name": "FIFO", "concept_id": "fifo"}]),
+            QueryResult(success=True, data=[]),
         ]
 
         dot, path = generate_concept_graph(mock_store)
 
         assert '"cogs" -> "fifo"' in dot
-        assert 'label="uses"' in dot  # Check relation type is included
+        assert 'label="relates_to"' in dot
 
     def test_filters_by_doc_id(self):
         """Should filter concepts by doc_id."""
@@ -314,7 +316,6 @@ class TestGenerateConceptGraph:
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = []
-        mock_store.get_related_concepts.return_value = []
 
         generate_concept_graph(mock_store, doc_id="inventory")
 
@@ -323,12 +324,13 @@ class TestGenerateConceptGraph:
     def test_writes_dot_file_when_format_is_dot(self, tmp_path):
         """Should write DOT file when format is 'dot'."""
         from src.cli.graph_viz import generate_concept_graph
+        from src.storage.queries import QueryResult
 
         mock_store = MagicMock()
         mock_store.list_concepts.return_value = [
-            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]"},
+            {"concept_id": "test", "name": "Test", "concept_type": "term", "aliases": "[]", "id": "internal_test"},
         ]
-        mock_store.get_related_concepts.return_value = []
+        mock_store._execute_query.return_value = QueryResult(success=True, data=[])
 
         output_path = tmp_path / "graph.dot"
         dot, path = generate_concept_graph(
