@@ -3,9 +3,12 @@
 import logging
 import re
 import subprocess
+import tarfile
+import tempfile
 import time
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -985,3 +988,313 @@ def dedup_summaries(
             f"Deduplication complete: {total_summaries} -> {total_summaries - deleted} summaries "
             f"({deleted} duplicates removed)"
         )
+
+
+# --- Fly.io sync helpers ---
+
+
+def _check_fly_cli() -> str:
+    """Verify fly CLI is installed and return its path."""
+    try:
+        proc = subprocess.run(
+            ["fly", "version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode == 0:
+            return proc.stdout.strip()
+    except FileNotFoundError:
+        pass
+    raise FileNotFoundError(
+        "fly CLI not found. Install from https://fly.io/docs/flyctl/install/"
+    )
+
+
+def _get_fly_app(app_flag: Optional[str]) -> str:
+    """Resolve Fly app name: --app flag > fly.toml > error."""
+    if app_flag:
+        return app_flag
+
+    # Try fly.toml in project root
+    current = Path.cwd()
+    for parent in [current, *current.parents]:
+        fly_toml = parent / "fly.toml"
+        if fly_toml.exists():
+            text = fly_toml.read_text()
+            for line in text.splitlines():
+                line = line.strip()
+                if line.startswith("app") and "=" in line:
+                    # Parse: app = "kidkazz-rag"
+                    value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if value:
+                        return value
+
+    raise ValueError(
+        "Could not determine Fly app name. Use --app or add 'app' to fly.toml."
+    )
+
+
+def _get_local_data_dir() -> Path:
+    """Locate .helix/.volumes/dev/user/ (local LMDB data)."""
+    helix_dir = _find_helix_dir()
+    data_dir = helix_dir.parent / ".volumes" / "dev" / "user"
+    if not data_dir.is_dir():
+        raise FileNotFoundError(
+            f"Local Helix data not found at {data_dir}. "
+            "Run 'kidkazz db deploy' and ingest data first."
+        )
+    # Verify data.mdb exists
+    if not (data_dir / "data.mdb").exists():
+        raise FileNotFoundError(
+            f"No data.mdb in {data_dir}. Database appears empty."
+        )
+    return data_dir
+
+
+def _get_data_size(path: Path) -> str:
+    """Return human-readable total size of a directory."""
+    total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    if total >= 1024 * 1024 * 1024:
+        return f"{total / (1024 ** 3):.1f} GB"
+    if total >= 1024 * 1024:
+        return f"{total / (1024 ** 2):.1f} MB"
+    if total >= 1024:
+        return f"{total / 1024:.1f} KB"
+    return f"{total} B"
+
+
+@app.command("sync")
+def sync_to_fly(
+    app_name: Optional[str] = typer.Option(
+        None, "--app", "-a", help="Fly app name (default: from fly.toml)"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview sync plan without executing"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output as JSON"
+    ),
+) -> None:
+    """Sync local Helix-DB data to Fly.io volume.
+
+    Copies the local LMDB data files (.helix/.volumes/dev/user/) to the
+    Fly volume at /data/user/. The Fly machine is stopped during transfer
+    to ensure clean LMDB state.
+
+    This is a one-way push: local → remote. Ingestion and summarization
+    stay local; Fly only serves read-only MCP search queries.
+
+    Examples:
+        kidkazz db sync --dry-run         # Preview without syncing
+        kidkazz db sync                   # Sync using fly.toml app name
+        kidkazz db sync --app my-app      # Explicit app name
+    """
+    total_steps = 7
+
+    # Step 1: Locate local data
+    if not json_output:
+        console.print(f"[bold]Step 1/{total_steps}:[/bold] Locating local data...")
+    try:
+        data_dir = _get_local_data_dir()
+    except FileNotFoundError as e:
+        if json_output:
+            print_json({"status": "error", "error": str(e)})
+        else:
+            print_error(str(e))
+        raise typer.Exit(1)
+
+    data_size = _get_data_size(data_dir)
+
+    # Step 2: Check fly CLI
+    if not json_output:
+        console.print(f"[bold]Step 2/{total_steps}:[/bold] Checking fly CLI...")
+    try:
+        fly_version = _check_fly_cli()
+    except FileNotFoundError as e:
+        if json_output:
+            print_json({"status": "error", "error": str(e)})
+        else:
+            print_error(str(e))
+        raise typer.Exit(1)
+
+    # Step 3: Resolve app name
+    if not json_output:
+        console.print(f"[bold]Step 3/{total_steps}:[/bold] Resolving Fly app...")
+    try:
+        fly_app = _get_fly_app(app_name)
+    except ValueError as e:
+        if json_output:
+            print_json({"status": "error", "error": str(e)})
+        else:
+            print_error(str(e))
+        raise typer.Exit(1)
+
+    # Dry run: show plan and exit
+    if dry_run:
+        plan = {
+            "status": "dry_run",
+            "local_data": str(data_dir),
+            "data_size": data_size,
+            "fly_app": fly_app,
+            "fly_cli": fly_version,
+            "remote_path": "/data/user/",
+            "steps": [
+                "Stop Fly machine",
+                f"Tar local data ({data_size})",
+                "Upload tarball via fly ssh sftp",
+                "Extract on remote to /data/user/",
+                "Start Fly machine",
+                "Verify health check",
+            ],
+        }
+        if json_output:
+            print_json(plan)
+        else:
+            console.print(f"\n[bold]Sync plan:[/bold]")
+            console.print(f"  Local data: {data_dir}")
+            console.print(f"  Data size:  {data_size}")
+            console.print(f"  Fly app:    {fly_app}")
+            console.print(f"  Remote:     /data/user/")
+            console.print(f"  Fly CLI:    {fly_version}")
+            console.print()
+            for i, step in enumerate(plan["steps"], 1):
+                console.print(f"  {i}. {step}")
+            console.print(f"\n[yellow]Dry run — no changes made. "
+                          f"Run without --dry-run to sync.[/yellow]")
+        return
+
+    # Step 4: Stop Fly machine
+    if not json_output:
+        console.print(f"[bold]Step 4/{total_steps}:[/bold] Stopping Fly machine...")
+    proc = subprocess.run(
+        ["fly", "machine", "stop", "--app", fly_app],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        err = proc.stderr.strip() or proc.stdout.strip()
+        # Machine may already be stopped (scale-to-zero)
+        if "already" not in err.lower() and "no machines" not in err.lower():
+            if json_output:
+                print_json({"status": "error", "step": "stop_machine", "error": err})
+            else:
+                print_error(f"Failed to stop Fly machine: {err}")
+            raise typer.Exit(1)
+        if not json_output:
+            print_info("Machine already stopped (scale-to-zero)")
+    else:
+        if not json_output:
+            print_info("Machine stopped")
+
+    # Step 5: Tar local data
+    if not json_output:
+        console.print(f"[bold]Step 5/{total_steps}:[/bold] Creating tarball ({data_size})...")
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+        tarball_path = Path(tmp.name)
+    try:
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            # Add user/ directory (arcname ensures it extracts as user/)
+            tar.add(str(data_dir), arcname="user")
+        tarball_size = _get_data_size(tarball_path.parent / tarball_path.name)
+        if not json_output:
+            print_info(f"Tarball created: {tarball_size} (compressed)")
+
+        # Step 6: Upload and extract
+        if not json_output:
+            console.print(f"[bold]Step 6/{total_steps}:[/bold] Uploading to Fly...")
+
+        # Upload via fly ssh sftp
+        proc = subprocess.run(
+            ["fly", "ssh", "sftp", "shell", "--app", fly_app],
+            input=f"put {tarball_path} /tmp/helix-data.tar.gz\n",
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if proc.returncode != 0:
+            err = proc.stderr.strip() or proc.stdout.strip()
+            if json_output:
+                print_json({"status": "error", "step": "upload", "error": err})
+            else:
+                print_error(f"Upload failed: {err}")
+            raise typer.Exit(1)
+        if not json_output:
+            print_info("Upload complete")
+
+        # Extract on remote
+        proc = subprocess.run(
+            [
+                "fly", "ssh", "console", "--app", fly_app,
+                "-C", "tar xzf /tmp/helix-data.tar.gz -C /data/ && rm /tmp/helix-data.tar.gz",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            err = proc.stderr.strip() or proc.stdout.strip()
+            if json_output:
+                print_json({"status": "error", "step": "extract", "error": err})
+            else:
+                print_error(f"Remote extraction failed: {err}")
+            raise typer.Exit(1)
+        if not json_output:
+            print_info("Data extracted to /data/user/")
+
+    finally:
+        # Clean up local tarball
+        tarball_path.unlink(missing_ok=True)
+
+    # Step 7: Start machine and verify
+    if not json_output:
+        console.print(f"[bold]Step 7/{total_steps}:[/bold] Starting Fly machine...")
+    proc = subprocess.run(
+        ["fly", "machine", "start", "--app", fly_app],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        err = proc.stderr.strip() or proc.stdout.strip()
+        if not json_output:
+            print_warning(f"Could not start machine (may auto-start on request): {err}")
+
+    # Health check
+    if not json_output:
+        console.print("  Waiting for health check...")
+    app_url = f"https://{fly_app}.fly.dev/health"
+    healthy = False
+    for attempt in range(15):
+        try:
+            req = Request(app_url, method="GET")
+            with urlopen(req, timeout=10) as resp:
+                if resp.status == 200:
+                    healthy = True
+                    break
+        except (URLError, OSError):
+            pass
+        time.sleep(4)
+
+    result = {
+        "status": "synced" if healthy else "synced_no_health",
+        "fly_app": fly_app,
+        "data_size": data_size,
+        "local_data": str(data_dir),
+        "remote_path": "/data/user/",
+        "healthy": healthy,
+    }
+
+    if json_output:
+        print_json(result)
+    else:
+        if healthy:
+            print_success(f"Data synced to {fly_app} ({data_size})")
+            console.print(f"  Health check: {app_url} [green]OK[/green]")
+        else:
+            print_warning(
+                f"Data synced to {fly_app} ({data_size}) but health check timed out.\n"
+                f"  The machine may need a request to wake from scale-to-zero.\n"
+                f"  Try: curl {app_url}"
+            )
