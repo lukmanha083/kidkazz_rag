@@ -10,6 +10,7 @@ from src.distiller.distiller import (
     AgentIdentity,
     TextbookDistiller,
     ToolExampleSet,
+    _sanitize_filename,
     _slugify,
 )
 
@@ -364,3 +365,151 @@ class TestGetDocTitle:
     def test_returns_doc_id_when_not_found(self, mock_instructor, mock_store):
         distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
         assert distiller._get_doc_title("nonexistent") == "nonexistent"
+
+
+# ---------------------------------------------------------------------------
+# Tests: _slugify edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestSlugifyEdgeCases:
+    def test_empty_string_returns_unnamed(self):
+        assert _slugify("") == "unnamed"
+
+    def test_whitespace_only_returns_unnamed(self):
+        assert _slugify("   ") == "unnamed"
+
+    def test_only_special_chars_returns_unnamed(self):
+        assert _slugify("!!!@@@") == "unnamed"
+
+
+# ---------------------------------------------------------------------------
+# Tests: _sanitize_filename
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeFilename:
+    def test_normal_doc_id(self):
+        assert _sanitize_filename("my_book_123") == "my_book_123"
+
+    def test_path_traversal_stripped(self):
+        result = _sanitize_filename("../../etc/passwd")
+        assert ".." not in result
+        assert "/" not in result
+
+    def test_special_chars_replaced(self):
+        result = _sanitize_filename("book/with spaces & stuff")
+        assert "/" not in result
+        assert " " not in result
+
+    def test_truncation(self):
+        result = _sanitize_filename("a" * 200)
+        assert len(result) <= 100
+
+
+# ---------------------------------------------------------------------------
+# Tests: provider/model extraction
+# ---------------------------------------------------------------------------
+
+
+class TestProviderModel:
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_provider_extracted_from_slash_format(self, mock_instructor, mock_store, mock_identity):
+        distiller = TextbookDistiller(mock_store, provider="anthropic/claude-3-haiku")
+        result = distiller._assemble_config(
+            doc_id="test",
+            doc_title="Test",
+            identity=mock_identity,
+            examples=[],
+            ranked_concepts=[],
+            all_concepts=[],
+            chapter_summaries=[],
+            prerequisites=[],
+        )
+        assert result["provider"] == "anthropic"
+        assert result["model"] == "claude-3-haiku"
+
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_default_provider_when_no_slash(self, mock_instructor, mock_store, mock_identity):
+        distiller = TextbookDistiller(mock_store, provider="gpt-4o-mini")
+        result = distiller._assemble_config(
+            doc_id="test",
+            doc_title="Test",
+            identity=mock_identity,
+            examples=[],
+            ranked_concepts=[],
+            all_concepts=[],
+            chapter_summaries=[],
+            prerequisites=[],
+        )
+        assert result["provider"] == "openai"
+        assert result["model"] == "gpt-4o-mini"
+
+
+# ---------------------------------------------------------------------------
+# Tests: distill() entry point
+# ---------------------------------------------------------------------------
+
+
+class TestDistillEntryPoint:
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_raises_on_missing_summary(self, mock_instructor, mock_store):
+        """distill() should raise ValueError when no document summary exists."""
+        # Override to return empty for document level
+        mock_store.get_document_summaries.side_effect = lambda doc_id, level=None: []
+
+        distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
+        with pytest.raises(ValueError, match="No document-level summary"):
+            distiller.distill("test_book")
+
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", False)
+    def test_raises_on_missing_instructor(self, mock_store):
+        """distill() should raise ImportError when instructor is missing."""
+        # Need a store with valid data so we get past data gathering
+        mock_store.get_document_summaries.side_effect = lambda doc_id, level=None: {
+            "document": [{"summary_id": "s", "content": "test", "key_points": "[]"}],
+            "chapter": [],
+        }.get(level, [])
+
+        distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
+        with pytest.raises(ImportError, match="instructor is not installed"):
+            distiller.distill("test_book")
+
+
+# ---------------------------------------------------------------------------
+# Tests: _rank_concepts caches _related
+# ---------------------------------------------------------------------------
+
+
+class TestRankConceptsCaching:
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_related_data_cached_on_ranked_concepts(self, mock_instructor, mock_store):
+        """_rank_concepts should store _related so _build_prerequisites can reuse it."""
+        distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
+        concepts = mock_store.list_concepts.return_value
+        ranked = distiller._rank_concepts(concepts, top_k=5)
+
+        # All ranked concepts should have _related key
+        for c in ranked:
+            assert "_related" in c
+            assert isinstance(c["_related"], list)
+
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_build_prerequisites_uses_cached_related(self, mock_instructor, mock_store):
+        """_build_prerequisites should not call get_related_concepts_with_types."""
+        distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
+        concepts = mock_store.list_concepts.return_value
+        ranked = distiller._rank_concepts(concepts, top_k=5)
+
+        # Reset call count after ranking
+        mock_store.get_related_concepts_with_types.reset_mock()
+
+        distiller._build_prerequisites(ranked)
+
+        # Should not have made any additional calls
+        mock_store.get_related_concepts_with_types.assert_not_called()

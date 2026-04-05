@@ -131,14 +131,20 @@ class TextbookDistiller:
     """
 
     def __init__(self, store: Any, provider: str = "openai/gpt-4o-mini"):
+        self.store = store
+        self.provider = provider
+        self.client = None
+
+    def _ensure_instructor(self) -> None:
+        """Lazily initialize the instructor client, raising on missing dep."""
+        if self.client is not None:
+            return
         if not INSTRUCTOR_AVAILABLE or instructor is None:
             raise ImportError(
                 "instructor is not installed. "
                 "Install with: pip install 'kidkazz[concepts]'"
             )
-        self.store = store
-        self.provider = provider
-        self.client = instructor.from_provider(provider)
+        self.client = instructor.from_provider(self.provider)
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -181,6 +187,8 @@ class TextbookDistiller:
             len(concepts),
             len(chapter_summaries),
         )
+
+        self._ensure_instructor()
 
         # 2. Generate identity (LLM call 1)
         identity = self._generate_identity(
@@ -235,27 +243,40 @@ class TextbookDistiller:
         """Rank concepts by connection count (most connected = most important).
 
         For each concept, queries related concepts and counts connections.
-        Falls back to alphabetical sort if no connections can be queried.
+        Caches the related data in ``_related`` so ``_build_prerequisites``
+        can reuse it without re-querying.
         """
         ranked = []
+        skipped = 0
         for concept in concepts:
             concept_id = concept.get("concept_id", "")
             if not concept_id:
+                skipped += 1
                 continue
 
             try:
                 related = self.store.get_related_concepts_with_types(concept_id)
-                connection_count = len(related)
             except Exception:
-                connection_count = 0
+                related = []
 
-            ranked.append({**concept, "_connection_count": connection_count})
+            ranked.append({
+                **concept,
+                "_connection_count": len(related),
+                "_related": related,
+            })
+
+        if skipped:
+            logger.warning("Skipped %d concepts with missing concept_id", skipped)
 
         ranked.sort(key=lambda c: c.get("_connection_count", 0), reverse=True)
         return ranked[:top_k]
 
     def _build_prerequisites(self, ranked_concepts: list[dict]) -> list[dict]:
-        """Build prerequisite chains from 'requires'/'calculated_from' edges."""
+        """Build prerequisite chains from 'requires'/'calculated_from' edges.
+
+        Uses cached ``_related`` data from ``_rank_concepts`` to avoid
+        redundant store queries.
+        """
         prerequisites = []
         prerequisite_types = {"requires", "calculated_from"}
 
@@ -264,10 +285,7 @@ class TextbookDistiller:
             if not concept_id:
                 continue
 
-            try:
-                related = self.store.get_related_concepts_with_types(concept_id)
-            except Exception:
-                continue
+            related = concept.get("_related", [])
 
             deps = [
                 r["concept"].get("name", r["concept"].get("concept_id", ""))
@@ -468,8 +486,8 @@ Each example should show realistic tool_calls with actual argument values."""
                 "- [concept_2]: [brief relevance]"
             ),
             "system_prompt": None,
-            "provider": "openai",
-            "model": "gpt-4o-mini",
+            "provider": self.provider.split("/")[0] if "/" in self.provider else "openai",
+            "model": self.provider.split("/", 1)[1] if "/" in self.provider else self.provider,
             "disabled_builtins": [],
             "intervention_pipeline": [],
             "sandbox": {},
@@ -500,4 +518,10 @@ def _slugify(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)
     text = re.sub(r"[\s_-]+", "_", text)
-    return text.strip("_")[:80]
+    result = text.strip("_")[:80]
+    return result or "unnamed"
+
+
+def _sanitize_filename(doc_id: str) -> str:
+    """Sanitize a doc_id for use in a filename (prevent path traversal)."""
+    return re.sub(r"[^\w\-]", "_", doc_id)[:100]

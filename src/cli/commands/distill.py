@@ -18,6 +18,13 @@ app = typer.Typer(help="Distill textbook knowledge into specialist agent configs
 DISTILL_DIR = Path.home() / ".kidkazz" / "distilled"
 
 
+def _safe_filename(doc_id: str) -> str:
+    """Sanitize doc_id for safe use in filenames (prevent path traversal)."""
+    import re
+
+    return re.sub(r"[^\w\-]", "_", doc_id)[:100]
+
+
 @app.command("generate")
 def generate(
     doc_id: str = typer.Argument(help="Document ID to distill"),
@@ -58,7 +65,7 @@ def generate(
     store = get_store(config)
 
     try:
-        from src.distiller.distiller import TextbookDistiller
+        from ...distiller.distiller import TextbookDistiller
     except ImportError as e:
         print_error(f"Missing dependency: {e}")
         print_warning("Install with: pip install 'kidkazz[concepts]'")
@@ -67,6 +74,10 @@ def generate(
     try:
         distiller = TextbookDistiller(store, provider=provider)
         result = distiller.distill(doc_id, top_k=top_k, num_examples=num_examples)
+    except ImportError as e:
+        print_error(f"Missing dependency: {e}")
+        print_warning("Install with: pip install 'kidkazz[concepts]'")
+        raise typer.Exit(1)
     except ValueError as e:
         print_error(str(e))
         raise typer.Exit(1)
@@ -75,7 +86,8 @@ def generate(
         raise typer.Exit(1)
 
     # Write output file
-    output_path = output or (DISTILL_DIR / f"{doc_id}_agent.json")
+    safe_name = _safe_filename(doc_id)
+    output_path = output or (DISTILL_DIR / f"{safe_name}_agent.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -91,14 +103,19 @@ def show(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Show an existing distilled agent config."""
-    path = DISTILL_DIR / f"{doc_id}_agent.json"
+    safe_name = _safe_filename(doc_id)
+    path = DISTILL_DIR / f"{safe_name}_agent.json"
 
     if not path.exists():
         print_error(f"No distilled config found for '{doc_id}'")
         print_warning(f"Run: kidkazz distill generate {doc_id}")
         raise typer.Exit(1)
 
-    data = json.loads(path.read_text())
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        print_error(f"Corrupt config file {path}: {e}")
+        raise typer.Exit(1)
 
     if json_output:
         print_json(data)
