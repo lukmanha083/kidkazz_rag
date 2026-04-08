@@ -3,11 +3,12 @@
 // ========== MUTATION QUERIES ==========
 
 // Add a new document
-QUERY AddDocument(doc_id: String, title: String, tags: String, chunk_count: U32, created_at: I64) =>
+QUERY AddDocument(doc_id: String, title: String, tags: String, book_type: String, chunk_count: U32, created_at: I64) =>
     doc <- AddN<Document>({
         doc_id: doc_id,
         title: title,
         tags: tags,
+        book_type: book_type,
         created_at: created_at,
         chunk_count: chunk_count
     })

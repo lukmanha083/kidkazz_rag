@@ -211,6 +211,7 @@ def document_to_helix_node(
     chunk_count: int,
     created_at: Optional[int] = None,
     tags: Optional[list[str]] = None,
+    book_type: str = "general",
 ) -> dict[str, Any]:
     """
     Create Helix-DB document node properties.
@@ -221,6 +222,7 @@ def document_to_helix_node(
         chunk_count: Number of chunks in document
         created_at: Unix timestamp (auto-generated if not provided)
         tags: Optional list of document tags
+        book_type: Extraction profile name (programming, erp, stem, etc.)
 
     Returns:
         Dictionary of document node properties
@@ -234,6 +236,7 @@ def document_to_helix_node(
         "doc_id": doc_id,
         "title": title,
         "tags": json.dumps(normalized_tags),
+        "book_type": book_type or "general",
         "chunk_count": chunk_count,
         "created_at": created_at or int(time.time()),
     }
@@ -269,6 +272,7 @@ def helix_node_to_document(node: dict[str, Any]) -> dict[str, Any]:
         "doc_id": node["doc_id"],
         "title": node.get("title", ""),
         "tags": tags,
+        "book_type": node.get("book_type") or "general",
         "chunk_count": node.get("chunk_count", 0),
         "created_at": node.get("created_at", 0),
     }

@@ -113,6 +113,7 @@ class ChunkStoreProtocol(Protocol):
         embedded_chunks: list[EmbeddedChunk],
         metadata_list: list[ChunkMetadata],
         tags: Optional[list[str]] = None,
+        book_type: str = "general",
     ) -> None:
         """Store a document with all chunks."""
         ...
@@ -351,6 +352,7 @@ class HelixChunkStore:
         embedded_chunks: list[EmbeddedChunk],
         metadata_list: list[ChunkMetadata],
         tags: Optional[list[str]] = None,
+        book_type: str = "general",
     ) -> dict[str, str]:
         """
         Store a complete document with all chunks, embeddings, and relationships.
@@ -361,6 +363,7 @@ class HelixChunkStore:
             embedded_chunks: List of chunks with embeddings
             metadata_list: Corresponding metadata for each chunk
             tags: Optional list of document tags (e.g., ["inventory", "accounting"])
+            book_type: Extraction profile name (programming, erp, stem, etc.)
 
         Returns:
             Dictionary mapping chunk string IDs to internal database IDs.
@@ -372,8 +375,8 @@ class HelixChunkStore:
         """
         self._ensure_connected()
 
-        # Add document node with tags
-        doc_query = AddDocument(doc_id, title, len(embedded_chunks), tags=tags)
+        # Add document node with tags and book type
+        doc_query = AddDocument(doc_id, title, len(embedded_chunks), tags=tags, book_type=book_type)
         doc_response = self._client.query(doc_query)
         doc_internal_id = self._extract_node_id(doc_response)
 

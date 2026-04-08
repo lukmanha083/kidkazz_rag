@@ -4,13 +4,18 @@ This module provides LLM-powered extraction of concepts, definitions,
 and relationships from textbook content.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from .profiles import ExtractionProfile
 
 # Load environment variables (for ANTHROPIC_API_KEY)
 load_dotenv()
@@ -47,6 +52,57 @@ class ExtractedConcept(BaseModel):
 
     name: str = Field(description="Canonical display name (e.g., 'Cost of Goods Sold')")
     concept_type: ConceptType = Field(description="Type of concept")
+
+    @field_validator("concept_type", mode="before")
+    @classmethod
+    def coerce_concept_type(cls, v: object) -> object:
+        """Accept profile-expanded type strings by mapping to closest enum value."""
+        if isinstance(v, ConceptType):
+            return v
+        if isinstance(v, str):
+            v_lower = v.lower().strip()
+            # Direct match
+            for member in ConceptType:
+                if member.value == v_lower:
+                    return member
+            # Map common profile types to the closest base type
+            _TYPE_MAP = {
+                "algorithm": "method",
+                "data_structure": "term",
+                "pattern": "method",
+                "framework": "term",
+                "language": "term",
+                "protocol": "method",
+                "architecture": "term",
+                "function": "method",
+                "theory": "principle",
+                "law": "principle",
+                "process": "method",
+                "organism": "term",
+                "structure": "term",
+                "system": "term",
+                "unit": "term",
+                "practice": "method",
+                "crop": "term",
+                "breed": "term",
+                "pest": "term",
+                "tool": "term",
+                "nutrient": "term",
+                "disease": "term",
+                "symptom": "term",
+                "treatment": "method",
+                "vaccine": "term",
+                "drug": "term",
+                "pathogen": "term",
+                "condition": "term",
+                "anatomy": "term",
+                "procedure": "method",
+                "feed": "term",
+                "behavior": "term",
+            }
+            mapped = _TYPE_MAP.get(v_lower, "term")
+            return ConceptType(mapped)
+        return v
     definition: str = Field(
         description="1-2 sentence definition explaining the concept"
     )
@@ -138,6 +194,7 @@ class ConceptExtractor:
         self,
         provider: str = "anthropic/claude-3-5-haiku-20241022",
         max_retries: int = 2,
+        profile: "Optional[ExtractionProfile]" = None,
     ):
         """
         Initialize extractor.
@@ -145,6 +202,7 @@ class ConceptExtractor:
         Args:
             provider: Instructor provider string (e.g., "anthropic/claude-3-5-haiku-20241022")
             max_retries: Number of retries on validation failure
+            profile: Extraction profile for domain-specific concept extraction
 
         Raises:
             ImportError: If instructor is not installed
@@ -157,6 +215,7 @@ class ConceptExtractor:
 
         self.client = instructor.from_provider(provider)
         self.max_retries = max_retries
+        self.profile = profile
 
     def extract_from_chunk(
         self,
@@ -197,14 +256,23 @@ class ConceptExtractor:
         context = "\n".join(context_parts)
         existing = existing_concepts or []
 
+        default_types = "terms, methods, principles, formulas, and accounts"
+        if self.profile and self.profile.extraction_hints:
+            type_list = ", ".join(self.profile.concept_types)
+            hints = f"{self.profile.extraction_hints}\n\n"
+        else:
+            type_list = default_types
+            hints = ""
+
         system_prompt = (
             "You are extracting concepts from a textbook. "
-            "Identify terms, methods, principles, formulas, and accounts. "
+            f"Identify {type_list}. "
             "For each concept that is DEFINED (explained) in this text, extract:\n"
             "- The canonical name\n"
-            "- The type (term, method, principle, formula, account)\n"
+            f"- The type ({type_list})\n"
             "- A 1-2 sentence definition\n"
             "- Any aliases or abbreviations\n\n"
+            f"{hints}"
             "Also identify relationships between concepts (uses, requires, "
             "calculated_from, component_of, recorded_in, supersedes).\n\n"
             f"Already known concepts (reference but don't redefine): {existing}"

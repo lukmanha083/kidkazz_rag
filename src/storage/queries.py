@@ -70,6 +70,7 @@ class AddDocument(_get_query_base_class()):
         title: str,
         chunk_count: int,
         tags: Optional[list[str]] = None,
+        book_type: str = "general",
     ) -> None:
         """
         Initialize AddDocument query.
@@ -79,11 +80,13 @@ class AddDocument(_get_query_base_class()):
             title: Document title
             chunk_count: Number of chunks in document
             tags: Optional list of document tags
+            book_type: Extraction profile name (programming, erp, stem, etc.)
         """
         super().__init__()
         self.doc_id = doc_id
         self.title = title
         self.chunk_count = chunk_count
+        self.book_type = book_type
         self.created_at = int(time.time())
         # Normalize tags to lowercase and filter empty strings
         self.tags = [t.lower().strip() for t in (tags or []) if t and t.strip()]
@@ -94,6 +97,7 @@ class AddDocument(_get_query_base_class()):
             "doc_id": self.doc_id,
             "title": self.title,
             "tags": json.dumps(self.tags),
+            "book_type": self.book_type,
             "chunk_count": self.chunk_count,
             "created_at": self.created_at,
         }]
