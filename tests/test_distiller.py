@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.cli.commands.distill import _safe_filename
 from src.distiller.distiller import (
     TOOL_IDS,
     AgentIdentity,
     TextbookDistiller,
     ToolExampleSet,
-    _sanitize_filename,
     _slugify,
 )
 
@@ -58,6 +58,7 @@ def mock_store():
 
     store.list_concepts.return_value = [
         {
+            "id": "helix_fifo",
             "concept_id": "fifo",
             "name": "FIFO",
             "concept_type": "method",
@@ -65,6 +66,7 @@ def mock_store():
             "aliases": '["First In First Out"]',
         },
         {
+            "id": "helix_lifo",
             "concept_id": "lifo",
             "name": "LIFO",
             "concept_type": "method",
@@ -72,6 +74,7 @@ def mock_store():
             "aliases": "[]",
         },
         {
+            "id": "helix_safety_stock",
             "concept_id": "safety-stock",
             "name": "Safety Stock",
             "concept_type": "term",
@@ -79,6 +82,7 @@ def mock_store():
             "aliases": "[]",
         },
         {
+            "id": "helix_eoq",
             "concept_id": "eoq",
             "name": "Economic Order Quantity",
             "concept_type": "formula",
@@ -86,6 +90,7 @@ def mock_store():
             "aliases": '["EOQ"]',
         },
         {
+            "id": "helix_holding_cost",
             "concept_id": "holding-cost",
             "name": "Holding Cost",
             "concept_type": "term",
@@ -94,25 +99,44 @@ def mock_store():
         },
     ]
 
+    # Related data keyed by internal Helix ID (used by _direct methods)
+    _related_by_internal_id = {
+        "helix_fifo": [
+            {"concept": {"name": "LIFO", "concept_id": "lifo"}, "relation_type": "relates_to"},
+            {"concept": {"name": "COGS", "concept_id": "cogs"}, "relation_type": "calculated_from"},
+        ],
+        "helix_eoq": [
+            {"concept": {"name": "Holding Cost", "concept_id": "holding-cost"}, "relation_type": "requires"},
+            {"concept": {"name": "Ordering Cost", "concept_id": "ordering-cost"}, "relation_type": "requires"},
+        ],
+        "helix_safety_stock": [
+            {"concept": {"name": "Reorder Point", "concept_id": "reorder-point"}, "relation_type": "calculated_from"},
+        ],
+        "helix_lifo": [],
+        "helix_holding_cost": [],
+    }
+
+    # Legacy method (keyed by concept_id string)
     def mock_related(concept_id):
         relations = {
-            "fifo": [
-                {"concept": {"name": "LIFO", "concept_id": "lifo"}, "relation_type": "relates_to"},
-                {"concept": {"name": "COGS", "concept_id": "cogs"}, "relation_type": "calculated_from"},
-            ],
-            "eoq": [
-                {"concept": {"name": "Holding Cost", "concept_id": "holding-cost"}, "relation_type": "requires"},
-                {"concept": {"name": "Ordering Cost", "concept_id": "ordering-cost"}, "relation_type": "requires"},
-            ],
-            "safety-stock": [
-                {"concept": {"name": "Reorder Point", "concept_id": "reorder-point"}, "relation_type": "calculated_from"},
-            ],
+            "fifo": _related_by_internal_id["helix_fifo"],
+            "eoq": _related_by_internal_id["helix_eoq"],
+            "safety-stock": _related_by_internal_id["helix_safety_stock"],
             "lifo": [],
             "holding-cost": [],
         }
         return relations.get(concept_id, [])
 
     store.get_related_concepts_with_types.side_effect = mock_related
+
+    # New direct methods (keyed by internal Helix ID)
+    store.count_concept_edges_direct.side_effect = lambda iid: len(
+        _related_by_internal_id.get(iid, [])
+    )
+    store.get_related_concepts_with_types_direct.side_effect = lambda iid: (
+        _related_by_internal_id.get(iid, [])
+    )
+
     return store
 
 
@@ -384,26 +408,26 @@ class TestSlugifyEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _sanitize_filename
+# Tests: _safe_filename
 # ---------------------------------------------------------------------------
 
 
-class TestSanitizeFilename:
+class TestSafeFilename:
     def test_normal_doc_id(self):
-        assert _sanitize_filename("my_book_123") == "my_book_123"
+        assert _safe_filename("my_book_123") == "my_book_123"
 
     def test_path_traversal_stripped(self):
-        result = _sanitize_filename("../../etc/passwd")
+        result = _safe_filename("../../etc/passwd")
         assert ".." not in result
         assert "/" not in result
 
     def test_special_chars_replaced(self):
-        result = _sanitize_filename("book/with spaces & stuff")
+        result = _safe_filename("book/with spaces & stuff")
         assert "/" not in result
         assert " " not in result
 
     def test_truncation(self):
-        result = _sanitize_filename("a" * 200)
+        result = _safe_filename("a" * 200)
         assert len(result) <= 100
 
 
@@ -480,11 +504,11 @@ class TestDistillEntryPoint:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _rank_concepts caches _related
+# Tests: _rank_concepts two-phase ranking
 # ---------------------------------------------------------------------------
 
 
-class TestRankConceptsCaching:
+class TestRankConceptsTwoPhase:
     @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
     @patch("src.distiller.distiller.instructor")
     def test_related_data_cached_on_ranked_concepts(self, mock_instructor, mock_store):
@@ -501,15 +525,67 @@ class TestRankConceptsCaching:
     @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
     @patch("src.distiller.distiller.instructor")
     def test_build_prerequisites_uses_cached_related(self, mock_instructor, mock_store):
-        """_build_prerequisites should not call get_related_concepts_with_types."""
+        """_build_prerequisites should not call any store methods."""
         distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
         concepts = mock_store.list_concepts.return_value
         ranked = distiller._rank_concepts(concepts, top_k=5)
 
-        # Reset call count after ranking
-        mock_store.get_related_concepts_with_types.reset_mock()
+        # Reset call counts after ranking
+        mock_store.count_concept_edges_direct.reset_mock()
+        mock_store.get_related_concepts_with_types_direct.reset_mock()
 
         distiller._build_prerequisites(ranked)
 
         # Should not have made any additional calls
-        mock_store.get_related_concepts_with_types.assert_not_called()
+        mock_store.count_concept_edges_direct.assert_not_called()
+        mock_store.get_related_concepts_with_types_direct.assert_not_called()
+
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_phase1_counts_all_concepts(self, mock_instructor, mock_store):
+        """Phase 1 should call count_concept_edges_direct for all concepts."""
+        distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
+        concepts = mock_store.list_concepts.return_value
+        distiller._rank_concepts(concepts, top_k=2)
+
+        # count_concept_edges_direct called for all 5 concepts
+        assert mock_store.count_concept_edges_direct.call_count == 5
+
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_phase2_fetches_only_top_k(self, mock_instructor, mock_store):
+        """Phase 2 should call get_related_concepts_with_types_direct only for top_k."""
+        distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
+        concepts = mock_store.list_concepts.return_value
+        ranked = distiller._rank_concepts(concepts, top_k=2)
+
+        # Only 2 full fetches (top_k=2), not 5
+        assert mock_store.get_related_concepts_with_types_direct.call_count == 2
+        assert len(ranked) == 2
+
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_ranked_by_connection_count(self, mock_instructor, mock_store):
+        """Concepts should be ranked by connection count descending."""
+        distiller = TextbookDistiller(mock_store, provider="openai/gp-4o-mini")
+        concepts = mock_store.list_concepts.return_value
+        ranked = distiller._rank_concepts(concepts, top_k=3)
+
+        counts = [c["_connection_count"] for c in ranked]
+        assert counts == sorted(counts, reverse=True)
+        # FIFO and EOQ have 2 connections each, Safety Stock has 1
+        assert ranked[0]["_connection_count"] >= ranked[-1]["_connection_count"]
+
+    @patch("src.distiller.distiller.INSTRUCTOR_AVAILABLE", True)
+    @patch("src.distiller.distiller.instructor")
+    def test_concepts_without_internal_id_skipped(self, mock_instructor, mock_store):
+        """Concepts without 'id' field should get count 0, not raise."""
+        distiller = TextbookDistiller(mock_store, provider="openai/gpt-4o-mini")
+        concepts = [
+            {"concept_id": "no-id", "name": "No ID Concept"},  # Missing "id"
+            *mock_store.list_concepts.return_value,
+        ]
+        ranked = distiller._rank_concepts(concepts, top_k=3)
+
+        # Should still produce results without error
+        assert len(ranked) == 3
