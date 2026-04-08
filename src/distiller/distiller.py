@@ -12,6 +12,7 @@ import logging
 import re
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -113,6 +114,8 @@ TOOL_CATALOG = [
     ("search_summaries", "Semantic search across summaries with level/doc filters"),
     ("list_concepts", "List all concepts, optionally filtered by document or type"),
 ]
+
+TOOL_CATALOG_TEXT = "\n".join(f"- {name}: {desc}" for name, desc in TOOL_CATALOG)
 
 
 # ---------------------------------------------------------------------------
@@ -248,35 +251,68 @@ class TextbookDistiller:
     def _rank_concepts(self, concepts: list[dict], top_k: int) -> list[dict]:
         """Rank concepts by connection count (most connected = most important).
 
-        For each concept, queries related concepts and counts connections.
-        Caches the related data in ``_related`` so ``_build_prerequisites``
-        can reuse it without re-querying.
+        Two-phase approach to avoid fetching full relationship data for all
+        ~2000 concepts when only top_k (default 20) are kept:
+
+        Phase 1: Count edges concurrently for all concepts using internal
+        Helix IDs (skips per-concept get_concept() lookup). Uses
+        ThreadPoolExecutor for ~10x wall-clock speedup.
+
+        Phase 2: Fetch full relationship data only for top_k concepts.
+        Caches in ``_related`` so ``_build_prerequisites`` can reuse it.
         """
-        ranked = []
-        skipped = 0
-        for concept in concepts:
-            concept_id = concept.get("concept_id", "")
-            if not concept_id:
-                skipped += 1
-                continue
-
+        # Phase 1: Count edges concurrently for all concepts
+        def _count_edges(concept: dict) -> tuple[dict, int]:
+            internal_id = concept.get("id")
+            if not internal_id:
+                return (concept, 0)
             try:
-                related = self.store.get_related_concepts_with_types(concept_id)
+                count = self.store.count_concept_edges_direct(internal_id)
+            except (AttributeError, TypeError):
+                raise  # Contract violation — store missing required method
             except Exception as e:
-                logger.warning("Failed to get related concepts for %s: %s", concept_id, e)
-                related = []
+                logger.warning(
+                    "Failed to count edges for %s: %s",
+                    concept.get("concept_id", "?"), e,
+                )
+                count = 0
+            return (concept, count)
 
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            counted = list(pool.map(_count_edges, concepts))
+
+        counted.sort(key=lambda x: x[1], reverse=True)
+        top = counted[:top_k]
+
+        logger.info(
+            "Phase 1 complete: counted edges for %d concepts, top %d selected",
+            len(counted), len(top),
+        )
+
+        # Phase 2: Fetch full _related data ONLY for top_k
+        ranked = []
+        for concept, count in top:
+            internal_id = concept.get("id")
+            if not internal_id:
+                ranked.append({**concept, "_connection_count": count, "_related": []})
+                continue
+            try:
+                related = self.store.get_related_concepts_with_types_direct(internal_id)
+            except (AttributeError, TypeError):
+                raise  # Contract violation — store missing required method
+            except Exception as e:
+                logger.warning(
+                    "Failed to get related concepts for %s: %s",
+                    concept.get("concept_id", "?"), e,
+                )
+                related = []
             ranked.append({
                 **concept,
-                "_connection_count": len(related),
+                "_connection_count": count,
                 "_related": related,
             })
 
-        if skipped:
-            logger.warning("Skipped %d concepts with missing concept_id", skipped)
-
-        ranked.sort(key=lambda c: c.get("_connection_count", 0), reverse=True)
-        return ranked[:top_k]
+        return ranked
 
     def _build_prerequisites(self, ranked_concepts: list[dict]) -> list[dict]:
         """Build prerequisite chains from 'requires'/'calculated_from' edges.
@@ -346,10 +382,6 @@ class TextbookDistiller:
             f"{count} {ctype}" for ctype, count in concept_types.most_common(5)
         )
 
-        tool_catalog_text = "\n".join(
-            f"- {name}: {desc}" for name, desc in TOOL_CATALOG
-        )
-
         prompt = f"""You are creating a specialist AI agent configuration for a textbook knowledge base.
 
 DOCUMENT: "{doc_title}" (ID: {doc_id})
@@ -369,7 +401,7 @@ TOP CONCEPTS ({len(ranked_concepts)} most connected):
 CONCEPT TYPE DISTRIBUTION: {type_summary}
 
 AVAILABLE MCP TOOLS (the agent uses these to search the knowledge base):
-{tool_catalog_text}
+{TOOL_CATALOG_TEXT}
 
 Generate the agent's identity configuration. The tool_guidance should be a practical
 markdown guide telling the agent WHEN and HOW to use each tool for different question types
@@ -397,10 +429,6 @@ where appropriate for filtering."""
             for c in top_concepts
         )
 
-        tool_catalog_text = "\n".join(
-            f"- {name}: {desc}" for name, desc in TOOL_CATALOG
-        )
-
         prompt = f"""Generate {num_examples} diverse few-shot examples showing how a specialist agent
 would use MCP tools to answer questions about "{doc_title}" (doc_id: "{doc_id}").
 
@@ -408,7 +436,7 @@ TOP CONCEPTS IN THIS KNOWLEDGE BASE:
 {concept_context}
 
 AVAILABLE MCP TOOLS:
-{tool_catalog_text}
+{TOOL_CATALOG_TEXT}
 
 Create examples covering these question types:
 1. Factual/definition lookup (use search_concepts + get_concept_with_citations)
@@ -527,8 +555,3 @@ def _slugify(text: str) -> str:
     text = re.sub(r"[\s_-]+", "_", text)
     result = text.strip("_")[:80]
     return result or "unnamed"
-
-
-def _sanitize_filename(doc_id: str) -> str:
-    """Sanitize a doc_id for use in a filename (prevent path traversal)."""
-    return re.sub(r"[^\w\-]", "_", doc_id)[:100]

@@ -1052,9 +1052,8 @@ def _get_local_data_dir() -> Path:
     return data_dir
 
 
-def _get_data_size(path: Path) -> str:
-    """Return human-readable total size of a directory."""
-    total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+def _format_size(total: int) -> str:
+    """Format byte count as human-readable string."""
     if total >= 1024 * 1024 * 1024:
         return f"{total / (1024 ** 3):.1f} GB"
     if total >= 1024 * 1024:
@@ -1062,6 +1061,15 @@ def _get_data_size(path: Path) -> str:
     if total >= 1024:
         return f"{total / 1024:.1f} KB"
     return f"{total} B"
+
+
+def _get_data_size(path: Path) -> str:
+    """Return human-readable total size of a directory or file."""
+    if path.is_file():
+        total = path.stat().st_size
+    else:
+        total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    return _format_size(total)
 
 
 @app.command("sync")
@@ -1197,7 +1205,7 @@ def sync_to_fly(
         with tarfile.open(tarball_path, "w:gz") as tar:
             # Add user/ directory (arcname ensures it extracts as user/)
             tar.add(str(data_dir), arcname="user")
-        tarball_size = _get_data_size(tarball_path.parent / tarball_path.name)
+        tarball_size = _get_data_size(tarball_path)
         if not json_output:
             print_info(f"Tarball created: {tarball_size} (compressed)")
 

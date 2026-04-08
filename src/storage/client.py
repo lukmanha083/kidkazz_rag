@@ -1667,6 +1667,52 @@ class HelixChunkStore:
 
         return results
 
+    def count_concept_edges_direct(self, internal_id: str) -> int:
+        """Count outgoing typed edges for a concept using its internal Helix ID.
+
+        Queries all typed edge types (Uses, Requires, etc.) and returns the
+        total count. Skips the get_concept() lookup since the caller already
+        has the internal node ID (e.g. from list_concepts()).
+
+        Args:
+            internal_id: Internal Helix node ID
+
+        Returns:
+            Total number of outgoing typed edges
+        """
+        self._ensure_connected()
+        count = 0
+        for query_class in TYPED_CONCEPT_QUERIES_FORWARD.values():
+            result = self._execute_query(query_class(internal_id))
+            if result.success and result.data:
+                count += len(result.data)
+        return count
+
+    def get_related_concepts_with_types_direct(self, internal_id: str) -> list[dict]:
+        """Get related concepts with types using internal Helix ID directly.
+
+        Same as get_related_concepts_with_types() but skips the get_concept()
+        lookup. Use when the internal node ID is already known (e.g. from
+        list_concepts()).
+
+        Args:
+            internal_id: Internal Helix node ID
+
+        Returns:
+            List of dicts with 'concept' (target concept data) and 'relation_type'
+        """
+        self._ensure_connected()
+        results = []
+        for relation_type, query_class in TYPED_CONCEPT_QUERIES_FORWARD.items():
+            result = self._execute_query(query_class(internal_id))
+            if result.success and result.data:
+                for target_concept in result.data:
+                    results.append({
+                        "concept": target_concept,
+                        "relation_type": relation_type,
+                    })
+        return results
+
     def get_concept_dependents(self, concept_id: str) -> list[dict]:
         """
         Get concepts that relate TO this concept (reverse relationships).
