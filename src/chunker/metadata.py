@@ -48,6 +48,17 @@ THEOREM_PATTERNS = [
     r"\bQ\.E\.D\.",
 ]
 
+# Code-specific semantic type patterns (always-on, specific enough to avoid
+# false positives on non-programming books)
+CLI_COMMAND_PATTERNS = [
+    r"```(?:bash|sh|shell|zsh|console|terminal)\b",
+    r"^\s*\$\s+\S",  # Shell prompt: $ command
+]
+
+CODE_EXAMPLE_PATTERNS = [
+    r"```(?:python|java|javascript|typescript|go|rust|cpp|c|ruby|php|scala|kotlin|swift|yaml|json|xml|sql|html|css|dockerfile|hcl|terraform|toml|ini|makefile|cmake|r|matlab|lua|perl|elixir|clojure|haskell|ocaml|zig|nim|groovy|powershell|fish)\b",
+]
+
 
 @dataclass
 class ChunkMetadata:
@@ -117,7 +128,10 @@ class ChunkMetadata:
 
 def infer_semantic_type(content: str) -> str:
     """
-    Classify chunk content as definition/example/procedure/theorem/narrative.
+    Classify chunk content by semantic type.
+
+    Priority order: theorem > definition > cli_command > code_example >
+    example > procedure > narrative.
 
     Args:
         content: Chunk text content
@@ -133,6 +147,16 @@ def infer_semantic_type(content: str) -> str:
     for pattern in DEFINITION_PATTERNS:
         if re.search(pattern, content, re.IGNORECASE | re.MULTILINE):
             return "definition"
+
+    # Code-specific types (before generic "example" since code fences with
+    # language labels are more specific than "for example" text patterns)
+    for pattern in CLI_COMMAND_PATTERNS:
+        if re.search(pattern, content, re.MULTILINE):
+            return "cli_command"
+
+    for pattern in CODE_EXAMPLE_PATTERNS:
+        if re.search(pattern, content, re.MULTILINE):
+            return "code_example"
 
     for pattern in EXAMPLE_PATTERNS:
         if re.search(pattern, content, re.IGNORECASE | re.MULTILINE):
