@@ -60,3 +60,9 @@ helixdb-cfg/
 
 # Local configuration
 .kidkazz.toml
+
+# Generated graph/visualization outputs
+concept_graph.html
+*.dot
+graph.svg
+graph.png
