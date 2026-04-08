@@ -268,6 +268,8 @@ class TextbookDistiller:
                 return (concept, 0)
             try:
                 count = self.store.count_concept_edges_direct(internal_id)
+            except (AttributeError, TypeError):
+                raise  # Contract violation — store missing required method
             except Exception as e:
                 logger.warning(
                     "Failed to count edges for %s: %s",
@@ -296,6 +298,8 @@ class TextbookDistiller:
                 continue
             try:
                 related = self.store.get_related_concepts_with_types_direct(internal_id)
+            except (AttributeError, TypeError):
+                raise  # Contract violation — store missing required method
             except Exception as e:
                 logger.warning(
                     "Failed to get related concepts for %s: %s",
