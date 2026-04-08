@@ -15,6 +15,8 @@ Features:
 - Exponential backoff on rate limit errors
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -23,10 +25,13 @@ import time
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Callable
+from typing import TYPE_CHECKING, Optional, Callable
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from .profiles import ExtractionProfile
 
 # Load environment variables
 load_dotenv()
@@ -533,6 +538,7 @@ class DocumentSummarizer:
         max_concurrent: int = 5,  # For async strategy
         requests_per_minute: int = 500,  # Rate limit for async
         checkpoint_dir: Optional[Path] = None,
+        profile: "Optional[ExtractionProfile]" = None,
     ):
         """
         Initialize summarizer.
@@ -544,6 +550,7 @@ class DocumentSummarizer:
             max_concurrent: Max concurrent requests for async strategy
             requests_per_minute: Rate limit for async strategy
             checkpoint_dir: Directory for checkpoint files
+            profile: Extraction profile for domain-specific concept extraction
 
         Raises:
             ImportError: If instructor is not installed
@@ -561,6 +568,7 @@ class DocumentSummarizer:
         self.max_concurrent = max_concurrent
         self.requests_per_minute = requests_per_minute
         self.checkpoint_dir = checkpoint_dir or Path.home() / ".kidkazz" / "checkpoints"
+        self.profile = profile
 
         # For async rate limiting
         self._semaphore: Optional[asyncio.Semaphore] = None
@@ -619,10 +627,17 @@ class DocumentSummarizer:
             "Only include concepts important enough to reference elsewhere."
         )
 
+        if self.profile and self.profile.extraction_hints:
+            type_list = ", ".join(self.profile.concept_types)
+            base_prompt += (
+                f"\n\nUse these concept types: {type_list}.\n"
+                f"{self.profile.extraction_hints}"
+            )
+
         return base_prompt
 
     def _chapter_system_prompt(self) -> str:
-        return (
+        prompt = (
             "You are summarizing a chapter from a textbook. You will receive:\n"
             "1. Section summaries (extractive highlights from each section)\n"
             "2. The raw chapter text (full content for verification)\n\n"
@@ -646,9 +661,16 @@ class DocumentSummarizer:
             "- The correct type: term, method, principle, formula, account, etc.\n\n"
             "Only include concepts central to this chapter's topic."
         )
+        if self.profile and self.profile.extraction_hints:
+            type_list = ", ".join(self.profile.concept_types)
+            prompt += (
+                f"\n\nUse these concept types: {type_list}.\n"
+                f"{self.profile.extraction_hints}"
+            )
+        return prompt
 
     def _document_system_prompt(self) -> str:
-        return (
+        prompt = (
             "You are summarizing an entire textbook or technical document. "
             "Given the chapter summaries, create a comprehensive 5-7 sentence overview "
             "that explains what the document covers, its purpose, and main themes.\n\n"
@@ -664,6 +686,13 @@ class DocumentSummarizer:
             "drawn from the chapter summaries. Use the correct type: term, method, "
             "principle, formula, account, etc."
         )
+        if self.profile and self.profile.extraction_hints:
+            type_list = ", ".join(self.profile.concept_types)
+            prompt += (
+                f"\n\nUse these concept types: {type_list}.\n"
+                f"{self.profile.extraction_hints}"
+            )
+        return prompt
 
     # ========================================================================
     # Helper: Chapter title extraction from key_points sentinel

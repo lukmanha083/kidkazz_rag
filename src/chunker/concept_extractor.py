@@ -4,13 +4,18 @@ This module provides LLM-powered extraction of concepts, definitions,
 and relationships from textbook content.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from .profiles import ExtractionProfile
 
 # Load environment variables (for ANTHROPIC_API_KEY)
 load_dotenv()
@@ -138,6 +143,7 @@ class ConceptExtractor:
         self,
         provider: str = "anthropic/claude-3-5-haiku-20241022",
         max_retries: int = 2,
+        profile: "Optional[ExtractionProfile]" = None,
     ):
         """
         Initialize extractor.
@@ -145,6 +151,7 @@ class ConceptExtractor:
         Args:
             provider: Instructor provider string (e.g., "anthropic/claude-3-5-haiku-20241022")
             max_retries: Number of retries on validation failure
+            profile: Extraction profile for domain-specific concept extraction
 
         Raises:
             ImportError: If instructor is not installed
@@ -157,6 +164,7 @@ class ConceptExtractor:
 
         self.client = instructor.from_provider(provider)
         self.max_retries = max_retries
+        self.profile = profile
 
     def extract_from_chunk(
         self,
@@ -197,18 +205,34 @@ class ConceptExtractor:
         context = "\n".join(context_parts)
         existing = existing_concepts or []
 
-        system_prompt = (
-            "You are extracting concepts from a textbook. "
-            "Identify terms, methods, principles, formulas, and accounts. "
-            "For each concept that is DEFINED (explained) in this text, extract:\n"
-            "- The canonical name\n"
-            "- The type (term, method, principle, formula, account)\n"
-            "- A 1-2 sentence definition\n"
-            "- Any aliases or abbreviations\n\n"
-            "Also identify relationships between concepts (uses, requires, "
-            "calculated_from, component_of, recorded_in, supersedes).\n\n"
-            f"Already known concepts (reference but don't redefine): {existing}"
-        )
+        if self.profile and self.profile.extraction_hints:
+            type_list = ", ".join(self.profile.concept_types)
+            system_prompt = (
+                "You are extracting concepts from a textbook. "
+                f"Identify {type_list}. "
+                "For each concept that is DEFINED (explained) in this text, extract:\n"
+                "- The canonical name\n"
+                f"- The type ({type_list})\n"
+                "- A 1-2 sentence definition\n"
+                "- Any aliases or abbreviations\n\n"
+                f"{self.profile.extraction_hints}\n\n"
+                "Also identify relationships between concepts (uses, requires, "
+                "calculated_from, component_of, recorded_in, supersedes).\n\n"
+                f"Already known concepts (reference but don't redefine): {existing}"
+            )
+        else:
+            system_prompt = (
+                "You are extracting concepts from a textbook. "
+                "Identify terms, methods, principles, formulas, and accounts. "
+                "For each concept that is DEFINED (explained) in this text, extract:\n"
+                "- The canonical name\n"
+                "- The type (term, method, principle, formula, account)\n"
+                "- A 1-2 sentence definition\n"
+                "- Any aliases or abbreviations\n\n"
+                "Also identify relationships between concepts (uses, requires, "
+                "calculated_from, component_of, recorded_in, supersedes).\n\n"
+                f"Already known concepts (reference but don't redefine): {existing}"
+            )
 
         try:
             return self.client.create(
