@@ -467,6 +467,11 @@ def generate_summaries(
         "-r",
         help="Detect and regenerate only missing chapter summaries",
     ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help="Book type profile (auto-detected from document if not set)",
+    ),
 ) -> None:
     """Generate hierarchical summaries for a document.
 
@@ -577,9 +582,28 @@ def generate_summaries(
         }
         chunks.append(chunk_dict)
 
+    # Resolve extraction profile (flag > document book_type > config default)
+    extraction_profile = None
+    if profile:
+        profile_name = profile
+    else:
+        # Auto-detect from document's stored book_type
+        docs = store.list_documents()
+        doc_meta = next((d for d in docs if d.get("doc_id") == doc_id), {})
+        stored_type = doc_meta.get("book_type", "")
+        profile_name = stored_type if stored_type and stored_type != "general" else config.extraction_profile
+
+    if profile_name and profile_name != "general":
+        try:
+            from src.chunker.profiles import get_profile
+            extraction_profile = get_profile(profile_name)
+            logger.info("Using extraction profile: %s", profile_name)
+        except (ImportError, ValueError):
+            logger.warning("Unknown profile '%s', using general", profile_name)
+
     # Initialize summarizer
     final_provider = provider or config.summarization_provider or "openai/gpt-4o-mini"
-    summarizer = DocumentSummarizer(provider=final_provider)
+    summarizer = DocumentSummarizer(provider=final_provider, profile=extraction_profile)
 
     # Count chunks by level
     l1_count = len([c for c in chunks if c.get("level") == 1])

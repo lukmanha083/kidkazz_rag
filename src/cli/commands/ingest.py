@@ -134,6 +134,11 @@ def ingest_markdown(
         "--json",
         help="Output results as JSON",
     ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help="Book type profile: programming, erp, stem, agriculture, veterinary, general",
+    ),
 ) -> None:
     """Chunk Markdown file, generate embeddings, and store in database.
 
@@ -151,6 +156,9 @@ def ingest_markdown(
         via Cohere Embed v4 (requires cohere embedder).
     """
     config = CLIConfig.load()
+
+    # Resolve extraction profile
+    profile_name = profile or config.extraction_profile
 
     # Resolve file path (check output directory if not found)
     file = _resolve_file_path(file, config)
@@ -278,6 +286,7 @@ def ingest_markdown(
                 embedded_chunks,
                 metadata,
                 tags=tag_list,
+                book_type=profile_name,
             )
             tracker.complete("Storing in database...")
 

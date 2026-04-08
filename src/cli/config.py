@@ -72,6 +72,9 @@ class CLIConfig:
     max_tokens_per_summary: int = 500
     include_key_points: bool = True
 
+    # Extraction profile
+    extraction_profile: str = "general"
+
     # Source tracking (which config file each setting came from)
     _sources: dict[str, str] = field(default_factory=dict)
     # Raw TOML data for get_extra() lookups
@@ -213,6 +216,13 @@ class CLIConfig:
                 self.include_key_points = bool(summarization["include_key_points"])
                 self._sources["include_key_points"] = source
 
+        # Extraction profile
+        if "extraction" in data:
+            extraction = data["extraction"]
+            if "default_profile" in extraction:
+                self.extraction_profile = extraction["default_profile"]
+                self._sources["extraction_profile"] = source
+
     def _load_from_env(self) -> None:
         """Load settings from environment variables.
 
@@ -234,6 +244,7 @@ class CLIConfig:
             "KIDKAZZ_CLOUD_PATH": ("cloud_path", str),
             "KIDKAZZ_RERANKER_ENABLED": ("reranker_enabled", lambda x: x.lower() in ("true", "1", "yes")),
             "KIDKAZZ_RERANKER_MODEL": ("reranker_model", str),
+            "KIDKAZZ_EXTRACTION_PROFILE": ("extraction_profile", str),
         }
 
         for env_var, (attr, converter) in env_mappings.items():
