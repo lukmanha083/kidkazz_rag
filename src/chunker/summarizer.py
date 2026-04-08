@@ -677,10 +677,15 @@ class DocumentSummarizer:
 
     def _profile_hint_suffix(self) -> str:
         """Return profile-specific type list and hints to append to prompts."""
-        if self.profile and self.profile.extraction_hints:
+        if not self.profile:
+            return ""
+        parts = []
+        if self.profile.concept_types:
             type_list = ", ".join(self.profile.concept_types)
-            return f"\n\nUse these concept types: {type_list}.\n{self.profile.extraction_hints}"
-        return ""
+            parts.append(f"Use these concept types: {type_list}.")
+        if self.profile.extraction_hints:
+            parts.append(self.profile.extraction_hints)
+        return "\n\n" + "\n".join(parts) if parts else ""
 
     # ========================================================================
     # Helper: Chapter title extraction from key_points sentinel

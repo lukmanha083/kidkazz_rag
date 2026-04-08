@@ -588,7 +588,7 @@ def generate_summaries(
         profile_name = profile
     else:
         stored_type = doc.get("book_type", "")
-        profile_name = stored_type if stored_type and stored_type != "general" else config.extraction_profile
+        profile_name = stored_type if stored_type else config.extraction_profile
 
     if profile_name and profile_name != "general":
         try:

@@ -309,6 +309,9 @@ class CLIConfig:
                 "enabled": self.reranker_enabled,
                 "model": self.reranker_model,
             },
+            "extraction": {
+                "default_profile": self.extraction_profile,
+            },
         }
 
     def save_project(self, path: Optional[Path] = None) -> bool:
@@ -362,6 +365,7 @@ class CLIConfig:
             "cloud_path": ("cloud_path", str),
             "reranker_enabled": ("reranker_enabled", lambda x: x.lower() in ("true", "1", "yes") if isinstance(x, str) else bool(x)),
             "reranker_model": ("reranker_model", str),
+            "extraction_profile": ("extraction_profile", str),
         }
 
         if key not in key_mapping:

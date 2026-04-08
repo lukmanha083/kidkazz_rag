@@ -236,7 +236,7 @@ def document_to_helix_node(
         "doc_id": doc_id,
         "title": title,
         "tags": json.dumps(normalized_tags),
-        "book_type": book_type,
+        "book_type": book_type or "general",
         "chunk_count": chunk_count,
         "created_at": created_at or int(time.time()),
     }
@@ -272,7 +272,7 @@ def helix_node_to_document(node: dict[str, Any]) -> dict[str, Any]:
         "doc_id": node["doc_id"],
         "title": node.get("title", ""),
         "tags": tags,
-        "book_type": node.get("book_type", "general"),
+        "book_type": node.get("book_type") or "general",
         "chunk_count": node.get("chunk_count", 0),
         "created_at": node.get("created_at", 0),
     }

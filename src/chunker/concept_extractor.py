@@ -12,7 +12,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 if TYPE_CHECKING:
     from .profiles import ExtractionProfile
@@ -52,6 +52,57 @@ class ExtractedConcept(BaseModel):
 
     name: str = Field(description="Canonical display name (e.g., 'Cost of Goods Sold')")
     concept_type: ConceptType = Field(description="Type of concept")
+
+    @field_validator("concept_type", mode="before")
+    @classmethod
+    def coerce_concept_type(cls, v: object) -> object:
+        """Accept profile-expanded type strings by mapping to closest enum value."""
+        if isinstance(v, ConceptType):
+            return v
+        if isinstance(v, str):
+            v_lower = v.lower().strip()
+            # Direct match
+            for member in ConceptType:
+                if member.value == v_lower:
+                    return member
+            # Map common profile types to the closest base type
+            _TYPE_MAP = {
+                "algorithm": "method",
+                "data_structure": "term",
+                "pattern": "method",
+                "framework": "term",
+                "language": "term",
+                "protocol": "method",
+                "architecture": "term",
+                "function": "method",
+                "theory": "principle",
+                "law": "principle",
+                "process": "method",
+                "organism": "term",
+                "structure": "term",
+                "system": "term",
+                "unit": "term",
+                "practice": "method",
+                "crop": "term",
+                "breed": "term",
+                "pest": "term",
+                "tool": "term",
+                "nutrient": "term",
+                "disease": "term",
+                "symptom": "term",
+                "treatment": "method",
+                "vaccine": "term",
+                "drug": "term",
+                "pathogen": "term",
+                "condition": "term",
+                "anatomy": "term",
+                "procedure": "method",
+                "feed": "term",
+                "behavior": "term",
+            }
+            mapped = _TYPE_MAP.get(v_lower, "term")
+            return ConceptType(mapped)
+        return v
     definition: str = Field(
         description="1-2 sentence definition explaining the concept"
     )
