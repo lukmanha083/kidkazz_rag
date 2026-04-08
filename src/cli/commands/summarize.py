@@ -587,10 +587,7 @@ def generate_summaries(
     if profile:
         profile_name = profile
     else:
-        # Auto-detect from document's stored book_type
-        docs = store.list_documents()
-        doc_meta = next((d for d in docs if d.get("doc_id") == doc_id), {})
-        stored_type = doc_meta.get("book_type", "")
+        stored_type = doc.get("book_type", "")
         profile_name = stored_type if stored_type and stored_type != "general" else config.extraction_profile
 
     if profile_name and profile_name != "general":

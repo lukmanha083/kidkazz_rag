@@ -627,14 +627,7 @@ class DocumentSummarizer:
             "Only include concepts important enough to reference elsewhere."
         )
 
-        if self.profile and self.profile.extraction_hints:
-            type_list = ", ".join(self.profile.concept_types)
-            base_prompt += (
-                f"\n\nUse these concept types: {type_list}.\n"
-                f"{self.profile.extraction_hints}"
-            )
-
-        return base_prompt
+        return base_prompt + self._profile_hint_suffix()
 
     def _chapter_system_prompt(self) -> str:
         prompt = (
@@ -661,13 +654,7 @@ class DocumentSummarizer:
             "- The correct type: term, method, principle, formula, account, etc.\n\n"
             "Only include concepts central to this chapter's topic."
         )
-        if self.profile and self.profile.extraction_hints:
-            type_list = ", ".join(self.profile.concept_types)
-            prompt += (
-                f"\n\nUse these concept types: {type_list}.\n"
-                f"{self.profile.extraction_hints}"
-            )
-        return prompt
+        return prompt + self._profile_hint_suffix()
 
     def _document_system_prompt(self) -> str:
         prompt = (
@@ -686,13 +673,14 @@ class DocumentSummarizer:
             "drawn from the chapter summaries. Use the correct type: term, method, "
             "principle, formula, account, etc."
         )
+        return prompt + self._profile_hint_suffix()
+
+    def _profile_hint_suffix(self) -> str:
+        """Return profile-specific type list and hints to append to prompts."""
         if self.profile and self.profile.extraction_hints:
             type_list = ", ".join(self.profile.concept_types)
-            prompt += (
-                f"\n\nUse these concept types: {type_list}.\n"
-                f"{self.profile.extraction_hints}"
-            )
-        return prompt
+            return f"\n\nUse these concept types: {type_list}.\n{self.profile.extraction_hints}"
+        return ""
 
     # ========================================================================
     # Helper: Chapter title extraction from key_points sentinel

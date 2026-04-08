@@ -205,34 +205,27 @@ class ConceptExtractor:
         context = "\n".join(context_parts)
         existing = existing_concepts or []
 
+        default_types = "terms, methods, principles, formulas, and accounts"
         if self.profile and self.profile.extraction_hints:
             type_list = ", ".join(self.profile.concept_types)
-            system_prompt = (
-                "You are extracting concepts from a textbook. "
-                f"Identify {type_list}. "
-                "For each concept that is DEFINED (explained) in this text, extract:\n"
-                "- The canonical name\n"
-                f"- The type ({type_list})\n"
-                "- A 1-2 sentence definition\n"
-                "- Any aliases or abbreviations\n\n"
-                f"{self.profile.extraction_hints}\n\n"
-                "Also identify relationships between concepts (uses, requires, "
-                "calculated_from, component_of, recorded_in, supersedes).\n\n"
-                f"Already known concepts (reference but don't redefine): {existing}"
-            )
+            hints = f"{self.profile.extraction_hints}\n\n"
         else:
-            system_prompt = (
-                "You are extracting concepts from a textbook. "
-                "Identify terms, methods, principles, formulas, and accounts. "
-                "For each concept that is DEFINED (explained) in this text, extract:\n"
-                "- The canonical name\n"
-                "- The type (term, method, principle, formula, account)\n"
-                "- A 1-2 sentence definition\n"
-                "- Any aliases or abbreviations\n\n"
-                "Also identify relationships between concepts (uses, requires, "
-                "calculated_from, component_of, recorded_in, supersedes).\n\n"
-                f"Already known concepts (reference but don't redefine): {existing}"
-            )
+            type_list = default_types
+            hints = ""
+
+        system_prompt = (
+            "You are extracting concepts from a textbook. "
+            f"Identify {type_list}. "
+            "For each concept that is DEFINED (explained) in this text, extract:\n"
+            "- The canonical name\n"
+            f"- The type ({type_list})\n"
+            "- A 1-2 sentence definition\n"
+            "- Any aliases or abbreviations\n\n"
+            f"{hints}"
+            "Also identify relationships between concepts (uses, requires, "
+            "calculated_from, component_of, recorded_in, supersedes).\n\n"
+            f"Already known concepts (reference but don't redefine): {existing}"
+        )
 
         try:
             return self.client.create(
