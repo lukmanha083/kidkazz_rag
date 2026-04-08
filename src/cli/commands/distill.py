@@ -212,7 +212,7 @@ def _print_summary(data: dict, output_path: Path) -> None:
     if type_dist:
         top_types = list(type_dist.items())[:5]
         console.print(
-            f"\n[dim]Concept types: "
+            "\n[dim]Concept types: "
             + ", ".join(f"{t}: {c}" for t, c in top_types)
             + "[/dim]"
         )

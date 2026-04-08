@@ -166,6 +166,11 @@ class TextbookDistiller:
         Returns:
             Dict matching agent_ex AgentConfig fields + _distill_metadata
         """
+        if top_k < 1:
+            raise ValueError("top_k must be a positive integer")
+        if num_examples < 1:
+            raise ValueError("num_examples must be a positive integer")
+
         logger.info("Gathering document data for %s...", doc_id)
 
         # 1. Gather data (no LLM)
@@ -256,7 +261,8 @@ class TextbookDistiller:
 
             try:
                 related = self.store.get_related_concepts_with_types(concept_id)
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to get related concepts for %s: %s", concept_id, e)
                 related = []
 
             ranked.append({
