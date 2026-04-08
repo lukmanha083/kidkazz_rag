@@ -145,7 +145,7 @@ def list_distilled(
                 "distilled_at": meta.get("distilled_at", ""),
                 "file": str(path),
             })
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             continue
 
     if json_output:

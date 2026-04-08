@@ -176,16 +176,17 @@ class TextbookDistiller:
         # 1. Gather data (no LLM)
         doc_title = self._get_doc_title(doc_id)
         doc_summary = self._get_doc_summary(doc_id)
-        chapter_summaries = self._get_chapter_summaries(doc_id)
-        concepts = self._get_concepts(doc_id)
-        ranked_concepts = self._rank_concepts(concepts, top_k)
-        prerequisites = self._build_prerequisites(ranked_concepts)
 
         if not doc_summary:
             raise ValueError(
                 f"No document-level summary found for '{doc_id}'. "
                 "Run 'kidkazz summarize generate' first."
             )
+
+        chapter_summaries = self._get_chapter_summaries(doc_id)
+        concepts = self._get_concepts(doc_id)
+        ranked_concepts = self._rank_concepts(concepts, top_k)
+        prerequisites = self._build_prerequisites(ranked_concepts)
 
         logger.info(
             "Found %d concepts, %d chapters. Generating identity...",
