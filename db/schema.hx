@@ -6,6 +6,7 @@ N::Document {
     INDEX doc_id: String,
     title: String,
     tags: String,           // JSON array of document tags
+    book_type: String,      // Extraction profile: programming, erp, stem, agriculture, veterinary, general
     created_at: I64,
     chunk_count: U32,
 }

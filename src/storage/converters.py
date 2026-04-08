@@ -269,6 +269,7 @@ def helix_node_to_document(node: dict[str, Any]) -> dict[str, Any]:
         "doc_id": node["doc_id"],
         "title": node.get("title", ""),
         "tags": tags,
+        "book_type": node.get("book_type", "general"),
         "chunk_count": node.get("chunk_count", 0),
         "created_at": node.get("created_at", 0),
     }
