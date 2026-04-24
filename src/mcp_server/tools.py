@@ -831,3 +831,195 @@ def register_tools(mcp: Any, state: ServerState) -> None:
 
         logger.info(f"list_summarized_documents: found {len(docs)} documents")
         return docs
+
+    # ========================================================================
+    # SKILL TOOLS (procedural how-to knowledge)
+    # ========================================================================
+
+    @mcp.tool()
+    def get_skill(skill_id: str) -> dict[str, Any]:
+        """Get a procedural skill by its ID, including all ordered steps.
+
+        A skill is a named, executable procedure extracted from a textbook
+        (e.g., "Deploy app to Kubernetes"). Steps include action text, code
+        snippets, and expected outputs.
+
+        Args:
+            skill_id: Slugified skill identifier (e.g., "deploy-app-to-kubernetes")
+
+        Returns:
+            Dict with skill metadata and an ordered 'steps' list. Returns
+            {"error": ...} if not found.
+        """
+        logger.info(f"get_skill: skill_id={skill_id}")
+
+        skill = state.store.get_skill(skill_id)
+        if not skill:
+            return {"error": f"Skill '{skill_id}' not found"}
+
+        steps = state.store.get_skill_steps(skill_id)
+        return _format_skill_with_steps(skill, steps)
+
+    @mcp.tool()
+    def get_skill_by_name(name: str) -> dict[str, Any]:
+        """Get a skill by its display name.
+
+        Useful when you know the name but not the slug.
+
+        Args:
+            name: Display name (e.g., "Deploy app to Kubernetes")
+
+        Returns:
+            Dict with skill metadata and ordered steps, or {"error": ...}.
+        """
+        logger.info(f"get_skill_by_name: name={name!r}")
+
+        skill = state.store.get_skill_by_name(name)
+        if not skill:
+            return {"error": f"Skill with name {name!r} not found"}
+
+        skill_id = skill.get("skill_id", "")
+        steps = state.store.get_skill_steps(skill_id) if skill_id else []
+        return _format_skill_with_steps(skill, steps)
+
+    @mcp.tool()
+    def list_skills(
+        doc_id: Optional[str] = None,
+        domain: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """List available skills, optionally filtered by document or domain.
+
+        Args:
+            doc_id: Filter to skills extracted from a specific document
+            domain: Filter by domain (programming, erp, stem, agriculture, veterinary, general)
+
+        Returns:
+            List of skill summary dicts (id, name, goal, difficulty, step_count, has_code).
+        """
+        logger.info(f"list_skills: doc_id={doc_id}, domain={domain}")
+
+        skills = state.store.list_skills(doc_id=doc_id)
+        if domain:
+            skills = [s for s in skills if s.get("domain") == domain]
+
+        return [
+            {
+                "skill_id": s.get("skill_id"),
+                "name": s.get("name"),
+                "goal": s.get("goal"),
+                "domain": s.get("domain"),
+                "difficulty": s.get("difficulty"),
+                "step_count": s.get("step_count", 0),
+                "has_code": bool(s.get("has_code")),
+                "source_document_id": s.get("source_document_id"),
+            }
+            for s in skills
+        ]
+
+    @mcp.tool()
+    def search_skills(
+        query: str,
+        top_k: int = 5,
+        doc_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Semantic search over skills. Returns the most relevant how-to procedures.
+
+        Use this when a user asks "how do I X?" — returns the skill(s)
+        whose name/goal/success_criteria best match the query.
+
+        Args:
+            query: Natural language query
+            top_k: Number of results (default: 5)
+            doc_id: Optional filter by source document
+
+        Returns:
+            List of {skill, score, steps} dicts sorted by similarity.
+        """
+        logger.info(f"search_skills: query={query[:50]!r}, top_k={top_k}")
+
+        query_embedding = state.embedder.embed_query(query)
+        results = state.store.search_skills(
+            query_embedding=query_embedding,
+            top_k=top_k,
+            doc_id=doc_id,
+        )
+
+        output = []
+        for skill, score in results:
+            skill_id = skill.get("skill_id", "")
+            steps = state.store.get_skill_steps(skill_id) if skill_id else []
+            entry = _format_skill_with_steps(skill, steps)
+            entry["score"] = score
+            output.append(entry)
+        return output
+
+    @mcp.tool()
+    def get_skill_prerequisites(skill_id: str) -> dict[str, Any]:
+        """Get what must be learned before attempting this skill.
+
+        Returns prerequisite concepts (knowledge needed) and prerequisite
+        skills (other procedures that should be mastered first).
+
+        Args:
+            skill_id: Skill identifier
+
+        Returns:
+            Dict with 'prerequisite_concepts', 'prerequisite_skills', and
+            'produces_concepts' lists.
+        """
+        logger.info(f"get_skill_prerequisites: skill_id={skill_id}")
+
+        skill = state.store.get_skill(skill_id)
+        if not skill:
+            return {"error": f"Skill '{skill_id}' not found"}
+
+        internal_id = skill.get("id")
+        if not internal_id:
+            return {
+                "prerequisite_concepts": [],
+                "prerequisite_skills": [],
+                "produces_concepts": [],
+            }
+
+        return {
+            "skill_id": skill_id,
+            "skill_name": skill.get("name", ""),
+            "prerequisite_concepts": state.store.get_skill_prerequisite_concepts(internal_id),
+            "prerequisite_skills": state.store.get_skill_prerequisite_skills(internal_id),
+            "produces_concepts": state.store.get_skill_produced_concepts(internal_id),
+        }
+
+
+def _format_skill_with_steps(skill: dict, steps: list[dict]) -> dict[str, Any]:
+    """Shape a Skill node + its steps into a clean MCP response dict."""
+    import json as _json
+
+    common_failures_raw = skill.get("common_failures", "[]")
+    try:
+        common_failures = _json.loads(common_failures_raw) if isinstance(common_failures_raw, str) else common_failures_raw
+    except (ValueError, TypeError):
+        common_failures = []
+
+    return {
+        "skill_id": skill.get("skill_id"),
+        "name": skill.get("name"),
+        "goal": skill.get("goal"),
+        "domain": skill.get("domain"),
+        "difficulty": skill.get("difficulty"),
+        "success_criteria": skill.get("success_criteria"),
+        "common_failures": common_failures,
+        "source_document_id": skill.get("source_document_id"),
+        "anchor_header": skill.get("anchor_header"),
+        "step_count": skill.get("step_count", len(steps)),
+        "steps": [
+            {
+                "step_number": s.get("step_number"),
+                "action": s.get("action"),
+                "code_content": s.get("code_content"),
+                "code_language": s.get("code_language"),
+                "expected_output": s.get("expected_output"),
+                "is_optional": bool(s.get("is_optional")),
+            }
+            for s in steps
+        ],
+    }

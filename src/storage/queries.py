@@ -2060,3 +2060,368 @@ class ListSummarizedDocuments(_get_query_base_class()):
         if isinstance(response, list):
             return QueryResult(success=True, data=response)
         return QueryResult(success=True, data=[])
+
+
+# ============================================================================
+# SKILL QUERIES (Procedural skill extraction)
+# ============================================================================
+
+
+class AddSkill(_get_query_base_class()):
+    """Add a skill node to the database."""
+
+    def __init__(self, skill_props: dict[str, Any]) -> None:
+        super().__init__(endpoint="AddSkill")
+        self.skill_props = skill_props
+
+    def query(self) -> list[dict[str, Any]]:
+        p = self.skill_props
+        return [{
+            "skill_id": p.get("skill_id", ""),
+            "name": p.get("name", ""),
+            "goal": p.get("goal", ""),
+            "domain": p.get("domain", "general"),
+            "difficulty": p.get("difficulty", "intermediate"),
+            "source_document_id": p.get("source_document_id", ""),
+            "anchor_header": p.get("anchor_header", ""),
+            "source_chunk_ids": p.get("source_chunk_ids", "[]"),
+            "success_criteria": p.get("success_criteria", ""),
+            "common_failures": p.get("common_failures", "[]"),
+            "step_count": p.get("step_count", 0),
+            "has_code": p.get("has_code", 0),
+            "created_at": p.get("created_at", int(time.time())),
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "skill" in response:
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data={"skill_id": self.skill_props.get("skill_id")})
+
+
+class AddSkillStep(_get_query_base_class()):
+    """Add a skill step node."""
+
+    def __init__(self, step_props: dict[str, Any]) -> None:
+        super().__init__(endpoint="AddSkillStep")
+        self.step_props = step_props
+
+    def query(self) -> list[dict[str, Any]]:
+        p = self.step_props
+        return [{
+            "step_id": p.get("step_id", ""),
+            "skill_id": p.get("skill_id", ""),
+            "step_number": p.get("step_number", 0),
+            "action": p.get("action", ""),
+            "code_content": p.get("code_content", ""),
+            "code_language": p.get("code_language", ""),
+            "expected_output": p.get("expected_output", ""),
+            "is_optional": p.get("is_optional", 0),
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "step" in response:
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data={"step_id": self.step_props.get("step_id")})
+
+
+class AddSkillVector(_get_query_base_class()):
+    """Add vector embedding for a skill."""
+
+    def __init__(self, embedding: list[float], model_name: str, embedding_dim: int) -> None:
+        super().__init__(endpoint="AddSkillVector")
+        self.embedding = embedding
+        self.model_name = model_name
+        self.embedding_dim = embedding_dim
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{
+            "embedding": self.embedding,
+            "model_name": self.model_name,
+            "embedding_dim": self.embedding_dim,
+        }]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True, data=response)
+
+
+class LinkHasStep(_get_query_base_class()):
+    """Link skill to a step via HasStep edge."""
+
+    def __init__(self, skill_id: str, step_id: str) -> None:
+        super().__init__(endpoint="LinkHasStep")
+        self.skill_id = skill_id
+        self.step_id = step_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id, "step_id": self.step_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True, data=response)
+
+
+class LinkRequiresConcept(_get_query_base_class()):
+    """Link skill to a prerequisite concept."""
+
+    def __init__(self, skill_id: str, concept_id: str) -> None:
+        super().__init__(endpoint="LinkRequiresConcept")
+        self.skill_id = skill_id
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id, "concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True, data=response)
+
+
+class LinkProducesConcept(_get_query_base_class()):
+    """Link skill to a produced concept."""
+
+    def __init__(self, skill_id: str, concept_id: str) -> None:
+        super().__init__(endpoint="LinkProducesConcept")
+        self.skill_id = skill_id
+        self.concept_id = concept_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id, "concept_id": self.concept_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True, data=response)
+
+
+class LinkRequiresSkill(_get_query_base_class()):
+    """Link skill to a prerequisite skill."""
+
+    def __init__(self, skill_id: str, prereq_id: str) -> None:
+        super().__init__(endpoint="LinkRequiresSkill")
+        self.skill_id = skill_id
+        self.prereq_id = prereq_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id, "prereq_id": self.prereq_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True, data=response)
+
+
+class LinkSkillDefinedIn(_get_query_base_class()):
+    """Link skill to its source document."""
+
+    def __init__(self, skill_id: str, doc_id: str) -> None:
+        super().__init__(endpoint="LinkSkillDefinedIn")
+        self.skill_id = skill_id
+        self.doc_id = doc_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id, "doc_id": self.doc_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True, data=response)
+
+
+class LinkSkillVector(_get_query_base_class()):
+    """Link skill to its embedding vector."""
+
+    def __init__(self, skill_id: str, vector_id: str) -> None:
+        super().__init__(endpoint="LinkSkillVector")
+        self.skill_id = skill_id
+        self.vector_id = vector_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id, "vector_id": self.vector_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        return QueryResult(success=True, data=response)
+
+
+class GetSkillById(_get_query_base_class()):
+    """Get a skill by skill_id."""
+
+    def __init__(self, skill_id: str) -> None:
+        super().__init__(endpoint="GetSkillById")
+        self.skill_id = skill_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "skills" in response:
+            skills = response["skills"]
+            if isinstance(skills, list) and skills:
+                return QueryResult(success=True, data={"node": skills[0]})
+        if isinstance(response, list) and response:
+            return QueryResult(success=True, data={"node": response[0]})
+        return QueryResult(success=False, error="Skill not found")
+
+
+class GetSkillByName(_get_query_base_class()):
+    """Get a skill by display name."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(endpoint="GetSkillByName")
+        self.name = name
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"name": self.name}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "skills" in response:
+            skills = response["skills"]
+            if isinstance(skills, list) and skills:
+                return QueryResult(success=True, data={"node": skills[0]})
+        if isinstance(response, list) and response:
+            return QueryResult(success=True, data={"node": response[0]})
+        return QueryResult(success=False, error="Skill not found")
+
+
+class GetSkillSteps(_get_query_base_class()):
+    """Get all steps for a skill."""
+
+    def __init__(self, skill_id: str) -> None:
+        super().__init__(endpoint="GetSkillSteps")
+        self.skill_id = skill_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "steps" in response:
+            steps = response["steps"]
+            if isinstance(steps, list):
+                return QueryResult(success=True, data=steps)
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetSkillPrerequisiteConcepts(_get_query_base_class()):
+    """Get prerequisite concepts for a skill."""
+
+    def __init__(self, skill_id: str) -> None:
+        super().__init__(endpoint="GetSkillPrerequisiteConcepts")
+        self.skill_id = skill_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "concepts" in response:
+            return QueryResult(success=True, data=response["concepts"] or [])
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetSkillProducedConcepts(_get_query_base_class()):
+    """Get produced concepts for a skill."""
+
+    def __init__(self, skill_id: str) -> None:
+        super().__init__(endpoint="GetSkillProducedConcepts")
+        self.skill_id = skill_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "concepts" in response:
+            return QueryResult(success=True, data=response["concepts"] or [])
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetSkillPrerequisiteSkills(_get_query_base_class()):
+    """Get prerequisite skills for a skill."""
+
+    def __init__(self, skill_id: str) -> None:
+        super().__init__(endpoint="GetSkillPrerequisiteSkills")
+        self.skill_id = skill_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"skill_id": self.skill_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "skills" in response:
+            return QueryResult(success=True, data=response["skills"] or [])
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class ListAllSkills(_get_query_base_class()):
+    """List all skill nodes."""
+
+    def __init__(self) -> None:
+        super().__init__(endpoint="ListAllSkills")
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "skills" in response:
+            return QueryResult(success=True, data=response["skills"] or [])
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class ListDocumentSkills(_get_query_base_class()):
+    """List all skills for a document."""
+
+    def __init__(self, source_document_id: str) -> None:
+        super().__init__(endpoint="ListDocumentSkills")
+        self.source_document_id = source_document_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"source_document_id": self.source_document_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "skills" in response:
+            return QueryResult(success=True, data=response["skills"] or [])
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
+
+
+class GetSkillForVector(_get_query_base_class()):
+    """Get the skill linked to a vector (reverse lookup)."""
+
+    def __init__(self, vector_id: str) -> None:
+        super().__init__(endpoint="GetSkillForVector")
+        self.vector_id = vector_id
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"vector_id": self.vector_id}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "skill" in response:
+            node = response["skill"]
+            if isinstance(node, list) and node:
+                return QueryResult(success=True, data=node[0])
+            return QueryResult(success=True, data=node)
+        if isinstance(response, list) and response:
+            return QueryResult(success=True, data=response[0])
+        return QueryResult(success=True, data=response)
+
+
+class SearchSimilarSkills(_get_query_base_class()):
+    """Vector similarity search over skills."""
+
+    def __init__(
+        self,
+        query_embedding: list[float],
+        limit: int = 10,
+    ) -> None:
+        super().__init__(endpoint="SearchSimilarSkills")
+        self.query_embedding = query_embedding
+        self.limit = limit
+
+    def query(self) -> list[dict[str, Any]]:
+        return [{"query_vec": self.query_embedding, "top_k": self.limit}]
+
+    def response(self, response: Any) -> QueryResult:
+        if isinstance(response, dict) and "results" in response:
+            return QueryResult(success=True, data=response["results"])
+        if isinstance(response, list):
+            return QueryResult(success=True, data=response)
+        return QueryResult(success=True, data=[])
