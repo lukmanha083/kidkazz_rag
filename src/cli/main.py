@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from .commands import concepts, config_cmd, db, distill, docs, inbox, ingest, search, summarize
+from .commands import concepts, config_cmd, db, distill, docs, inbox, ingest, search, skills, summarize
 
 # Create main app
 app = typer.Typer(
@@ -27,6 +27,7 @@ app.add_typer(inbox.app, name="inbox", help="Manage PDF inbox")
 app.add_typer(concepts.app, name="concepts", help="Concept extraction and management")
 app.add_typer(summarize.app, name="summarize", help="Document summarization")
 app.add_typer(distill.app, name="distill", help="Distill textbooks into agent configs")
+app.add_typer(skills.app, name="skills", help="Extract procedural skills from documents")
 
 
 @app.callback()
