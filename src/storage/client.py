@@ -2206,14 +2206,24 @@ class HelixChunkStore:
                 logger.warning("Failed to get internal ID for skill %r", skill_props.get("skill_id"))
                 return None
 
-            # Store steps, link via HasStep
+            # Store steps, link via HasStep. Any failure aborts — we don't
+            # want a skill persisted with missing steps.
             for step in steps:
                 step_query = AddSkillStep(step)
                 step_response = self._client.query(step_query)
                 step_internal_id = self._extract_node_id(step_response)
-                if step_internal_id:
-                    link_query = LinkHasStep(skill_internal_id, step_internal_id)
-                    self._client.query(link_query)
+                if not step_internal_id:
+                    raise RuntimeError(
+                        f"Failed to persist step {step.get('step_id')!r} "
+                        f"for skill {skill_props.get('skill_id')!r}"
+                    )
+                link_query = LinkHasStep(skill_internal_id, step_internal_id)
+                link_result = self._execute_query(link_query)
+                if not link_result.success:
+                    raise RuntimeError(
+                        f"Failed to link step {step.get('step_id')!r} "
+                        f"to skill {skill_props.get('skill_id')!r}"
+                    )
 
             # Link to source document
             _doc_id = doc_internal_id

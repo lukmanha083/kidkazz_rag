@@ -230,14 +230,17 @@ def detect_skill_boundaries(chunks: list[Any]) -> list[SkillBoundary]:
 
             current_id = nxt.get("next_id")
 
-        # Minimum body signal: combined content must have >=2 numbered steps
-        # OR >=1 numbered step + >=1 code fence
+        # Minimum body signal: combined content must have >=2 step markers
+        # OR >=1 step marker + >=1 code fence. Fallback imperative parsing
+        # handles the "code fence only" case at phase B.
         combined = "\n\n".join(m.get("content", "") for m in collected)
         numbered_count = sum(
-            1 for _ in _STEP_MARKER_PATTERNS[0].finditer(combined)
+            len(p.findall(combined)) for p in _STEP_MARKER_PATTERNS
         )
         code_count = len(_CODE_FENCE.findall(combined))
-        if numbered_count < 2 and not (numbered_count >= 1 and code_count >= 1):
+        # Accept if: 2+ step markers, OR 1+ step marker + 1+ code fence,
+        # OR 2+ code fences (imperative fallback will find steps)
+        if numbered_count < 2 and not (numbered_count >= 1 and code_count >= 1) and code_count < 2:
             continue
 
         chunk_ids = [m["chunk_id"] for m in collected if m.get("chunk_id")]

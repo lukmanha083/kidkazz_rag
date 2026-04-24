@@ -222,9 +222,13 @@ def generate(
     synthesizer = SkillSynthesizer(provider=provider, profile=extraction_profile)
     enriched_entries = synthesizer.enrich_all(raw_skills, known_concepts=known_concepts)
 
-    # Build skill payloads and persist
+    # Build skill payloads and persist. Track skills by name so we can link
+    # prerequisite_skills (LLM emits names) in a second pass.
     stored_count = 0
     skipped_count = 0
+    name_to_internal_id: dict[str, str] = {}
+    pending_skill_prereqs: list[tuple[str, list[str]]] = []  # (internal_id, prereq_names)
+    doc_scope = _slugify(doc_id)[:40]  # short, safe prefix
 
     for entry in enriched_entries:
         if entry.get("enrichment_error") or not entry.get("metadata"):
@@ -235,7 +239,9 @@ def generate(
         steps_list = entry["steps"]
         meta = entry["metadata"]
 
-        skill_id = _slugify(meta["name"])
+        # Document-scoped skill_id prevents cross-doc collisions
+        name_slug = _slugify(meta["name"])
+        skill_id = f"{doc_scope}__{name_slug}" if doc_scope else name_slug
         has_code = 1 if any(s.get("code_content") for s in steps_list) else 0
 
         skill_props = {
@@ -256,7 +262,7 @@ def generate(
 
         step_payloads = [
             {
-                "step_id": f"{skill_id}_step_{i + 1}",
+                "step_id": f"{skill_id}__step_{i + 1}",
                 "skill_id": skill_id,
                 "step_number": i + 1,
                 "action": s.get("action", ""),
@@ -283,13 +289,41 @@ def generate(
             skipped_count += 1
             continue
 
-        # Link prerequisite concepts by name
+        # Link prerequisite/produced concepts by name
         for concept_name in meta.get("prerequisite_concepts", []):
             _link_concept(store, skill_internal_id, concept_name, "requires")
         for concept_name in meta.get("produces_concepts", []):
             _link_concept(store, skill_internal_id, concept_name, "produces")
 
+        # Defer skill-to-skill prereqs until all skills exist (forward refs)
+        name_to_internal_id[meta["name"]] = skill_internal_id
+        prereq_skill_names = meta.get("prerequisite_skills") or []
+        if prereq_skill_names:
+            pending_skill_prereqs.append((skill_internal_id, prereq_skill_names))
+
         stored_count += 1
+
+    # Second pass: resolve skill-to-skill prerequisites now that all skills
+    # from this document are stored. Missing targets are logged and skipped.
+    if not dry_run:
+        for skill_iid, prereq_names in pending_skill_prereqs:
+            for prereq_name in prereq_names:
+                target_iid = name_to_internal_id.get(prereq_name)
+                if not target_iid:
+                    # Try looking up a pre-existing skill by name
+                    try:
+                        existing = store.get_skill_by_name(prereq_name)
+                    except Exception:  # noqa: BLE001
+                        existing = None
+                    if existing:
+                        target_iid = existing.get("id") or existing.get("skill_id")
+                if not target_iid:
+                    logger.debug("Prerequisite skill %r not found; skipping link", prereq_name)
+                    continue
+                try:
+                    store.link_skill_requires_skill(skill_iid, target_iid)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Failed to link skill prereq %r: %s", prereq_name, e)
 
     summary = {
         "doc_id": doc_id,

@@ -973,13 +973,9 @@ def register_tools(mcp: Any, state: ServerState) -> None:
         if not skill:
             return {"error": f"Skill '{skill_id}' not found"}
 
-        internal_id = skill.get("id")
-        if not internal_id:
-            return {
-                "prerequisite_concepts": [],
-                "prerequisite_skills": [],
-                "produces_concepts": [],
-            }
+        # HelixChunkStore returns node with 'id' (internal Helix ID);
+        # MockChunkStore stores by skill_id directly. Fall back so both work.
+        internal_id = skill.get("id") or skill_id
 
         return {
             "skill_id": skill_id,

@@ -108,6 +108,34 @@ class TestMockSkillStorage:
         produces = store.get_skill_produced_concepts("deploy-app")
         assert produces == [{"concept_id": "running-pod"}]
 
+    def test_link_requires_skill(self):
+        store = MockChunkStore()
+        store.store_skill(_skill_props(), [])
+        store.store_skill(_skill_props(skill_id="install", name="Install kubectl"), [])
+        store.link_skill_requires_skill("deploy-app", "install")
+        prereqs = store.get_skill_prerequisite_skills("deploy-app")
+        assert prereqs == [{"skill_id": "install"}]
+
+    def test_clear_resets_skill_state(self):
+        """clear() must reset skill-related maps so tests don't leak state."""
+        store = MockChunkStore()
+        store.store_skill(_skill_props(), [_step("s1", 1, "A")])
+        store.link_skill_requires_concept("deploy-app", "pod")
+        store.link_skill_produces_concept("deploy-app", "running-pod")
+        store.link_skill_requires_skill("deploy-app", "install")
+
+        assert store.list_skills()
+        assert store.get_skill_steps("deploy-app")
+
+        store.clear()
+
+        assert store.list_skills() == []
+        assert store.get_skill("deploy-app") is None
+        assert store.get_skill_steps("deploy-app") == []
+        assert store.get_skill_prerequisite_concepts("deploy-app") == []
+        assert store.get_skill_produced_concepts("deploy-app") == []
+        assert store.get_skill_prerequisite_skills("deploy-app") == []
+
 
 class TestMCPFormatter:
     def test_format_skill_with_steps(self):

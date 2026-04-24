@@ -247,6 +247,45 @@ class TestAssembleSkillSteps:
         assert result.steps[0].action == "Open the file"
         assert result.steps[1].action == "Read the data"
 
+    def test_detects_step_word_markers_at_boundary(self):
+        """Phase A should count 'Step N:' markers, not only '1.' markers."""
+        chunks = [
+            _chunk(
+                "c1",
+                "Step 1: Open\nStep 2: Read\nStep 3: Close",
+                header_text="How to Process",
+                header_level=2,
+            ),
+        ]
+        boundaries = detect_skill_boundaries(chunks)
+        assert len(boundaries) == 1
+
+    def test_detects_paren_step_markers_at_boundary(self):
+        """Phase A should count '1)' markers, not only '1.' markers."""
+        chunks = [
+            _chunk(
+                "c1",
+                "1) First\n2) Second\n3) Third",
+                header_text="How to Setup",
+                header_level=2,
+            ),
+        ]
+        boundaries = detect_skill_boundaries(chunks)
+        assert len(boundaries) == 1
+
+    def test_detects_boundary_with_only_code_fences(self):
+        """Two code fences + imperative text should pass the body-signal gate."""
+        chunks = [
+            _chunk(
+                "c1",
+                "Run the build:\n\n```bash\nmake\n```\n\nRun tests:\n\n```bash\nmake test\n```",
+                header_text="How to Build",
+                header_level=2,
+            ),
+        ]
+        boundaries = detect_skill_boundaries(chunks)
+        assert len(boundaries) == 1
+
     def test_renumbers_sequentially(self):
         chunks = [
             _chunk(

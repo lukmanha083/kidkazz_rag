@@ -542,6 +542,11 @@ class MockChunkStore:
         self._chunks.clear()
         self._embeddings.clear()
         self._model_names.clear()
+        self._skills.clear()
+        self._skill_steps.clear()
+        self._skill_requires_concepts.clear()
+        self._skill_produces_concepts.clear()
+        self._skill_requires_skills.clear()
 
     def get_chunk_internal_id(self, chunk_id: str) -> Optional[str]:
         """Get internal node ID for a chunk_id (mock returns chunk_id as-is).
