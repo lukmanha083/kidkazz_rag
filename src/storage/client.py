@@ -320,7 +320,7 @@ class HelixChunkStore:
             data = response.data
             if isinstance(data, dict):
                 # Check for nested node data under various keys
-                for key in ['chunk', 'vec', 'doc', 'node', 'N', 'summary', 'Summary', 'concept', 'Concept']:
+                for key in ['chunk', 'vec', 'doc', 'node', 'N', 'summary', 'Summary', 'concept', 'Concept', 'skill', 'step']:
                     if key in data and isinstance(data[key], dict):
                         node_id = data[key].get('id') or data[key].get('Id')
                         if node_id:

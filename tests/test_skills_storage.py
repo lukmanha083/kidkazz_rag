@@ -137,6 +137,7 @@ class TestMockSkillStorage:
         assert store.get_skill_prerequisite_skills("deploy-app") == []
 
 
+@pytest.mark.mcp
 class TestMCPFormatter:
     def test_format_skill_with_steps(self):
         from src.mcp_server.tools import _format_skill_with_steps
@@ -185,3 +186,24 @@ class TestGenerateSkillId:
         assert _slugify("Deploy App to Kubernetes") == "deploy-app-to-kubernetes"
         assert _slugify("How to Use `kubectl`!") == "how-to-use-kubectl"
         assert _slugify("   ") == "unnamed-skill"
+
+    def test_collision_counter_logic(self):
+        """Per-batch counter should disambiguate same-name skills in one doc."""
+        from src.cli.commands.skills import _slugify
+
+        used_skill_ids: dict[str, int] = {}
+        names = ["Deploy App", "Deploy App", "Deploy App", "Other Skill"]
+        doc_scope = _slugify("k8s-guide")
+        result = []
+        for name in names:
+            base = f"{doc_scope}__{_slugify(name)}"
+            seen = used_skill_ids.get(base, 0)
+            sid = base if seen == 0 else f"{base}_{seen + 1}"
+            used_skill_ids[base] = seen + 1
+            result.append(sid)
+        assert result == [
+            "k8s-guide__deploy-app",
+            "k8s-guide__deploy-app_2",
+            "k8s-guide__deploy-app_3",
+            "k8s-guide__other-skill",
+        ]

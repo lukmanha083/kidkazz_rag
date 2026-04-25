@@ -10,7 +10,7 @@ import typer
 
 from ..config import CLIConfig
 from ..output import console, print_error, print_json, print_success, print_warning
-from ..utils import get_store
+from ..utils import get_embedder, get_store
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +229,14 @@ def generate(
     name_to_internal_id: dict[str, str] = {}
     pending_skill_prereqs: list[tuple[str, list[str]]] = []  # (internal_id, prereq_names)
     doc_scope = _slugify(doc_id)[:40]  # short, safe prefix
+    used_skill_ids: dict[str, int] = {}  # collision counter within this batch
+
+    # Embedder for SkillVector (reuses ingestion embedder so search dims match)
+    try:
+        embedder = get_embedder(config)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not initialize embedder: %s", e)
+        embedder = None
 
     for entry in enriched_entries:
         if entry.get("enrichment_error") or not entry.get("metadata"):
@@ -239,9 +247,13 @@ def generate(
         steps_list = entry["steps"]
         meta = entry["metadata"]
 
-        # Document-scoped skill_id prevents cross-doc collisions
+        # Document-scoped skill_id prevents cross-doc collisions; counter
+        # suffix prevents same-name collisions within the same batch.
         name_slug = _slugify(meta["name"])
-        skill_id = f"{doc_scope}__{name_slug}" if doc_scope else name_slug
+        base_skill_id = f"{doc_scope}__{name_slug}" if doc_scope else name_slug
+        seen = used_skill_ids.get(base_skill_id, 0)
+        skill_id = base_skill_id if seen == 0 else f"{base_skill_id}_{seen + 1}"
+        used_skill_ids[base_skill_id] = seen + 1
         has_code = 1 if any(s.get("code_content") for s in steps_list) else 0
 
         skill_props = {
@@ -278,8 +290,30 @@ def generate(
             stored_count += 1
             continue
 
+        # Embed the skill's identity (name + goal + success criteria) so
+        # search_skills() can find it via vector similarity.
+        embedding = None
+        embedding_model = "unknown"
+        if embedder is not None:
+            embed_text = " ".join(filter(None, [
+                meta["name"],
+                meta.get("goal", ""),
+                meta.get("success_criteria", ""),
+            ])).strip()
+            if embed_text:
+                try:
+                    embedding = embedder.embed_query(embed_text)
+                    embedding_model = getattr(embedder, "model_name", "unknown")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Failed to embed skill %r: %s", meta["name"], e)
+
         try:
-            skill_internal_id = store.store_skill(skill_props, step_payloads)
+            skill_internal_id = store.store_skill(
+                skill_props,
+                step_payloads,
+                embedding=embedding,
+                embedding_model=embedding_model,
+            )
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to store skill %r: %s", meta["name"], e)
             skipped_count += 1
