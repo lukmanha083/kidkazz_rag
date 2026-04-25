@@ -320,7 +320,7 @@ class HelixChunkStore:
             data = response.data
             if isinstance(data, dict):
                 # Check for nested node data under various keys
-                for key in ['chunk', 'vec', 'doc', 'node', 'N', 'summary', 'Summary', 'concept', 'Concept']:
+                for key in ['chunk', 'vec', 'doc', 'node', 'N', 'summary', 'Summary', 'concept', 'Concept', 'skill', 'step']:
                     if key in data and isinstance(data[key], dict):
                         node_id = data[key].get('id') or data[key].get('Id')
                         if node_id:
@@ -2161,3 +2161,242 @@ class HelixChunkStore:
             }
             for doc_id, count in doc_counts.items()
         ]
+
+    # ========================================================================
+    # SKILL STORAGE (procedural skill extraction)
+    # ========================================================================
+
+    def store_skill(
+        self,
+        skill_props: dict,
+        steps: list[dict],
+        embedding: Optional[list[float]] = None,
+        embedding_model: str = "unknown",
+        doc_internal_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Store a skill with its steps and optional embedding.
+
+        Args:
+            skill_props: Skill node properties (skill_id, name, goal, ...)
+            steps: List of step dicts (step_id, step_number, action, ...)
+            embedding: Optional embedding vector for the skill
+            embedding_model: Name of the embedding model
+            doc_internal_id: Pre-cached document internal ID
+
+        Returns:
+            Internal skill node ID, or None on failure.
+        """
+        from src.storage.queries import (
+            AddSkill,
+            AddSkillStep,
+            AddSkillVector,
+            GetDocumentByDocId,
+            LinkHasStep,
+            LinkSkillDefinedIn,
+            LinkSkillVector,
+        )
+
+        self._ensure_connected()
+
+        try:
+            add_query = AddSkill(skill_props)
+            response = self._client.query(add_query)
+            skill_internal_id = self._extract_node_id(response)
+            if not skill_internal_id:
+                logger.warning("Failed to get internal ID for skill %r", skill_props.get("skill_id"))
+                return None
+
+            # Store steps, link via HasStep. Any failure aborts — we don't
+            # want a skill persisted with missing steps.
+            for step in steps:
+                step_query = AddSkillStep(step)
+                step_response = self._client.query(step_query)
+                step_internal_id = self._extract_node_id(step_response)
+                if not step_internal_id:
+                    raise RuntimeError(
+                        f"Failed to persist step {step.get('step_id')!r} "
+                        f"for skill {skill_props.get('skill_id')!r}"
+                    )
+                link_query = LinkHasStep(skill_internal_id, step_internal_id)
+                link_result = self._execute_query(link_query)
+                if not link_result.success:
+                    raise RuntimeError(
+                        f"Failed to link step {step.get('step_id')!r} "
+                        f"to skill {skill_props.get('skill_id')!r}"
+                    )
+
+            # Link to source document
+            _doc_id = doc_internal_id
+            doc_string_id = skill_props.get("source_document_id")
+            if not _doc_id and doc_string_id:
+                doc_query = GetDocumentByDocId(doc_string_id)
+                doc_result = self._execute_query(doc_query)
+                if doc_result.success and doc_result.data:
+                    doc_node = doc_result.data.get("node", doc_result.data)
+                    _doc_id = (
+                        self._extract_node_id(doc_result.data)
+                        or (doc_node.get("id") if doc_node else None)
+                    )
+            if _doc_id:
+                link_query = LinkSkillDefinedIn(skill_internal_id, _doc_id)
+                self._client.query(link_query)
+
+            # Add embedding if provided
+            if embedding:
+                vec_query = AddSkillVector(
+                    embedding=embedding,
+                    model_name=embedding_model,
+                    embedding_dim=len(embedding),
+                )
+                vec_response = self._client.query(vec_query)
+                vec_id = self._extract_node_id(vec_response)
+                if vec_id:
+                    link_query = LinkSkillVector(skill_internal_id, vec_id)
+                    self._client.query(link_query)
+
+            return skill_internal_id
+
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error("Network error storing skill %r: %s", skill_props.get("skill_id"), e)
+            raise
+        except Exception:
+            logger.exception("Unexpected error storing skill %r", skill_props.get("skill_id"))
+            raise
+
+    def link_skill_requires_concept(self, skill_internal_id: str, concept_internal_id: str) -> bool:
+        """Link a skill to a prerequisite concept."""
+        from src.storage.queries import LinkRequiresConcept
+
+        self._ensure_connected()
+        result = self._execute_query(LinkRequiresConcept(skill_internal_id, concept_internal_id))
+        return result.success
+
+    def link_skill_produces_concept(self, skill_internal_id: str, concept_internal_id: str) -> bool:
+        """Link a skill to a produced concept."""
+        from src.storage.queries import LinkProducesConcept
+
+        self._ensure_connected()
+        result = self._execute_query(LinkProducesConcept(skill_internal_id, concept_internal_id))
+        return result.success
+
+    def link_skill_requires_skill(self, skill_internal_id: str, prereq_internal_id: str) -> bool:
+        """Link a skill to a prerequisite skill."""
+        from src.storage.queries import LinkRequiresSkill
+
+        self._ensure_connected()
+        result = self._execute_query(LinkRequiresSkill(skill_internal_id, prereq_internal_id))
+        return result.success
+
+    def get_skill(self, skill_id: str) -> Optional[dict]:
+        """Fetch a skill by skill_id."""
+        from src.storage.queries import GetSkillById
+
+        self._ensure_connected()
+        result = self._execute_query(GetSkillById(skill_id))
+        if result.success and result.data:
+            return result.data.get("node")
+        return None
+
+    def get_skill_by_name(self, name: str) -> Optional[dict]:
+        """Fetch a skill by display name."""
+        from src.storage.queries import GetSkillByName
+
+        self._ensure_connected()
+        result = self._execute_query(GetSkillByName(name))
+        if result.success and result.data:
+            return result.data.get("node")
+        return None
+
+    def get_skill_steps(self, skill_id: str) -> list[dict]:
+        """Get all steps for a skill, sorted by step_number."""
+        from src.storage.queries import GetSkillSteps
+
+        self._ensure_connected()
+        result = self._execute_query(GetSkillSteps(skill_id))
+        if not result.success:
+            return []
+        steps = [s for s in (result.data or []) if isinstance(s, dict) and s.get("step_id")]
+        steps.sort(key=lambda s: s.get("step_number", 0))
+        return steps
+
+    def get_skill_prerequisite_concepts(self, skill_internal_id: str) -> list[dict]:
+        """Get concepts the skill requires (prerequisites)."""
+        from src.storage.queries import GetSkillPrerequisiteConcepts
+
+        self._ensure_connected()
+        result = self._execute_query(GetSkillPrerequisiteConcepts(skill_internal_id))
+        return result.data or [] if result.success else []
+
+    def get_skill_produced_concepts(self, skill_internal_id: str) -> list[dict]:
+        """Get concepts the skill produces when executed."""
+        from src.storage.queries import GetSkillProducedConcepts
+
+        self._ensure_connected()
+        result = self._execute_query(GetSkillProducedConcepts(skill_internal_id))
+        return result.data or [] if result.success else []
+
+    def get_skill_prerequisite_skills(self, skill_internal_id: str) -> list[dict]:
+        """Get skills the given skill requires first."""
+        from src.storage.queries import GetSkillPrerequisiteSkills
+
+        self._ensure_connected()
+        result = self._execute_query(GetSkillPrerequisiteSkills(skill_internal_id))
+        return result.data or [] if result.success else []
+
+    def list_skills(self, doc_id: Optional[str] = None) -> list[dict]:
+        """List all skills, optionally filtered by source document."""
+        from src.storage.queries import ListAllSkills, ListDocumentSkills
+
+        self._ensure_connected()
+        if doc_id:
+            result = self._execute_query(ListDocumentSkills(doc_id))
+        else:
+            result = self._execute_query(ListAllSkills())
+        if not result.success:
+            return []
+        return [
+            s for s in (result.data or [])
+            if isinstance(s, dict) and s.get("skill_id")
+        ]
+
+    def search_skills(
+        self,
+        query_embedding: list[float],
+        top_k: int = 10,
+        doc_id: Optional[str] = None,
+    ) -> list[tuple[dict, float]]:
+        """Vector search over skills. Returns list of (skill_node, score).
+
+        Post-filters by doc_id when provided.
+        """
+        from src.storage.queries import GetSkillForVector, SearchSimilarSkills
+
+        self._ensure_connected()
+        vec_result = self._execute_query(
+            SearchSimilarSkills(query_embedding=query_embedding, limit=top_k * 3 if doc_id else top_k)
+        )
+        if not vec_result.success:
+            return []
+
+        out: list[tuple[dict, float]] = []
+        for item in vec_result.data or []:
+            # Each result is a vector node; score may live under different keys
+            node = item if isinstance(item, dict) else {}
+            score = float(node.get("score", node.get("distance", 0.0)) or 0.0)
+            vector_id = node.get("id") or node.get("vector_id") or ""
+            if not vector_id:
+                continue
+            skill_result = self._execute_query(GetSkillForVector(vector_id))
+            if not (skill_result.success and skill_result.data):
+                continue
+            skill_node = skill_result.data
+            if isinstance(skill_node, list):
+                skill_node = skill_node[0] if skill_node else None
+            if not isinstance(skill_node, dict):
+                continue
+            if doc_id and skill_node.get("source_document_id") != doc_id:
+                continue
+            out.append((skill_node, score))
+            if len(out) >= top_k:
+                break
+        return out

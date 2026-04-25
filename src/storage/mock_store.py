@@ -35,6 +35,11 @@ class MockChunkStore:
         self._documents: dict[str, dict[str, Any]] = {}
         self._chunks: dict[str, dict[str, Any]] = {}
         self._embeddings: dict[str, list[float]] = {}
+        self._skills: dict[str, dict[str, Any]] = {}
+        self._skill_steps: dict[str, list[dict[str, Any]]] = {}
+        self._skill_requires_concepts: dict[str, list[str]] = {}
+        self._skill_produces_concepts: dict[str, list[str]] = {}
+        self._skill_requires_skills: dict[str, list[str]] = {}
         self._model_names: dict[str, str] = {}
 
     def store_document(
@@ -537,6 +542,11 @@ class MockChunkStore:
         self._chunks.clear()
         self._embeddings.clear()
         self._model_names.clear()
+        self._skills.clear()
+        self._skill_steps.clear()
+        self._skill_requires_concepts.clear()
+        self._skill_produces_concepts.clear()
+        self._skill_requires_skills.clear()
 
     def get_chunk_internal_id(self, chunk_id: str) -> Optional[str]:
         """Get internal node ID for a chunk_id (mock returns chunk_id as-is).
@@ -607,3 +617,72 @@ class MockChunkStore:
             model_name=model_name,
         )
 
+
+    # ========================================================================
+    # Skill storage (in-memory, mirrors HelixChunkStore's interface)
+    # ========================================================================
+
+    def store_skill(
+        self,
+        skill_props: dict,
+        steps: list[dict],
+        embedding: Optional[list[float]] = None,
+        embedding_model: str = "unknown",
+        doc_internal_id: Optional[str] = None,
+    ) -> Optional[str]:
+        skill_id = skill_props.get("skill_id", "")
+        if not skill_id:
+            return None
+        self._skills[skill_id] = dict(skill_props)
+        self._skill_steps[skill_id] = [dict(s) for s in steps]
+        return skill_id
+
+    def link_skill_requires_concept(self, skill_internal_id: str, concept_internal_id: str) -> bool:
+        self._skill_requires_concepts.setdefault(skill_internal_id, []).append(concept_internal_id)
+        return True
+
+    def link_skill_produces_concept(self, skill_internal_id: str, concept_internal_id: str) -> bool:
+        self._skill_produces_concepts.setdefault(skill_internal_id, []).append(concept_internal_id)
+        return True
+
+    def link_skill_requires_skill(self, skill_internal_id: str, prereq_internal_id: str) -> bool:
+        self._skill_requires_skills.setdefault(skill_internal_id, []).append(prereq_internal_id)
+        return True
+
+    def get_skill(self, skill_id: str) -> Optional[dict]:
+        return self._skills.get(skill_id)
+
+    def get_skill_by_name(self, name: str) -> Optional[dict]:
+        for s in self._skills.values():
+            if s.get("name") == name:
+                return s
+        return None
+
+    def get_skill_steps(self, skill_id: str) -> list[dict]:
+        steps = list(self._skill_steps.get(skill_id, []))
+        steps.sort(key=lambda s: s.get("step_number", 0))
+        return steps
+
+    def get_skill_prerequisite_concepts(self, skill_internal_id: str) -> list[dict]:
+        return [{"concept_id": cid} for cid in self._skill_requires_concepts.get(skill_internal_id, [])]
+
+    def get_skill_produced_concepts(self, skill_internal_id: str) -> list[dict]:
+        return [{"concept_id": cid} for cid in self._skill_produces_concepts.get(skill_internal_id, [])]
+
+    def get_skill_prerequisite_skills(self, skill_internal_id: str) -> list[dict]:
+        return [{"skill_id": sid} for sid in self._skill_requires_skills.get(skill_internal_id, [])]
+
+    def list_skills(self, doc_id: Optional[str] = None) -> list[dict]:
+        all_skills = list(self._skills.values())
+        if doc_id:
+            return [s for s in all_skills if s.get("source_document_id") == doc_id]
+        return all_skills
+
+    def search_skills(
+        self,
+        query_embedding: list[float],
+        top_k: int = 10,
+        doc_id: Optional[str] = None,
+    ) -> list[tuple[dict, float]]:
+        skills = self.list_skills(doc_id=doc_id)
+        return [(s, 1.0) for s in skills[:top_k]]

@@ -185,3 +185,77 @@ E::SummaryHasEmbedding {
     From: Summary,
     To: SummaryVector,
 }
+
+
+// ========== PROCEDURAL SKILLS ==========
+
+// Skill node: Named, executable procedure extracted from a textbook
+N::Skill {
+    INDEX skill_id: String,            // Slugified canonical name
+    INDEX name: String,                // "Deploy app to Kubernetes"
+    goal: String,                      // What the user accomplishes
+    INDEX domain: String,              // Profile name: programming, erp, etc.
+    difficulty: String,                // beginner | intermediate | advanced
+    INDEX source_document_id: String,  // Document this skill was extracted from
+    anchor_header: String,             // Text of the anchor header
+    source_chunk_ids: String,          // JSON array of chunk_ids spanning the skill
+    success_criteria: String,          // How to verify success
+    common_failures: String,           // JSON array of {symptom, resolution}
+    step_count: U32,
+    has_code: U32,                     // 0/1 — convenience flag
+    created_at: I64,
+}
+
+// SkillStep node: Single ordered step within a skill
+N::SkillStep {
+    INDEX step_id: String,             // {skill_id}_step_{N}
+    INDEX skill_id: String,
+    step_number: U32,
+    action: String,                    // Narrative describing the step
+    code_content: String,              // Verbatim code, empty if none
+    code_language: String,             // "bash", "yaml", "", etc.
+    expected_output: String,
+    is_optional: U32,                  // 0/1
+}
+
+// SkillVector: Embedding for skill semantic search
+V::SkillVector {
+    model_name: String,
+    embedding_dim: U32,
+}
+
+// Skill has steps (ordered via step_number)
+E::HasStep {
+    From: Skill,
+    To: SkillStep,
+}
+
+// Skill requires a concept to be understood first (prerequisite knowledge)
+E::RequiresConcept {
+    From: Skill,
+    To: Concept,
+}
+
+// Skill requires another skill to be learned first
+E::RequiresSkill {
+    From: Skill,
+    To: Skill,
+}
+
+// Skill produces a concept when executed (what it creates)
+E::ProducesConcept {
+    From: Skill,
+    To: Concept,
+}
+
+// Skill was defined in a document
+E::SkillDefinedIn {
+    From: Skill,
+    To: Document,
+}
+
+// Skill has embedding for vector search
+E::SkillHasEmbedding {
+    From: Skill,
+    To: SkillVector,
+}

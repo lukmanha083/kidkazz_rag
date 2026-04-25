@@ -611,3 +611,161 @@ QUERY DropSummaryVector(vector_id: ID) =>
 QUERY DeleteDocumentSummaries(document_id: String) =>
     summaries <- N<Summary>::WHERE(_::{document_id}::EQ(document_id))
     RETURN summaries
+
+// ========== PROCEDURAL SKILLS ==========
+
+// Add a new skill
+QUERY AddSkill(
+    skill_id: String,
+    name: String,
+    goal: String,
+    domain: String,
+    difficulty: String,
+    source_document_id: String,
+    anchor_header: String,
+    source_chunk_ids: String,
+    success_criteria: String,
+    common_failures: String,
+    step_count: U32,
+    has_code: U32,
+    created_at: I64
+) =>
+    skill <- AddN<Skill>({
+        skill_id: skill_id,
+        name: name,
+        goal: goal,
+        domain: domain,
+        difficulty: difficulty,
+        source_document_id: source_document_id,
+        anchor_header: anchor_header,
+        source_chunk_ids: source_chunk_ids,
+        success_criteria: success_criteria,
+        common_failures: common_failures,
+        step_count: step_count,
+        has_code: has_code,
+        created_at: created_at
+    })
+    RETURN skill
+
+// Add a skill step
+QUERY AddSkillStep(
+    step_id: String,
+    skill_id: String,
+    step_number: U32,
+    action: String,
+    code_content: String,
+    code_language: String,
+    expected_output: String,
+    is_optional: U32
+) =>
+    step <- AddN<SkillStep>({
+        step_id: step_id,
+        skill_id: skill_id,
+        step_number: step_number,
+        action: action,
+        code_content: code_content,
+        code_language: code_language,
+        expected_output: expected_output,
+        is_optional: is_optional
+    })
+    RETURN step
+
+// Add vector embedding for a skill
+QUERY AddSkillVector(embedding: [F64], model_name: String, embedding_dim: U32) =>
+    vec <- AddV<SkillVector>(embedding, {
+        model_name: model_name,
+        embedding_dim: embedding_dim
+    })
+    RETURN vec
+
+// Link skill to step
+QUERY LinkHasStep(skill_id: ID, step_id: ID) =>
+    skill <- N<Skill>(skill_id)
+    step <- N<SkillStep>(step_id)
+    AddE<HasStep>::From(skill)::To(step)
+    RETURN skill
+
+// Link skill to prerequisite concept
+QUERY LinkRequiresConcept(skill_id: ID, concept_id: ID) =>
+    skill <- N<Skill>(skill_id)
+    concept <- N<Concept>(concept_id)
+    AddE<RequiresConcept>::From(skill)::To(concept)
+    RETURN skill
+
+// Link skill to produced concept
+QUERY LinkProducesConcept(skill_id: ID, concept_id: ID) =>
+    skill <- N<Skill>(skill_id)
+    concept <- N<Concept>(concept_id)
+    AddE<ProducesConcept>::From(skill)::To(concept)
+    RETURN skill
+
+// Link skill to prerequisite skill
+QUERY LinkRequiresSkill(skill_id: ID, prereq_id: ID) =>
+    skill <- N<Skill>(skill_id)
+    prereq <- N<Skill>(prereq_id)
+    AddE<RequiresSkill>::From(skill)::To(prereq)
+    RETURN skill
+
+// Link skill to its source document
+QUERY LinkSkillDefinedIn(skill_id: ID, doc_id: ID) =>
+    skill <- N<Skill>(skill_id)
+    doc <- N<Document>(doc_id)
+    AddE<SkillDefinedIn>::From(skill)::To(doc)
+    RETURN skill
+
+// Link skill to its embedding
+QUERY LinkSkillVector(skill_id: ID, vector_id: ID) =>
+    skill <- N<Skill>(skill_id)
+    vec <- V<SkillVector>(vector_id)
+    AddE<SkillHasEmbedding>::From(skill)::To(vec)
+    RETURN skill
+
+// Get a skill by its slug
+QUERY GetSkillById(skill_id: String) =>
+    skills <- N<Skill>::WHERE(_::{skill_id}::EQ(skill_id))
+    RETURN skills
+
+// Get a skill by its display name
+QUERY GetSkillByName(name: String) =>
+    skills <- N<Skill>::WHERE(_::{name}::EQ(name))
+    RETURN skills
+
+// Get all steps for a skill (client sorts by step_number)
+QUERY GetSkillSteps(skill_id: String) =>
+    steps <- N<SkillStep>::WHERE(_::{skill_id}::EQ(skill_id))
+    RETURN steps
+
+// Get prerequisite concepts for a skill
+QUERY GetSkillPrerequisiteConcepts(skill_id: ID) =>
+    concepts <- N<Skill>(skill_id)::Out<RequiresConcept>
+    RETURN concepts
+
+// Get produced concepts for a skill
+QUERY GetSkillProducedConcepts(skill_id: ID) =>
+    concepts <- N<Skill>(skill_id)::Out<ProducesConcept>
+    RETURN concepts
+
+// Get prerequisite skills for a skill
+QUERY GetSkillPrerequisiteSkills(skill_id: ID) =>
+    skills <- N<Skill>(skill_id)::Out<RequiresSkill>
+    RETURN skills
+
+// List all skills
+QUERY ListAllSkills() =>
+    skills <- N<Skill>
+    RETURN skills
+
+// List skills for a specific document
+QUERY ListDocumentSkills(source_document_id: String) =>
+    skills <- N<Skill>::WHERE(_::{source_document_id}::EQ(source_document_id))
+    RETURN skills
+
+// Get the skill linked to a vector (for search result processing)
+QUERY GetSkillForVector(vector_id: ID) =>
+    skill <- V<SkillVector>(vector_id)::In<SkillHasEmbedding>
+    RETURN skill
+
+// Vector similarity search on skills
+QUERY SearchSimilarSkills(query_vec: [F64], top_k: U32) =>
+    results <- SearchV<SkillVector>(query_vec, top_k)
+    RETURN results
